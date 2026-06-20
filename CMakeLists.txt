@@ -7,8 +7,13 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # The simulator + assembler. Pure C, no dependencies. Consumers link `pio_sim`
 # and get the public headers (pio_sim.h, pio_asm.h) transitively.
-add_library(pio_sim STATIC pio_sim.c pio_asm.c)
-target_include_directories(pio_sim PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+add_library(pio_sim STATIC lib/src/pio_sim.c lib/src/pio_asm.c)
+target_include_directories(pio_sim
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/config
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/src)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(pio_sim PRIVATE

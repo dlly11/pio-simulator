@@ -17,9 +17,23 @@ Pico SDK, no RTOS.
 
 Pure C (only `<stdint.h>`/`<stdbool.h>`/`<stdio.h>`/`<string.h>`), MIT-licensed.
 
+## Layout
+
+```
+lib/include/   public headers (pio_sim.h, pio_asm.h)
+lib/src/       implementation (and any private headers)
+lib/config/    reserved for library configuration headers
+third_party/   Unity test framework (git submodule)
+tests/         unit tests + unity_config.h
+```
+
 ## Build & test
 
+The unit tests use [Unity](https://github.com/ThrowTheSwitch/Unity), pulled in as a
+git submodule. Clone with `--recurse-submodules`, or initialise it after cloning:
+
 ```sh
+git submodule update --init
 cmake -B build -G Ninja
 cmake --build build
 ctest --test-dir build --output-on-failure
@@ -37,6 +51,7 @@ target_link_libraries(your_tests PRIVATE pio_sim)
 
 Consumers then `#include "pio_sim.h"` / `"pio_asm.h"`. Unit tests build only for a
 standalone (top-level) configure; set `-DPIO_SIM_BUILD_TESTS=OFF` to force them off.
+(Embedders that *do* build the tests must also init the `third_party/unity` submodule.)
 
 ## API sketch
 
