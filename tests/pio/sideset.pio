@@ -1,0 +1,7 @@
+; Required (non-optional) side-set with delays packed into the timing field.
+.program sscov
+.side_set 1
+    nop side 0 [2]
+    nop side 1 [1]
+    nop side 0
+    nop side 1 [3]

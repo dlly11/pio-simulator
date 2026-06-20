@@ -1,0 +1,12 @@
+; in/out source and destination fields.
+.program iocov
+    in  x, 5
+    in  pins, 1
+    out pins, 1
+    out pc, 32
+    out pindirs, 8
+    out exec, 16
+    out isr, 1
+    out x, 1
+    out y, 1
+    out null, 1

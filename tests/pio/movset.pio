@@ -1,0 +1,13 @@
+; mov source/dest fields incl. invert/reverse, and set destinations.
+.program mscov
+    mov x, !y
+    mov osr, ::isr
+    mov pins, x
+    mov y, x
+    mov pc, x
+    mov isr, x
+    mov x, null
+    mov x, status
+    set pindirs, 3
+    set x, 31
+    set y, 1

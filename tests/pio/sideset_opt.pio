@@ -1,0 +1,7 @@
+; Optional side-set with pindirs: the enable bit is set only where named.
+.program ssopt
+.side_set 2 opt pindirs
+    nop side 1 [2]
+    nop [1]
+    nop side 3
+    nop

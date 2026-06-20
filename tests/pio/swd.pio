@@ -1,0 +1,24 @@
+; Production SWD bit-bang programs (write + read), side-set clock.
+; Two programs in one file exercises multi-program selection by name.
+.program swd_write
+.side_set 1
+.wrap_target
+    pull block          side 0
+    mov  x, osr         side 0
+    pull block          side 0
+bitloop:
+    out  pins, 1        side 0
+    jmp  x-- bitloop    side 1
+.wrap
+
+.program swd_read
+.side_set 1
+.wrap_target
+    pull block          side 0
+    mov  x, osr         side 0
+    nop                 side 0
+bitloop:
+    in   pins, 1        side 1
+    jmp  x-- bitloop    side 0
+    push                side 0
+.wrap

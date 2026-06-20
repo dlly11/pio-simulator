@@ -41,6 +41,37 @@ jobs:
       - name: Test
         run: ctest --test-dir build-san --output-on-failure
 
+  # Encoding differential: cross-check pio_asm against the authoritative
+  # Raspberry Pi pioasm, built from the pinned Pico SDK. Gates that the
+  # in-tree assembler's instruction encodings stay bit-exact.
+  differential:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ bison flex
+      - name: Checkout pinned Pico SDK (for pioasm)
+        uses: actions/checkout@v4
+        with:
+          repository: raspberrypi/pico-sdk
+          ref: '2.1.0'
+          path: pico-sdk
+      - name: Build pioasm
+        # bison/flex regenerate the parser to match the source; -include cstdint
+        # keeps the SDK 2.1.0 sources compiling on newer GCC/libstdc++.
+        run: |
+          cmake -S pico-sdk/tools/pioasm -B build-pioasm -G Ninja \
+            -DCMAKE_CXX_FLAGS="-include cstdint"
+          cmake --build build-pioasm
+      - name: Configure (with pioasm)
+        run: cmake -B build -G Ninja -DPIOASM_EXECUTABLE="$PWD/build-pioasm/pioasm"
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
   format:
     runs-on: ubuntu-latest
     steps:
@@ -53,3 +84,4 @@ jobs:
           lib/src/pio_sim.c lib/include/pio_sim.h
           lib/src/pio_asm.c lib/include/pio_asm.h
           tests/test_pio_sim.c tests/test_pio_asm.c
+          tests/test_pio_asm_vs_pioasm.c
