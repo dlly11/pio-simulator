@@ -13,6 +13,8 @@ jobs:
         cc: [gcc, clang]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Install toolchain
         run: sudo apt-get update && sudo apt-get install -y cmake ninja-build clang
       - name: Configure
@@ -26,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Install toolchain
         run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
       - name: Configure (ASan + UBSan)
@@ -46,5 +50,6 @@ jobs:
       - name: Check formatting
         run: >
           clang-format --dry-run --Werror
-          pio_sim.c pio_sim.h pio_asm.c pio_asm.h
+          lib/src/pio_sim.c lib/include/pio_sim.h
+          lib/src/pio_asm.c lib/include/pio_asm.h
           tests/test_pio_sim.c tests/test_pio_asm.c
