@@ -1,0 +1,12 @@
+; .define substitution: a top-level define and a program-local one, used as
+; operand values, counts, a side value, and a delay. pioasm and pio_asm must
+; resolve them to identical encodings.
+.define COUNT 5
+.define DELAY 0x02
+.program defcov
+.side_set 1
+.define SIDEHI 1
+    set x, COUNT       side 0
+    out pins, COUNT    side 0 [DELAY]
+    in  pins, COUNT    side SIDEHI
+    nop                side 0

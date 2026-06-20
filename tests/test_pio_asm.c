@@ -385,6 +385,31 @@ static void test_hex_comments_and_case(void)
     TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_jmp(PIO_COND_ALWAYS, 2), p.insns[1]);
 }
 
+/* .define symbols substitute for integer operands (value, count, side, delay). */
+static void test_assemble_define(void)
+{
+    const char *src = ".define COUNT 5\n"
+                      ".define DLY 0x02\n"
+                      ".program d\n"
+                      ".side_set 1\n"
+                      "    set x, COUNT     side 0\n"
+                      "    out pins, COUNT  side 1 [DLY]\n";
+    pio_program_t p;
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_UINT8(2U, p.count);
+    /* set x, 5 (side 0); out pins, 5 (side 1, delay 2). */
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(1, 5), p.insns[0]);
+    uint16_t out5 = pio_sim_encode_out(0, 5);
+    TEST_ASSERT_EQUAL_HEX16((uint16_t)(out5 | (0x12U << 8)), p.insns[1]);
+}
+
+/* An undefined symbol in an operand is still an error (not silently zero). */
+static void test_undefined_symbol_errors(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    set x, NOPE\n", NULL, &p));
+}
+
 /* irq in absolute (non-rel) set/wait/clear forms. */
 static void test_irq_absolute(void)
 {
@@ -524,6 +549,8 @@ int main(void)
     RUN_TEST(test_optional_sideset);
     RUN_TEST(test_public_labels_and_verbatim);
     RUN_TEST(test_hex_comments_and_case);
+    RUN_TEST(test_assemble_define);
+    RUN_TEST(test_undefined_symbol_errors);
     RUN_TEST(test_irq_absolute);
     RUN_TEST(test_more_dest_src_fields);
     RUN_TEST(test_arity_errors);

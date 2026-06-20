@@ -9,6 +9,7 @@
 #include <string.h>
 
 #define MAX_LABELS 32U
+#define MAX_DEFINES 32U
 #define MAX_LINE 256U
 #define MAX_TOKENS 12U
 
@@ -19,9 +20,16 @@ typedef struct {
 } label_t;
 
 typedef struct {
+    char name[32];
+    uint32_t value;
+} define_t;
+
+typedef struct {
     pio_program_t *out;
     label_t labels[MAX_LABELS];
     uint8_t label_count;
+    define_t defines[MAX_DEFINES];
+    uint8_t define_count;
     int line_no;
 } asm_ctx_t;
 
@@ -125,6 +133,42 @@ static int find_label(const asm_ctx_t *ctx, const char *name)
         }
     }
     return -1;
+}
+
+static bool find_define(const asm_ctx_t *ctx, const char *name, uint32_t *out)
+{
+    for (uint8_t i = 0; i < ctx->define_count; i++) {
+        if (strcmp(ctx->defines[i].name, name) == 0) {
+            *out = ctx->defines[i].value;
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Resolve an integer operand: a numeric literal, else a `.define`d symbol. */
+static bool resolve_uint(const asm_ctx_t *ctx, const char *s, uint32_t *out)
+{
+    return parse_uint(s, out) || find_define(ctx, s, out);
+}
+
+/* Record a `.define`d symbol; a later definition of the same name overrides. */
+static bool add_define(asm_ctx_t *ctx, const char *name, uint32_t value)
+{
+    for (uint8_t i = 0; i < ctx->define_count; i++) {
+        if (strcmp(ctx->defines[i].name, name) == 0) {
+            ctx->defines[i].value = value;
+            return true;
+        }
+    }
+    if (ctx->define_count >= MAX_DEFINES) {
+        return false;
+    }
+    define_t *d = &ctx->defines[ctx->define_count];
+    (void)snprintf(d->name, sizeof(d->name), "%s", name);
+    d->value = value;
+    ctx->define_count++;
+    return true;
 }
 
 /* ── Operand encoders ──────────────────────────────────────────────────────── */
@@ -266,7 +310,7 @@ static bool extract_side_delay(asm_ctx_t *ctx, char *tok[], uint8_t *n, uint32_t
         if ((len >= 2U) && ((last[0] == '[') && (last[len - 1U] == ']'))) {
             last[len - 1U] = '\0';
             uint32_t d;
-            if (!parse_uint(&last[1], &d)) {
+            if (!resolve_uint(ctx, &last[1], &d)) {
                 pa_set_error(ctx, "bad delay value");
                 return false;
             }
@@ -278,7 +322,7 @@ static bool extract_side_delay(asm_ctx_t *ctx, char *tok[], uint8_t *n, uint32_t
         /* side form "side <n>" as two tokens */
         if ((*n >= 2U) && ieq(tok[*n - 2U], "side")) {
             uint32_t sv;
-            if (!parse_uint(tok[*n - 1U], &sv)) {
+            if (!resolve_uint(ctx, tok[*n - 1U], &sv)) {
                 pa_set_error(ctx, "bad side-set value");
                 return false;
             }
@@ -381,7 +425,7 @@ static bool enc_jmp(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
     int lbl = find_label(ctx, target);
     if (lbl >= 0) {
         addr = (uint32_t)lbl;
-    } else if (!parse_uint(target, &addr)) {
+    } else if (!resolve_uint(ctx, target, &addr)) {
         pa_set_error(ctx, "unknown jmp target/label");
         return false;
     } else {
@@ -398,7 +442,7 @@ static bool enc_wait(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
         return false;
     }
     uint32_t pol;
-    if (!parse_uint(tok[1], &pol)) {
+    if (!resolve_uint(ctx, tok[1], &pol)) {
         pa_set_error(ctx, "bad wait polarity");
         return false;
     }
@@ -414,7 +458,7 @@ static bool enc_wait(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
         return false;
     }
     uint32_t idx;
-    if (!parse_uint(tok[3], &idx)) {
+    if (!resolve_uint(ctx, tok[3], &idx)) {
         pa_set_error(ctx, "bad wait index");
         return false;
     }
@@ -436,7 +480,7 @@ static bool enc_in(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
     }
     int src = src_field(tok[1]);
     uint32_t cnt;
-    if ((src < 0) || !parse_uint(tok[2], &cnt)) {
+    if ((src < 0) || !resolve_uint(ctx, tok[2], &cnt)) {
         pa_set_error(ctx, "bad in operands");
         return false;
     }
@@ -452,7 +496,7 @@ static bool enc_out(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
     }
     int dest = out_dest_field(tok[1]);
     uint32_t cnt;
-    if ((dest < 0) || !parse_uint(tok[2], &cnt)) {
+    if ((dest < 0) || !resolve_uint(ctx, tok[2], &cnt)) {
         pa_set_error(ctx, "bad out operands");
         return false;
     }
@@ -571,7 +615,7 @@ static bool enc_irq(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
             clear = true;
         } else if (ieq(tok[i], "rel")) {
             rel = true;
-        } else if (parse_uint(tok[i], &idx)) {
+        } else if (resolve_uint(ctx, tok[i], &idx)) {
             have_idx = true;
         } else {
             pa_set_error(ctx, "bad irq operand");
@@ -595,7 +639,7 @@ static bool enc_set(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
     }
     int dest = set_dest_field(tok[1]);
     uint32_t val;
-    if ((dest < 0) || !parse_uint(tok[2], &val)) {
+    if ((dest < 0) || !resolve_uint(ctx, tok[2], &val)) {
         pa_set_error(ctx, "bad set operands");
         return false;
     }
@@ -757,13 +801,30 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
         ps->idx = 0;
         return LINE_OK;
     }
+    /* `.define [PUBLIC] <NAME> <value>` — collected globally (a top-level define
+     * precedes any .program, so this must run before the in_program gate). */
+    if (ieq(tok[0], ".define")) {
+        if (ps->pass == 1) {
+            uint8_t ni = ((nt >= 2U) && ieq(tok[1], "public")) ? 2U : 1U;
+            uint32_t val = 0;
+            if ((nt < (uint8_t)(ni + 2U)) || !resolve_uint(ps->ctx, tok[ni + 1U], &val)) {
+                pa_set_error(ps->ctx, "bad .define");
+                return LINE_ERROR;
+            }
+            if (!add_define(ps->ctx, tok[ni], val)) {
+                pa_set_error(ps->ctx, "too many .define symbols");
+                return LINE_ERROR;
+            }
+        }
+        return LINE_OK;
+    }
     if (!ps->in_program) {
         return LINE_OK;
     }
     if (ieq(tok[0], ".side_set")) {
         if (ps->pass == 1) {
             uint32_t bits = 0;
-            if ((nt < 2U) || !parse_uint(tok[1], &bits)) {
+            if ((nt < 2U) || !resolve_uint(ps->ctx, tok[1], &bits)) {
                 pa_set_error(ps->ctx, "bad .side_set");
                 return LINE_ERROR;
             }
