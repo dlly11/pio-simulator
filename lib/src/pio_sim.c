@@ -383,6 +383,18 @@ bool pio_sim_rx_pop(pio_sim_t *pio, uint8_t sm, uint32_t *word)
     return true;
 }
 
+#if PIO_SIM_HAS_RXFIFO_MOV
+uint32_t pio_sim_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index)
+{
+    return pio->sm[sm].rx.buf[index & 0x3U];
+}
+
+void pio_sim_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word)
+{
+    pio->sm[sm].rx.buf[index & 0x3U] = word;
+}
+#endif
+
 uint8_t pio_sim_tx_level(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].tx.count; }
 uint8_t pio_sim_rx_level(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].rx.count; }
 

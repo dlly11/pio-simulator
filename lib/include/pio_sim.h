@@ -354,6 +354,17 @@ bool pio_sim_tx_push(pio_sim_t *pio, uint8_t sm, uint32_t word);
 /** Pop a word from the RX FIFO. Returns false if empty. */
 bool pio_sim_rx_pop(pio_sim_t *pio, uint8_t sm, uint32_t *word);
 
+#if PIO_SIM_HAS_RXFIFO_MOV
+/* RP2350 direct-mapped RX register file (FJOIN_RX_PUT / RX_GET): the four RX
+ * entries are addressed by index (0..3), not popped as a FIFO. In PUT mode the SM
+ * writes via `mov rxfifo[], isr` and the host reads with pio_sim_rxfifo_get; in
+ * GET mode the host writes with pio_sim_rxfifo_put and the SM reads via
+ * `mov osr, rxfifo[]`. These — not pio_sim_rx_pop/tx_push — are the host access
+ * path for those modes. */
+uint32_t pio_sim_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index);
+void pio_sim_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word);
+#endif
+
 /* Current FIFO occupancy (FSTAT levels), 0..cap. */
 uint8_t pio_sim_tx_level(const pio_sim_t *pio, uint8_t sm);
 uint8_t pio_sim_rx_level(const pio_sim_t *pio, uint8_t sm);

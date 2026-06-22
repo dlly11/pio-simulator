@@ -676,6 +676,29 @@ static void test_mov_rxfifo_y_indexed(void)
     pio_sim_run(&pio, 2); /* set y,3 ; rxfifo[y=3] <- ISR */
     TEST_ASSERT_EQUAL_HEX32(0x12345678U, pio.sm[0].rx.buf[3]);
 }
+
+/* The host reaches the RX register file by index in PUT/GET mode: it reads what
+ * the SM PUT, and the SM reads back what the host PUT (GET). */
+static void test_rxfifo_host_index_access(void)
+{
+    pio_sim_sm_set_fifo_join(&pio, 0, PIO_FIFO_JOIN_RX_PUT);
+    /* PUT: SM writes rxfifo[2], host reads it by index. */
+    const uint16_t put[] = {pio_sim_encode_mov_to_rxfifo(2)};
+    load_prog(put, 1);
+    pio.sm[0].isr = 0xCAFEF00DU;
+    pio.sm[0].isr_count = 32;
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_HEX32(0xCAFEF00DU, pio_sim_rxfifo_get(&pio, 0, 2));
+
+    /* GET: host writes rxfifo[1], SM reads it into OSR. */
+    pio_sim_init(&pio); /* fresh SM */
+    pio_sim_sm_set_fifo_join(&pio, 0, PIO_FIFO_JOIN_RX_GET);
+    pio_sim_rxfifo_put(&pio, 0, 1, 0x0BADC0DEU);
+    const uint16_t get[] = {pio_sim_encode_mov_from_rxfifo(1)};
+    load_prog(get, 1);
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_HEX32(0x0BADC0DEU, pio.sm[0].osr);
+}
 #endif /* PIO_SIM_HAS_RXFIFO_MOV */
 
 static void test_irq_next_prev_have_no_local_effect(void)
@@ -1306,6 +1329,7 @@ int main(void)
 #if PIO_SIM_HAS_RXFIFO_MOV
     RUN_TEST(test_mov_rxfifo_roundtrip);
     RUN_TEST(test_mov_rxfifo_y_indexed);
+    RUN_TEST(test_rxfifo_host_index_access);
 #endif
     RUN_TEST(test_irq_next_prev_have_no_local_effect);
 #if PIO_SIM_HAS_WAIT_JMPPIN

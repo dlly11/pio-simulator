@@ -83,7 +83,9 @@ against the same feature surface the library was built with.
   blocks directly with `pio_sim_set_irq_neighbors` for the IRQ ring alone.)
 - **FIFO status** — `pio_sim_tx_level`/`rx_level` report occupancy (FSTAT) and
   `pio_sim_get_fdebug`/`clear_fdebug` expose the sticky TXSTALL/TXOVER/RXUNDER/
-  RXSTALL debug flags.
+  RXSTALL debug flags. In the RP2350 random-access RX modes (`.fifo txput`/`txget`)
+  the four entries are reached by index with `pio_sim_rxfifo_get`/`_put`, not the
+  FIFO pop/push.
 - **System interrupts** — the two PIO interrupt lines are modelled:
   `pio_sim_set_irq_enable`/`set_irq_force` (INTE/INTF) over the INTR sources
   (per-SM RX-not-empty, TX-not-full, and the low four SM IRQ flags), read back
