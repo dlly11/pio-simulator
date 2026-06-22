@@ -38,7 +38,8 @@ static void test_set_x_and_y(void)
 static void test_set_pins_drives_pads(void)
 {
     /* SET pins maps to set_base..+count. */
-    pio_sim_sm_set_set_pins(&pio, 0, 4, 3); /* pins 4,5,6 */
+    pio_sim_sm_set_set_pins(&pio, 0, 4, 3);      /* pins 4,5,6 */
+    pio_sim_sm_set_pindirs(&pio, 0, 4, 3, true); /* drive them as outputs */
     const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_PINS, 0x5)};
     load_prog(prog, 1);
     pio_sim_run(&pio, 1);
@@ -62,6 +63,7 @@ static void test_set_pindirs(void)
 static void test_out_pins_shift_right(void)
 {
     pio_sim_sm_set_out_pins(&pio, 0, 0, 4);
+    pio_sim_sm_set_pindirs(&pio, 0, 0, 4, true);
     pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, false, 32);
     const uint16_t prog[] = {
         pio_sim_encode_pull(false, true),
@@ -120,42 +122,44 @@ static void test_out_autopull_eager_refill(void)
     TEST_ASSERT_EQUAL_HEX32(0xBBBBBBBBU, pio.sm[0].x);
 }
 
-/* OUT_STICKY: the SM re-asserts its last OUT pin value every cycle, so an external
- * write to the pin is overridden back on the next cycle. */
-static void test_out_sticky_reasserts_pins(void)
+/* Under OUT_STICKY, an OUT whose inline-enable bit is 0 *releases* the pins (clears
+ * the SM's output enable) so they fall back to the pull / float — distinct from the
+ * non-sticky case, which merely holds the previous value. */
+static void test_out_sticky_releases_on_inline_disable(void)
 {
     pio_sim_sm_set_out_pins(&pio, 0, 0, 1);
-    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, false, 32);
-    pio_sim_sm_set_out_special(&pio, 0, true, false, 0); /* sticky on */
-    const uint16_t prog[] = {
-        pio_sim_encode_pull(false, true),
-        pio_sim_encode_out(PIO_DST_PINS, 1),
-        pio_sim_encode_nop(),
-    };
-    load_prog(prog, 3);
-    pio_sim_tx_push(&pio, 0, 0x1U);
-    pio_sim_run(&pio, 2); /* pull; out pins,1 -> pin0 = 1 */
-    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 0));
-    pio_sim_set_pin(&pio, 0, false); /* external pulls it low */
-    pio_sim_run(&pio, 1);            /* nop cycle: sticky re-asserts pin0 = 1 */
-    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 0));
+    pio_sim_sm_set_pindirs(&pio, 0, 0, 1, true);
+    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, true, 2); /* autopull 2 bits */
+    pio_sim_sm_set_out_special(&pio, 0, true, true, 1);          /* sticky + inline en = bit 1 */
+    pio_sim_set_pull_level(&pio, (uint64_t)1U << 0, false);      /* pull-down on pin 0 */
+    const uint16_t prog[] = {pio_sim_encode_out(PIO_DST_PINS, 2)};
+    load_prog(prog, 1);
+    pio_sim_tx_push(&pio, 0, 0x3U); /* 0b11: pin bit0=1, enable bit1=1 -> drive high */
+    pio_sim_tx_push(&pio, 0, 0x1U); /* 0b01: pin bit0=1, enable bit1=0 -> release     */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_TRUE(pio_sim_pin_is_pio_output(&pio, 0));
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 0)); /* driven high */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_FALSE(pio_sim_pin_is_pio_output(&pio, 0)); /* released, no longer an output */
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 0));           /* now reads the pull-down */
 }
 
 /* Inline OUT enable: bit out_en_sel of the OUT data gates the pin write. */
 static void test_out_inline_enable_gates_write(void)
 {
     pio_sim_sm_set_out_pins(&pio, 0, 0, 1);
+    pio_sim_sm_set_pindirs(&pio, 0, 0, 1, true);
     pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, true, 2); /* autopull every 2 bits */
-    pio_sim_sm_set_out_special(&pio, 0, false, true, 1);         /* enable = data bit 1 */
+    pio_sim_sm_set_out_special(&pio, 0, false, true, 1); /* enable = data bit 1, no sticky */
     const uint16_t prog[] = {pio_sim_encode_out(PIO_DST_PINS, 2)};
     load_prog(prog, 1);
-    pio_sim_set_pin(&pio, 0, false);
-    pio_sim_tx_push(&pio, 0, 0x1U); /* 0b01: pin bit0=1, enable bit1=0 -> suppressed */
-    pio_sim_tx_push(&pio, 0, 0x3U); /* 0b11: pin bit0=1, enable bit1=1 -> driven   */
+    pio_sim_tx_push(&pio, 0, 0x1U); /* 0b01: enable bit1=0 -> suppressed, pin holds 0 */
+    pio_sim_tx_push(&pio, 0, 0x3U); /* 0b11: enable bit1=1 -> driven high            */
     pio_sim_run(&pio, 1);
-    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 0)); /* write suppressed */
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 0));          /* suppressed; held low… */
+    TEST_ASSERT_TRUE(pio_sim_pin_is_pio_output(&pio, 0)); /* …but still a PIO output */
     pio_sim_run(&pio, 1);
-    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 0)); /* write driven */
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 0)); /* driven high */
 }
 
 /* When two SMs drive one pin on the same cycle the higher-numbered SM wins; with
@@ -172,6 +176,7 @@ static void test_multi_sm_pin_priority_and_override(void)
     for (uint8_t s = 0; s < 2; s++) {
         pio_sim_sm_set_wrap(&pio, s, 0, 2);
         pio_sim_sm_set_out_pins(&pio, s, 4, 1);
+        pio_sim_sm_set_pindirs(&pio, s, 4, 1, true);
         pio_sim_sm_set_out_shift(&pio, s, PIO_SHIFT_RIGHT, false, 32);
         pio_sim_sm_set_pc(&pio, s, 0);
     }
@@ -181,21 +186,73 @@ static void test_multi_sm_pin_priority_and_override(void)
     pio_sim_run(&pio, 4);
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 4)); /* SM1 (higher) wins -> low */
 
-    /* Override: SM1 yields via inline enable (bit 1 of a 1-bit OUT is always 0). */
+    /* Override: SM1 (sticky) yields via inline enable=0, releasing pin 4, so SM0's
+     * high shows (enable = bit 1 of a 1-bit OUT, which is always 0). */
     pio_sim_init(&pio);
     pio_sim_load(&pio, 0, prog, 3);
     for (uint8_t s = 0; s < 2; s++) {
         pio_sim_sm_set_wrap(&pio, s, 0, 2);
         pio_sim_sm_set_out_pins(&pio, s, 4, 1);
+        pio_sim_sm_set_pindirs(&pio, s, 4, 1, true);
         pio_sim_sm_set_out_shift(&pio, s, PIO_SHIFT_RIGHT, false, 32);
         pio_sim_sm_set_pc(&pio, s, 0);
     }
-    pio_sim_sm_set_out_special(&pio, 1, false, true, 1); /* SM1 suppresses its OUT */
+    pio_sim_sm_set_out_special(&pio, 1, true, true, 1); /* sticky + inline: SM1 releases pin 4 */
     pio_sim_tx_push(&pio, 0, 0xFFFFFFFFU);
     pio_sim_tx_push(&pio, 1, 0xFFFFFFFFU);
     pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
     pio_sim_run(&pio, 4);
-    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 4)); /* SM1 yields -> SM0 high shows */
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 4)); /* SM1 released -> SM0 high shows */
+}
+
+/* Higher-priority SM wins even across cycles: SM1 drives pin 5 low and holds it,
+ * SM0 drives it high a cycle later — SM1 still wins (a temporal last-writer model
+ * would show high). */
+static void test_multi_sm_priority_across_cycles(void)
+{
+    const uint16_t sm1prog[] = {pio_sim_encode_set(PIO_DST_PINS, 0),
+                                pio_sim_encode_jmp(PIO_COND_ALWAYS, 1)};
+    const uint16_t sm0prog[] = {pio_sim_encode_nop(), pio_sim_encode_set(PIO_DST_PINS, 1),
+                                pio_sim_encode_jmp(PIO_COND_ALWAYS, 12)};
+    pio_sim_load(&pio, 0, sm1prog, 2);  /* SM1 at 0..1 */
+    pio_sim_load(&pio, 10, sm0prog, 3); /* SM0 at 10..12 */
+    for (uint8_t s = 0; s < 2; s++) {
+        pio_sim_sm_set_set_pins(&pio, s, 5, 1);
+        pio_sim_sm_set_pindirs(&pio, s, 5, 1, true);
+    }
+    pio_sim_sm_set_wrap(&pio, 1, 1, 1);
+    pio_sim_sm_set_pc(&pio, 1, 0);
+    pio_sim_sm_set_wrap(&pio, 0, 12, 12);
+    pio_sim_sm_set_pc(&pio, 0, 10);
+    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
+    pio_sim_run(&pio, 3);                        /* SM1 drove low (cyc1); SM0 drove high (cyc2) */
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* SM1 priority holds it low */
+}
+
+/* True high-impedance: a PIO output released to input (no pull) floats and reads 0,
+ * not the value it last drove. */
+static void test_pin_floats_when_released(void)
+{
+    pio_sim_sm_set_set_pins(&pio, 0, 7, 1);
+    pio_sim_sm_set_pindirs(&pio, 0, 7, 1, true);
+    const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_PINS, 1)};
+    load_prog(prog, 1);
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 7));   /* driven high */
+    pio_sim_sm_set_pindirs(&pio, 0, 7, 1, false); /* release to input, no pull */
+    TEST_ASSERT_FALSE(pio_sim_pin_is_pio_output(&pio, 7));
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 7)); /* floats -> 0 (not the held 1) */
+}
+
+/* Host set_pin / release_pin: external drive, then float, then pull. */
+static void test_host_release_pin(void)
+{
+    pio_sim_set_pin(&pio, 9, true);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 9));
+    pio_sim_release_pin(&pio, 9);
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 9)); /* floats -> 0 */
+    pio_sim_set_pull_level(&pio, (uint64_t)1U << 9, true);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 9)); /* now reads the pull-up */
 }
 
 static void test_out_exec_injects_instruction(void)
@@ -410,6 +467,7 @@ static void test_sideset_drives_pin(void)
     /* 1 side-set bit, no opt, base pin 2. SET x,0 side 1 then SET x,0 side 0. */
     pio_sim_sm_set_sideset(&pio, 0, 1, false, false);
     pio_sim_sm_set_sideset_base(&pio, 0, 2);
+    pio_sim_sm_set_pindirs(&pio, 0, 2, 1, true); /* drive the side-set pin */
     uint16_t s1 = (uint16_t)(pio_sim_encode_set(PIO_DST_X, 0) | (1U << 12U)); /* side 1 */
     uint16_t s0 = pio_sim_encode_set(PIO_DST_X, 0);                           /* side 0 */
     const uint16_t prog[] = {s1, s0};
@@ -635,6 +693,7 @@ static void test_sideset_applies_while_stalled(void)
 {
     pio_sim_sm_set_sideset(&pio, 0, 1, false, false); /* 1 data bit, no opt */
     pio_sim_sm_set_sideset_base(&pio, 0, 2);
+    pio_sim_sm_set_pindirs(&pio, 0, 2, 1, true);
     uint16_t pull_side1 = (uint16_t)(pio_sim_encode_pull(false, true) | (1U << 12U));
     const uint16_t prog[] = {pull_side1};
     load_prog(prog, 1);
@@ -949,6 +1008,7 @@ static void test_gpio_base_offsets_output(void)
     /* With GPIOBASE=16, SET pins on view pin 2 drives physical GPIO 18. */
     pio_sim_set_gpio_base(&pio, 16);
     pio_sim_sm_set_set_pins(&pio, 0, 2, 1);
+    pio_sim_sm_set_pindirs(&pio, 0, 2, 1, true); /* view pin 2 → drives GPIO 18 */
     const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_PINS, 1)};
     load_prog(prog, 1);
     pio_sim_run(&pio, 1);
@@ -1071,6 +1131,7 @@ static void test_group_shared_pads(void)
     pio_sim_group_init_shared(&g, blocks, 2);
 
     pio_sim_sm_set_set_pins(&a, 0, 0, 1);
+    pio_sim_sm_set_pindirs(&a, 0, 0, 1, true); /* A drives GPIO 0 as output */
     const uint16_t aprog[] = {pio_sim_encode_set(PIO_DST_PINS, 1),
                               pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
     pio_sim_load(&a, 0, aprog, 2);
@@ -1448,9 +1509,12 @@ int main(void)
     RUN_TEST(test_out_shift_left_takes_top_bits);
     RUN_TEST(test_out_autopull_refills);
     RUN_TEST(test_out_autopull_eager_refill);
-    RUN_TEST(test_out_sticky_reasserts_pins);
+    RUN_TEST(test_out_sticky_releases_on_inline_disable);
     RUN_TEST(test_out_inline_enable_gates_write);
     RUN_TEST(test_multi_sm_pin_priority_and_override);
+    RUN_TEST(test_multi_sm_priority_across_cycles);
+    RUN_TEST(test_pin_floats_when_released);
+    RUN_TEST(test_host_release_pin);
     RUN_TEST(test_out_exec_injects_instruction);
 
     RUN_TEST(test_in_pins_shift_left);

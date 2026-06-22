@@ -70,17 +70,24 @@ against the same feature surface the library was built with.
   32-pin window to GPIO 16-47 (default 0 → GPIO 0-31), as on RP2350B. Every
   SM-side pin access (IN/OUT/SET/side-set/MOV pins, `WAIT GPIO/PIN`, `JMP PIN`)
   is offset; host access (`pio_sim_get_pin`/`set_pin`) stays absolute.
+- **Pin drive & arbitration** — each state machine has its own pin output and
+  pin-direction (output-enable) registers; the pad's level is *resolved* from them
+  by priority. A state machine drives a pad only where its **pindirs** mark the pin
+  an output (as on hardware — `SET/OUT PINS` to a pin left as input has no pad
+  effect), and when several SMs drive one pin the **highest-numbered** wins — even
+  across different cycles, not just simultaneous writes. A pin with no PIO output,
+  no external driver, and no pull is **high-impedance** and reads 0 (true tri-state,
+  not its last driven value).
 - **Output controls** — `pio_sim_sm_set_out_special` mirrors the SDK's
-  `sm_config_set_out_special`: `OUT_STICKY` re-asserts the most recent OUT/SET pin
-  values every cycle, and inline OUT-enable uses a chosen OUT-data bit to gate (and,
-  under sticky, release) the pin write. When several state machines drive one pin
-  on the same cycle, the highest-numbered SM wins (held-value contention across
-  *different* cycles is resolved to that simultaneous-write priority, not full
-  per-cycle re-arbitration).
-- **Pads, pulls & input sync** — `pio_sim_set_pull_level` gives a pin a
-  pull-up/down so it reads a defined level while released (open-drain buses like
-  I²C); `pio_sim_set_input_sync_bypass` skips the two-cycle input synchroniser
-  per pin.
+  `sm_config_set_out_special`: `OUT_STICKY` plus inline OUT-enable use a chosen
+  OUT-data bit to gate the pin write — and under sticky, an enable of 0 *releases*
+  the pins (clears the SM's output enable) so a lower-priority SM, an external
+  level, or a pull shows through (the documented override pattern).
+- **Pads, pulls & external drive** — `pio_sim_set_pull_level` gives a pin a
+  pull-up/down (open-drain buses like I²C); `pio_sim_set_pin` externally drives a
+  pin and `pio_sim_release_pin` stops (so it floats/pulls); `pio_sim_set_input_sync_bypass`
+  skips the two-cycle input synchroniser per pin. Priority is PIO > external > pull
+  > float.
 - **Multiple PIO blocks** — a device has more than one PIO (`PIO_SIM_NUM_PIO`:
   2 on RP2040, 3 on RP2350). `pio_sim_group_init` ties several `pio_sim_t`
   blocks to one clock; `pio_sim_group_tick`/`_run` advance them in lockstep, and

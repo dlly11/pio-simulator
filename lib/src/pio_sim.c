@@ -69,13 +69,35 @@ static uint8_t phys_pin(const pio_sim_t *pio, uint8_t view)
 #endif
 }
 
-/* Resolved live pad level: pins with a pull configured read their pull level
- * while undriven (dir = 0); all other pins read their plain level. With no pulls
- * configured (the default) this is exactly pin_levels. */
+/* Resolved live pad level, by driver priority: a PIO output wins on the pins it
+ * drives; else an external (host/device) driver; else a pull; else the pin floats
+ * and reads 0 (true high-impedance). */
 static uint64_t pads_live(const pio_pads_t *p)
 {
-    uint64_t pulled = (p->pin_dirs & p->pin_levels) | (~p->pin_dirs & p->pull_level);
-    return (p->pin_levels & ~p->pull_enable) | (pulled & p->pull_enable);
+    uint64_t pio = p->pin_dirs;
+    uint64_t ext = p->ext_drive & ~pio;
+    uint64_t pull = p->pull_enable & ~pio & ~ext;
+    return (p->pin_levels & pio) | (p->ext_levels & ext) | (p->pull_level & pull);
+}
+
+/* Recompute the pad's PIO drive (pin_dirs / pin_levels) from the per-SM output
+ * registers of every block that owns the pad. Higher-numbered state machines (and
+ * later owner blocks) take precedence on a shared pin. Called after every PIO pin
+ * or pindir write, so the resolved state is always current. */
+static void resolve_pads(pio_pads_t *p)
+{
+    uint64_t oe = 0;
+    uint64_t val = 0;
+    for (uint8_t o = 0; o < p->owner_count; o++) {
+        const struct pio_sim *b = p->owners[o];
+        for (uint8_t s = 0; s < PIO_SIM_NUM_SM; s++) {
+            uint64_t soe = b->sm[s].out_pin_oe;
+            val = (val & ~soe) | (b->sm[s].out_pin_val & soe);
+            oe |= soe;
+        }
+    }
+    p->pin_dirs = oe;
+    p->pin_levels = val;
 }
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────────── */
@@ -102,7 +124,9 @@ static void sm_reset_exec(pio_sm_t *sm)
 void pio_sim_init(pio_sim_t *pio)
 {
     (void)memset(pio, 0, sizeof(*pio));
-    pio->pads = &pio->pads_embedded; /* own pads until joined to a shared group */
+    pio->pads = &pio->pads_embedded;    /* own pads until joined to a shared group */
+    pio->pads_embedded.owners[0] = pio; /* this block drives its own pads */
+    pio->pads_embedded.owner_count = 1;
     for (uint8_t i = 0; i < PIO_SIM_NUM_SM; i++) {
         pio_sm_t *sm = &pio->sm[i];
         sm->enabled = false;
@@ -315,15 +339,16 @@ void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join)
 
 void pio_sim_sm_set_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count, bool out)
 {
-    (void)sm;
+    pio_sm_t *s = &pio->sm[sm];
     for (uint8_t i = 0; i < count; i++) {
-        uint8_t pin = phys_pin(pio, (uint8_t)(base + i));
+        uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
         if (out) {
-            pio->pads->pin_dirs |= ((uint64_t)1U << pin);
+            s->out_pin_oe |= bit;
         } else {
-            pio->pads->pin_dirs &= ~((uint64_t)1U << pin);
+            s->out_pin_oe &= ~bit;
         }
     }
+    resolve_pads(pio->pads);
 }
 
 void pio_sim_set_device(pio_sim_t *pio, void (*on_tick)(pio_sim_t *, void *), void *ctx)
@@ -437,11 +462,17 @@ bool pio_sim_get_pin(const pio_sim_t *pio, uint8_t pin)
 void pio_sim_set_pin(pio_sim_t *pio, uint8_t pin, bool level)
 {
     uint64_t bit = (uint64_t)1U << ((uint32_t)pin % PIO_SIM_NUM_PINS);
+    pio->pads->ext_drive |= bit; /* host now drives this pin */
     if (level) {
-        pio->pads->pin_levels |= bit;
+        pio->pads->ext_levels |= bit;
     } else {
-        pio->pads->pin_levels &= ~bit;
+        pio->pads->ext_levels &= ~bit;
     }
+}
+
+void pio_sim_release_pin(pio_sim_t *pio, uint8_t pin)
+{
+    pio->pads->ext_drive &= ~((uint64_t)1U << ((uint32_t)pin % PIO_SIM_NUM_PINS));
 }
 
 bool pio_sim_pin_is_pio_output(const pio_sim_t *pio, uint8_t pin)
@@ -460,57 +491,46 @@ static bool pio_input_level(const pio_sim_t *pio, uint8_t pin)
     return (synced & bit) != 0U;
 }
 
-static void drive_pins(pio_sim_t *pio, uint8_t base, uint8_t count, uint32_t value)
-{
-    for (uint8_t i = 0; i < count; i++) {
-        uint8_t pin = phys_pin(pio, (uint8_t)(base + i));
-        pio_sim_set_pin(pio, pin, ((value >> i) & 1U) != 0U);
-    }
-}
-
-/* Record an OUT/SET PINS write into the SM's sticky shadow (the pins it drives
- * and their levels), used to re-assert them every cycle under OUT_STICKY. When
- * `driven` is false (inline OUT enable suppressed the write) the pins are dropped
- * from the shadow, so sticky stops holding them. Side-set is not tracked: it
- * already drives every presented cycle on its own. */
-static void track_out_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count,
-                           uint32_t value, bool driven)
+/* An OUT/SET/MOV PINS or side-set write updates this SM's pin output register, then
+ * re-resolves the pad. The pin only drives the pad where this SM's pindir (oe) is
+ * also set. */
+static void drive_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count, uint32_t value)
 {
     for (uint8_t i = 0; i < count; i++) {
         uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
-        if (!driven) {
-            sm->sticky_mask &= ~bit;
+        if (((value >> i) & 1U) != 0U) {
+            sm->out_pin_val |= bit;
         } else {
-            sm->sticky_mask |= bit;
-            if (((value >> i) & 1U) != 0U) {
-                sm->sticky_levels |= bit;
-            } else {
-                sm->sticky_levels &= ~bit;
-            }
+            sm->out_pin_val &= ~bit;
         }
     }
+    resolve_pads(pio->pads);
 }
 
-/* Re-assert this SM's held OUT/SET pin values onto the pads (OUT_STICKY). */
-static void apply_sticky(pio_sim_t *pio, const pio_sm_t *sm)
-{
-    if (sm->out_sticky && (sm->sticky_mask != 0U)) {
-        pio->pads->pin_levels =
-            (pio->pads->pin_levels & ~sm->sticky_mask) | (sm->sticky_levels & sm->sticky_mask);
-    }
-}
-
-static void drive_pindirs(pio_sim_t *pio, uint8_t base, uint8_t count, uint32_t value)
+/* An OUT/SET/MOV PINDIRS or side-set-pindirs write updates this SM's output-enable
+ * (pindir) register, then re-resolves the pad. */
+static void drive_pindirs(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count, uint32_t value)
 {
     for (uint8_t i = 0; i < count; i++) {
-        uint8_t pin = phys_pin(pio, (uint8_t)(base + i));
-        uint64_t bit = (uint64_t)1U << pin;
+        uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
         if (((value >> i) & 1U) != 0U) {
-            pio->pads->pin_dirs |= bit;
+            sm->out_pin_oe |= bit;
         } else {
-            pio->pads->pin_dirs &= ~bit;
+            sm->out_pin_oe &= ~bit;
         }
     }
+    resolve_pads(pio->pads);
+}
+
+/* Drop an OUT pin span from this SM's output enable (inline OUT enable = 0 under
+ * OUT_STICKY): the SM stops driving those pins, so a lower-priority SM / external
+ * level / pull shows through. */
+static void release_out_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count)
+{
+    for (uint8_t i = 0; i < count; i++) {
+        sm->out_pin_oe &= ~((uint64_t)1U << phys_pin(pio, (uint8_t)(base + i)));
+    }
+    resolve_pads(pio->pads);
 }
 
 static uint32_t read_in_pins(const pio_sim_t *pio, uint8_t base, uint8_t count)
@@ -891,12 +911,15 @@ static void out_store(pio_sim_t *pio, pio_sm_t *sm, uint8_t dest, uint32_t val, 
 {
     switch (dest) {
     case PIO_SRC_PINS: {
-        /* Inline OUT enable: bit out_en_sel of the OUT data gates the write. */
+        /* Inline OUT enable: bit out_en_sel of the OUT data gates the write. When
+         * it is 0, the OUT does not write the pins (they hold); under OUT_STICKY it
+         * also releases the OUT span (clears this SM's output enable). */
         bool driven = !sm->out_inline_en || (((val >> sm->out_en_sel) & 1U) != 0U);
         if (driven) {
-            drive_pins(pio, sm->out_base, sm->out_count, val);
+            drive_pins(pio, sm, sm->out_base, sm->out_count, val);
+        } else if (sm->out_sticky) {
+            release_out_pins(pio, sm, sm->out_base, sm->out_count);
         }
-        track_out_pins(pio, sm, sm->out_base, sm->out_count, val, driven);
         break;
     }
     case PIO_SRC_X:
@@ -906,7 +929,7 @@ static void out_store(pio_sim_t *pio, pio_sm_t *sm, uint8_t dest, uint32_t val, 
         sm->y = val;
         break;
     case PIO_DST_PINDIRS:
-        drive_pindirs(pio, sm->out_base, sm->out_count, val);
+        drive_pindirs(pio, sm, sm->out_base, sm->out_count, val);
         break;
     case PIO_DST_PC:
         *set_pc = true;
@@ -1043,8 +1066,7 @@ static void exec_mov(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand, uint8_t *nex
     }
     switch (dest) {
     case PIO_DST_PINS:
-        drive_pins(pio, sm->out_base, sm->out_count, v);
-        track_out_pins(pio, sm, sm->out_base, sm->out_count, v, true);
+        drive_pins(pio, sm, sm->out_base, sm->out_count, v);
         break;
     case PIO_DST_X:
         sm->x = v;
@@ -1054,7 +1076,7 @@ static void exec_mov(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand, uint8_t *nex
         break;
 #if PIO_SIM_HAS_MOV_PINDIRS
     case 3U: /* RP2350: MOV dest 3 == PINDIRS (drives the OUT pin dirs) */
-        drive_pindirs(pio, sm->out_base, sm->out_count, v);
+        drive_pindirs(pio, sm, sm->out_base, sm->out_count, v);
         break;
 #endif
     case PIO_DST_EXEC: /* MOV dest 4 == EXEC */
@@ -1116,8 +1138,7 @@ static void exec_set(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand)
     uint32_t value = ((uint32_t)operand & 0x1FU);
     switch (dest) {
     case PIO_DST_PINS:
-        drive_pins(pio, sm->set_base, sm->set_count, value);
-        track_out_pins(pio, sm, sm->set_base, sm->set_count, value, true);
+        drive_pins(pio, sm, sm->set_base, sm->set_count, value);
         break;
     case PIO_DST_X:
         sm->x = value;
@@ -1126,7 +1147,7 @@ static void exec_set(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand)
         sm->y = value;
         break;
     case PIO_DST_PINDIRS:
-        drive_pindirs(pio, sm->set_base, sm->set_count, value);
+        drive_pindirs(pio, sm, sm->set_base, sm->set_count, value);
         break;
     default:
         break;
@@ -1198,9 +1219,9 @@ static bool exec_one(pio_sim_t *pio, uint8_t sm_idx, uint16_t insn, uint8_t *nex
      * the instruction itself can make progress. */
     if (ds.side_en && (ds.ss_data_bits > 0U)) {
         if (sm->sideset_pindirs) {
-            drive_pindirs(pio, sm->sideset_base, ds.ss_data_bits, ds.side_val);
+            drive_pindirs(pio, sm, sm->sideset_base, ds.ss_data_bits, ds.side_val);
         } else {
-            drive_pins(pio, sm->sideset_base, ds.ss_data_bits, ds.side_val);
+            drive_pins(pio, sm, sm->sideset_base, ds.ss_data_bits, ds.side_val);
         }
     }
 
@@ -1217,10 +1238,6 @@ static bool exec_one(pio_sim_t *pio, uint8_t sm_idx, uint16_t insn, uint8_t *nex
 static void sm_cycle(pio_sim_t *pio, uint8_t sm_idx)
 {
     pio_sm_t *sm = &pio->sm[sm_idx];
-
-    /* OUT_STICKY re-asserts the held pin values every cycle, including delay and
-     * stall cycles. A later (higher-numbered) SM's write this tick still wins. */
-    apply_sticky(pio, sm);
 
     if (sm->delay > 0U) {
         sm->delay--;
@@ -1361,8 +1378,10 @@ void pio_sim_group_init_shared(pio_sim_group_t *g, pio_sim_t *const *blocks, uin
     (void)memset(&g->pads, 0, sizeof(g->pads));
     g->shared = true;
     for (uint8_t i = 0; i < g->count; i++) {
-        g->blk[i]->pads = &g->pads; /* all blocks now drive/sample the same wires */
+        g->blk[i]->pads = &g->pads;    /* all blocks now drive/sample the same wires */
+        g->pads.owners[i] = g->blk[i]; /* …and all contribute to its resolution */
     }
+    g->pads.owner_count = g->count;
 }
 
 void pio_sim_group_tick(pio_sim_group_t *g)

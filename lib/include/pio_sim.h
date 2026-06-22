@@ -101,16 +101,20 @@ typedef struct {
     bool sideset_opt;
     bool sideset_pindirs;
 
-    /* EXECCTRL output controls (sm_config_set_out_special). out_sticky re-asserts
-     * the SM's most recent OUT/SET pin values every cycle; out_inline_en uses bit
-     * out_en_sel of the OUT data as an output enable (0 ⇒ that OUT does not drive
-     * the pins, and under sticky stops holding them). sticky_levels/sticky_mask
-     * shadow the pins this SM drives, for the per-cycle re-assert. */
+    /* Per-SM output registers (the SM's continuously-driven pin output + pindir).
+     * out_pin_val holds the value of pins it has written via OUT/SET/MOV PINS or
+     * side-set; out_pin_oe marks the pins it drives as outputs (its pindir
+     * register). The pad resolves these across all driving SMs by priority. */
+    uint64_t out_pin_val;
+    uint64_t out_pin_oe;
+
+    /* EXECCTRL output controls (sm_config_set_out_special). out_inline_en uses bit
+     * out_en_sel of the OUT data as an output enable; when it is 0 the OUT does not
+     * write the pins, and under out_sticky it releases them (clears out_pin_oe for
+     * the OUT span) so a lower-priority SM / external level / pull shows through. */
     bool out_sticky;
     bool out_inline_en;
     uint8_t out_en_sel;
-    uint64_t sticky_levels;
-    uint64_t sticky_mask;
 
     /* MOV STATUS source. By default STATUS is derived from the live FIFO level
      * (or, on RP2350, an IRQ flag) per status_sel/status_n, returning all-ones
@@ -146,8 +150,11 @@ typedef struct {
  * its own pads; a multi-PIO group can point several blocks at one shared
  * pio_pads_t so they drive and sample the same wires. */
 typedef struct {
-    uint64_t pin_levels; /* current line level per GPIO  */
-    uint64_t pin_dirs;   /* 1 = driven as output by the PIO */
+    /* Resolved PIO drive: recomputed from the owning state machines' per-SM output
+     * registers on every pin/pindir write (see resolve_pads). pin_dirs marks pins
+     * the PIO drives as outputs; pin_levels is their value. */
+    uint64_t pin_levels; /* PIO-driven line level per GPIO   */
+    uint64_t pin_dirs;   /* 1 = driven as output by the PIO  */
 
     /* Input synchroniser (always on, to match silicon): GPIO inputs reach the
      * PIO logic through two flip-flops, so the level a state machine samples
@@ -156,14 +163,24 @@ typedef struct {
      * pio_sim_set_input_sync_bypass can disable the delay per pin. */
     uint64_t in_sync[2];
 
+    /* External drive: pins the host/device drives via pio_sim_set_pin (and clears
+     * with pio_sim_release_pin). Used for pins the PIO does not drive. */
+    uint64_t ext_drive;
+    uint64_t ext_levels;
+
     /* Pull model: pins selected in pull_enable read their pull_level bit when no
-     * block is driving them (dir = 0), modelling pull-ups/downs and open-drain
-     * buses. Pins outside pull_enable behave as a plain level (driven value). */
+     * block (and no external driver) is driving them, modelling pull-ups/downs and
+     * open-drain buses. A pin with no driver and no pull floats and reads 0. */
     uint64_t pull_enable;
     uint64_t pull_level;
 
     /* Per-pin INPUT_SYNC_BYPASS: bits set here skip the two-cycle synchroniser. */
     uint64_t sync_bypass;
+
+    /* PIO blocks whose state machines drive this pad set (this block alone, or all
+     * blocks of a shared group). Resolution scans their per-SM output registers. */
+    struct pio_sim *owners[PIO_SIM_NUM_PIO];
+    uint8_t owner_count;
 } pio_pads_t;
 
 /* ── PIO block ─────────────────────────────────────────────────────────────── */
@@ -414,8 +431,16 @@ void pio_sim_clear_fdebug(pio_sim_t *pio, uint8_t sm, uint8_t mask);
 
 /* ── Pin access (external device / test harness) ───────────────────────────── */
 
+/** Resolved line level of `pin`: the PIO-driven value where the PIO drives it,
+ * else the external (set_pin) level, else the pull level, else 0 (floating). */
 bool pio_sim_get_pin(const pio_sim_t *pio, uint8_t pin);
+/** Externally drive `pin` to `level` (host/device). The PIO wins on pins it also
+ * drives as outputs; otherwise this level is what the pin reads. */
 void pio_sim_set_pin(pio_sim_t *pio, uint8_t pin, bool level);
+/** Stop externally driving `pin` (undo set_pin): the pin then reads its pull level,
+ * or floats (reads 0) if no driver and no pull. */
+void pio_sim_release_pin(pio_sim_t *pio, uint8_t pin);
+/** True where the PIO is driving `pin` as an output (resolved across state machines). */
 bool pio_sim_pin_is_pio_output(const pio_sim_t *pio, uint8_t pin);
 
 /* ── IRQ access ────────────────────────────────────────────────────────────── */
