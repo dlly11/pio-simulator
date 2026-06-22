@@ -124,6 +124,13 @@ bool pio_asm_assemble(const char *src, const char *name, pio_program_t *out);
 bool pio_asm_load_program(pio_sim_t *pio, uint8_t sm, uint8_t offset, const pio_program_t *prog);
 
 /**
+ * Like pio_asm_load_program, but load at the program's `.origin` when one was
+ * given (`prog->has_origin`), else at offset 0 — mirroring how a fixed-origin
+ * program is placed. Equivalent to pio_asm_load_program with the resolved offset.
+ */
+bool pio_asm_load_program_at_origin(pio_sim_t *pio, uint8_t sm, const pio_program_t *prog);
+
+/**
  * Apply the program-config metadata captured from directives (.clock_div,
  * .fifo, .mov_status, .in/.out/.set) to state machine `sm`, mirroring the
  * sm_config_set_* calls the C-SDK output would emit. Only directives that were

@@ -499,6 +499,29 @@ static void test_sm_get_pc_reads_back(void)
     TEST_ASSERT_EQUAL_UINT8(7U, pio_sim_sm_get_pc(&pio, 0)); /* set/get round-trip */
 }
 
+/* pio_sim_sm_is_enabled reflects the enable state, set either way. */
+static void test_sm_is_enabled_reads_back(void)
+{
+    TEST_ASSERT_FALSE(pio_sim_sm_is_enabled(&pio, 0)); /* default after init */
+    pio_sim_sm_set_enabled(&pio, 0, true);
+    TEST_ASSERT_TRUE(pio_sim_sm_is_enabled(&pio, 0));
+    pio_sim_set_sm_mask_enabled(&pio, 0x4U, true); /* enable SM2 via the mask form */
+    TEST_ASSERT_TRUE(pio_sim_sm_is_enabled(&pio, 2));
+    TEST_ASSERT_FALSE(pio_sim_sm_is_enabled(&pio, 1));
+}
+
+/* pio_sim_sm_get_instr returns the word at the PC, or a pending injected one. */
+static void test_sm_get_instr_reads_current(void)
+{
+    const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 5), pio_sim_encode_nop()};
+    load_prog(prog, 2);
+    TEST_ASSERT_EQUAL_HEX16(prog[0], pio_sim_sm_get_instr(&pio, 0)); /* at pc 0 */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_HEX16(prog[1], pio_sim_sm_get_instr(&pio, 0)); /* advanced to pc 1 */
+    pio_sim_sm_exec(&pio, 0, pio_sim_encode_pull(false, true));      /* TX empty: latches pending */
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_pull(false, true), pio_sim_sm_get_instr(&pio, 0));
+}
+
 /* #3: an instruction forced via pio_sim_sm_exec executes immediately; its delay
  * field is ignored (so the next program instruction is not held off). */
 static void test_sm_exec_ignores_delay(void)
@@ -1331,6 +1354,8 @@ int main(void)
     RUN_TEST(test_irq_wait_parks_until_cleared);
     RUN_TEST(test_sm_exec_irq_wait_does_not_rearm);
     RUN_TEST(test_sm_get_pc_reads_back);
+    RUN_TEST(test_sm_is_enabled_reads_back);
+    RUN_TEST(test_sm_get_instr_reads_current);
     RUN_TEST(test_sm_exec_ignores_delay);
     RUN_TEST(test_sideset_applies_while_stalled);
 

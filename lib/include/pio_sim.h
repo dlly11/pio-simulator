@@ -222,6 +222,9 @@ void pio_sim_sm_restart(pio_sim_t *pio, uint8_t sm);
 /** Enable or disable a state machine. */
 void pio_sim_sm_set_enabled(pio_sim_t *pio, uint8_t sm, bool enabled);
 
+/** Whether state machine `sm` is currently enabled. */
+bool pio_sim_sm_is_enabled(const pio_sim_t *pio, uint8_t sm);
+
 /** Enable/disable the state machines selected in `sm_mask` atomically. When
  * enabling, their clock dividers are restarted in phase (as the SDK's
  * pio_enable_sm_mask_in_sync does) so equal-divider SMs run in lockstep. */
@@ -267,6 +270,11 @@ void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc);
  * pio_sm_get_pc; useful to observe where an SM has parked (e.g. on a stalled
  * WAIT) without reaching into the struct. */
 uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm);
+
+/** Instruction word state machine `sm` would execute next: an instruction injected
+ * via OUT/MOV EXEC or pio_sim_sm_exec if one is pending, else the word at its PC.
+ * Mirrors reading the SDK's SMx_INSTR register. */
+uint16_t pio_sim_sm_get_instr(const pio_sim_t *pio, uint8_t sm);
 
 /* MOV STATUS source selector (mirrors EXECCTRL_STATUS_SEL). */
 typedef enum {

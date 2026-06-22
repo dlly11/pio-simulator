@@ -1678,6 +1678,12 @@ bool pio_asm_load_program(pio_sim_t *pio, uint8_t sm, uint8_t offset, const pio_
     return true;
 }
 
+bool pio_asm_load_program_at_origin(pio_sim_t *pio, uint8_t sm, const pio_program_t *prog)
+{
+    uint8_t offset = prog->has_origin ? prog->origin : 0U;
+    return pio_asm_load_program(pio, sm, offset, prog);
+}
+
 void pio_asm_apply_program_config(pio_sim_t *pio, uint8_t sm, const pio_program_t *prog)
 {
     if (prog->has_clock_div) {

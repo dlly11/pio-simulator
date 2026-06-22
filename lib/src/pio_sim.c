@@ -138,6 +138,8 @@ void pio_sim_sm_set_enabled(pio_sim_t *pio, uint8_t sm, bool enabled)
     pio->sm[sm].enabled = enabled;
 }
 
+bool pio_sim_sm_is_enabled(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].enabled; }
+
 void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled)
 {
     for (uint8_t i = 0; i < PIO_SIM_NUM_SM; i++) {
@@ -244,6 +246,12 @@ void pio_sim_clkdiv_restart(pio_sim_t *pio, uint8_t sm_mask)
 void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc) { pio->sm[sm].pc = pc; }
 
 uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].pc; }
+
+uint16_t pio_sim_sm_get_instr(const pio_sim_t *pio, uint8_t sm)
+{
+    const pio_sm_t *s = &pio->sm[sm];
+    return s->exec_pending ? s->exec_insn : pio->insn[s->pc];
+}
 
 void pio_sim_sm_set_status_sel(pio_sim_t *pio, uint8_t sm, pio_status_sel_t sel, uint8_t n)
 {

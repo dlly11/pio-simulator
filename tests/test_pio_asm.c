@@ -524,6 +524,19 @@ static void test_undefined_symbol_errors(void)
     TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    set x, NOPE\n", NULL, &p));
 }
 
+/* pio_asm_load_program_at_origin loads at the program's .origin (relocating jmp
+ * targets and the PC), or at 0 when no .origin was given. */
+static void test_load_program_at_origin(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program o\n.origin 5\n  set x, 1\n  jmp 0\n", NULL, &p));
+    TEST_ASSERT_TRUE(p.has_origin);
+    TEST_ASSERT_TRUE(pio_asm_load_program_at_origin(&pio, 0, &p));
+    TEST_ASSERT_EQUAL_UINT8(5U, pio_sim_sm_get_pc(&pio, 0)); /* PC at the origin */
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 1), pio.insn[5]);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_jmp(PIO_COND_ALWAYS, 5), pio.insn[6]); /* jmp 0 -> 5 */
+}
+
 /* irq in absolute (non-rel) set/wait/clear forms. */
 static void test_irq_absolute(void)
 {
@@ -674,6 +687,7 @@ int main(void)
     RUN_TEST(test_assemble_directives_and_apply);
     RUN_TEST(test_too_many_tokens_errors);
     RUN_TEST(test_undefined_symbol_errors);
+    RUN_TEST(test_load_program_at_origin);
     RUN_TEST(test_irq_absolute);
     RUN_TEST(test_more_dest_src_fields);
     RUN_TEST(test_arity_errors);
