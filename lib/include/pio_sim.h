@@ -312,6 +312,11 @@ void pio_sim_set_irq_neighbors(pio_sim_t *pio, pio_sim_t *prev, pio_sim_t *next)
  * map to GPIO 0-31 (base 0, default) or 16-47 (base 16). Mirrors the SDK's
  * pio_set_gpio_base. Values other than 0 or 16 are clamped to those. */
 void pio_sim_set_gpio_base(pio_sim_t *pio, uint8_t base);
+
+/** Read back the GPIOBASE window offset (0 or 16). Mirrors the SDK's
+ * pio_get_gpio_base; lets a consumer reproduce the SDK's absolute-to-window pin
+ * mapping (e.g. pio_sm_set_pins_with_mask64 shifts its mask down by this). */
+uint8_t pio_sim_get_gpio_base(const pio_sim_t *pio);
 #endif
 
 /** Fast-forward the two-cycle input synchroniser to the current pad levels, as

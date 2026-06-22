@@ -327,6 +327,8 @@ void pio_sim_set_gpio_base(pio_sim_t *pio, uint8_t base)
 {
     pio->gpio_base = (base >= 16U) ? 16U : 0U; /* hardware allows only 0 or 16 */
 }
+
+uint8_t pio_sim_get_gpio_base(const pio_sim_t *pio) { return pio->gpio_base; }
 #endif
 
 void pio_sim_sync_settle(pio_sim_t *pio)

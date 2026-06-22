@@ -801,6 +801,18 @@ static void test_gpio_base_offsets_input(void)
     pio_sim_run(&pio, 2);
     TEST_ASSERT_EQUAL_HEX32(0x1U, pio.sm[0].x);
 }
+
+static void test_gpio_base_get_roundtrips(void)
+{
+    /* The getter mirrors the setter, including the hardware 0/16 clamp. */
+    TEST_ASSERT_EQUAL_UINT8(0U, pio_sim_get_gpio_base(&pio)); /* default after init */
+    pio_sim_set_gpio_base(&pio, 16);
+    TEST_ASSERT_EQUAL_UINT8(16U, pio_sim_get_gpio_base(&pio));
+    pio_sim_set_gpio_base(&pio, 5); /* clamps down to 0 */
+    TEST_ASSERT_EQUAL_UINT8(0U, pio_sim_get_gpio_base(&pio));
+    pio_sim_set_gpio_base(&pio, 40); /* clamps to 16 */
+    TEST_ASSERT_EQUAL_UINT8(16U, pio_sim_get_gpio_base(&pio));
+}
 #endif /* PIO_SIM_HAS_GPIO_BASE */
 
 #if PIO_SIM_HAS_IRQ_PREVNEXT
@@ -1282,6 +1294,7 @@ int main(void)
 #if PIO_SIM_HAS_GPIO_BASE
     RUN_TEST(test_gpio_base_offsets_output);
     RUN_TEST(test_gpio_base_offsets_input);
+    RUN_TEST(test_gpio_base_get_roundtrips);
 #endif
 #if PIO_SIM_HAS_IRQ_PREVNEXT
     RUN_TEST(test_irq_next_signals_neighbour_block);
