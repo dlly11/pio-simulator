@@ -1,0 +1,8 @@
+; Hex literals, trailing comments, .wrap, and a public label.
+.program misccov
+.wrap_target
+public entry:
+    set x, 0x1F       ; trailing comment
+    nop
+    jmp entry
+.wrap

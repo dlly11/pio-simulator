@@ -1,0 +1,5 @@
+; .word emits a raw instruction word into the stream.
+.program wordtest
+    nop
+.word 0xe021
+    nop

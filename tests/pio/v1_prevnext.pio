@@ -1,0 +1,10 @@
+; RP2350-only forms: inter-PIO irq/wait prev|next and mov pindirs. Assembles
+; only under pioasm -v 1 (file name prefix v1_ excludes it from RP2040 builds).
+.program prevnext
+    irq next 3
+    irq prev 4
+    irq next set 5
+    wait 1 irq next 3
+    wait 1 irq prev 2
+    mov pindirs, x
+    mov pindirs, null

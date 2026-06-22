@@ -1,0 +1,7 @@
+; Optional WAIT polarity: pioasm defaults the polarity to 1 when omitted, so
+; `wait gpio 5` == `wait 1 gpio 5`. Version-neutral.
+.program waitpol
+    wait 0 gpio 5
+    wait pin 2
+    wait gpio 3
+    wait 1 pin 4

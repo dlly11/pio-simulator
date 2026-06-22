@@ -1,0 +1,8 @@
+; push/pull qualifiers (iffull/ifempty/block/noblock).
+.program ppcov
+    push iffull noblock
+    pull ifempty noblock
+    push block
+    pull block
+    push
+    pull

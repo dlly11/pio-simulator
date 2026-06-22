@@ -1,0 +1,5 @@
+; wait sources: gpio, pin, irq (absolute).
+.program waitcov
+    wait 0 gpio 5
+    wait 1 pin 3
+    wait 1 irq 2

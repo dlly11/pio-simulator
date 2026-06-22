@@ -1,0 +1,7 @@
+; irq absolute set/wait/clear forms.
+.program irqcov
+    irq set 3
+    irq wait 4
+    irq clear 5
+    irq 1
+    nop
