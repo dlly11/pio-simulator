@@ -383,6 +383,9 @@ bool pio_sim_tx_push(pio_sim_t *pio, uint8_t sm, uint32_t word);
 /** Pop a word from the RX FIFO. Returns false if empty. */
 bool pio_sim_rx_pop(pio_sim_t *pio, uint8_t sm, uint32_t *word);
 
+/** Empty both FIFOs of `sm` (mirrors pio_sm_clear_fifos); keeps the join config. */
+void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm);
+
 #if PIO_SIM_HAS_RXFIFO_MOV
 /* RP2350 direct-mapped RX register file (FJOIN_RX_PUT / RX_GET): the four RX
  * entries are addressed by index (0..3), not popped as a FIFO. In PUT mode the SM
@@ -492,6 +495,13 @@ void pio_sim_group_tick(pio_sim_group_t *g);
 
 /** Advance the whole group by `n` system clocks. */
 void pio_sim_group_run(pio_sim_group_t *g, uint64_t n);
+
+/** Enable state machines across every block in the group in one synchronised step:
+ * `masks[i]` selects the SMs to enable on block `i`, and their clock dividers are
+ * phase-aligned (as pio_sim_set_sm_mask_enabled does per block). Because the group
+ * ticks all blocks in lockstep, SMs started this way run cycle-aligned across PIO
+ * blocks — the multi-PIO analogue of an in-block synchronised start. */
+void pio_sim_group_enable_sm_mask_sync(pio_sim_group_t *g, const uint8_t *masks);
 
 /* ── DMA pacing ────────────────────────────────────────────────────────────────
  * A lightweight model of a DMA channel servicing a state machine's FIFO, paced

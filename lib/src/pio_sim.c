@@ -399,6 +399,12 @@ bool pio_sim_rx_pop(pio_sim_t *pio, uint8_t sm, uint32_t *word)
     return true;
 }
 
+void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm)
+{
+    fifo_clear(&pio->sm[sm].tx);
+    fifo_clear(&pio->sm[sm].rx);
+}
+
 #if PIO_SIM_HAS_RXFIFO_MOV
 uint32_t pio_sim_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index)
 {
@@ -1376,6 +1382,13 @@ void pio_sim_group_run(pio_sim_group_t *g, uint64_t n)
 {
     for (uint64_t i = 0; i < n; i++) {
         pio_sim_group_tick(g);
+    }
+}
+
+void pio_sim_group_enable_sm_mask_sync(pio_sim_group_t *g, const uint8_t *masks)
+{
+    for (uint8_t i = 0; i < g->count; i++) {
+        pio_sim_set_sm_mask_enabled(g->blk[i], masks[i], true);
     }
 }
 

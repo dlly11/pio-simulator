@@ -1373,6 +1373,39 @@ static void test_fifo_join_survives_restart(void)
     TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].rx.count); /* contents cleared though */
 }
 
+static void test_clear_fifos(void)
+{
+    pio_sim_tx_push(&pio, 0, 1U);
+    pio_sim_tx_push(&pio, 0, 2U);
+    TEST_ASSERT_FALSE(pio_sim_tx_empty(&pio, 0));
+    pio_sim_sm_clear_fifos(&pio, 0);
+    TEST_ASSERT_TRUE(pio_sim_tx_empty(&pio, 0));
+    TEST_ASSERT_TRUE(pio_sim_rx_empty(&pio, 0));
+}
+
+static void test_group_enable_sm_mask_sync(void)
+{
+    pio_sim_t a, b;
+    pio_sim_init(&a);
+    pio_sim_init(&b);
+    const uint16_t prog[] = {pio_sim_encode_nop(), pio_sim_encode_nop(), pio_sim_encode_nop()};
+    pio_sim_load(&a, 0, prog, 3);
+    pio_sim_load(&b, 0, prog, 3);
+    pio_sim_sm_set_wrap(&a, 0, 0, 2);
+    pio_sim_sm_set_wrap(&b, 0, 0, 2);
+    pio_sim_t *blocks[] = {&a, &b};
+    pio_sim_group_t g;
+    pio_sim_group_init(&g, blocks, 2);
+    const uint8_t masks[] = {0x1U, 0x1U};
+    pio_sim_group_enable_sm_mask_sync(&g, masks);
+    pio_sim_group_run(&g, 5);
+    TEST_ASSERT_TRUE(pio_sim_sm_is_enabled(&a, 0));
+    TEST_ASSERT_TRUE(pio_sim_sm_is_enabled(&b, 0));
+    /* Started cycle-aligned with equal dividers → identical, advanced PCs. */
+    TEST_ASSERT_NOT_EQUAL(0U, pio_sim_sm_get_pc(&a, 0));
+    TEST_ASSERT_EQUAL_UINT8(pio_sim_sm_get_pc(&a, 0), pio_sim_sm_get_pc(&b, 0));
+}
+
 static void test_unwritten_fetch_is_flagged(void)
 {
     const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 1)};
@@ -1498,6 +1531,8 @@ int main(void)
     RUN_TEST(test_sync_settle_makes_static_input_immediate);
 
     RUN_TEST(test_fifo_join_survives_restart);
+    RUN_TEST(test_clear_fifos);
+    RUN_TEST(test_group_enable_sm_mask_sync);
     RUN_TEST(test_unwritten_fetch_is_flagged);
 
     return UNITY_END();
