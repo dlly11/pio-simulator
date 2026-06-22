@@ -892,6 +892,16 @@ static bool exec_out(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand, uint8_t *nex
         sm->osr_count = 32;
     }
     out_store(pio, sm, dest, out_val, count, next_pc, set_pc);
+    /* Eager autopull: refill the OSR the moment it reaches the threshold (end of
+     * this OUT), so a following MOV / JMP !OSRE sees the freshly pulled word, as
+     * on hardware (which prefetches). If TX is empty, leave the OSR empty — the
+     * next OUT's start-of-instruction check stalls and flags TXSTALL. (The
+     * datasheet notes the exact refill timing is pipeline-dependent; this models
+     * the common end-of-OUT refill.) Autopush is already eager: exec_in drains
+     * the ISR at the end of the IN that crosses its threshold. */
+    if (sm->autopull && (sm->osr_count >= sm->pull_thresh)) {
+        (void)osr_refill(sm);
+    }
     return false;
 }
 

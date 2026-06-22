@@ -101,6 +101,25 @@ static void test_out_autopull_refills(void)
     TEST_ASSERT_EQUAL_UINT32(0x22U, pio.sm[0].x);
 }
 
+/* Eager autopull: the OUT that empties the OSR refills it immediately, so the
+ * next instruction sees a full OSR (the prefetched word) — not an empty one. */
+static void test_out_autopull_eager_refill(void)
+{
+    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, true, 32);
+    const uint16_t prog[] = {
+        pio_sim_encode_out(PIO_DST_NULL, 32), /* discard; triggers refill */
+        pio_sim_encode_mov(PIO_DST_X, PIO_MOV_NONE, PIO_SRC_OSR),
+    };
+    load_prog(prog, 2);
+    pio_sim_tx_push(&pio, 0, 0xAAAAAAAAU);
+    pio_sim_tx_push(&pio, 0, 0xBBBBBBBBU);
+    pio_sim_run(&pio, 1);                                /* OUT outputs 0xAAAA…, refills 0xBBBB… */
+    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].osr_count);    /* OSR full again (not empty) */
+    TEST_ASSERT_EQUAL_HEX32(0xBBBBBBBBU, pio.sm[0].osr); /* prefetched word visible */
+    pio_sim_run(&pio, 1);                                /* mov x, osr reads the new word */
+    TEST_ASSERT_EQUAL_HEX32(0xBBBBBBBBU, pio.sm[0].x);
+}
+
 static void test_out_exec_injects_instruction(void)
 {
     /* OUT EXEC takes the OSR value as an instruction and runs it next cycle. */
@@ -1278,6 +1297,7 @@ int main(void)
     RUN_TEST(test_out_pins_shift_right);
     RUN_TEST(test_out_shift_left_takes_top_bits);
     RUN_TEST(test_out_autopull_refills);
+    RUN_TEST(test_out_autopull_eager_refill);
     RUN_TEST(test_out_exec_injects_instruction);
 
     RUN_TEST(test_in_pins_shift_left);
