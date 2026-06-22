@@ -263,6 +263,11 @@ void pio_sim_sm_set_clkdiv(pio_sim_t *pio, uint8_t sm, uint16_t div_int, uint8_t
 void pio_sim_clkdiv_restart(pio_sim_t *pio, uint8_t sm_mask);
 void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc);
 
+/** Current program counter of state machine `sm`. Mirrors the SDK's
+ * pio_sm_get_pc; useful to observe where an SM has parked (e.g. on a stalled
+ * WAIT) without reaching into the struct. */
+uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm);
+
 /* MOV STATUS source selector (mirrors EXECCTRL_STATUS_SEL). */
 typedef enum {
     PIO_STATUS_TX_LEVEL = 0, /* all-ones while TX FIFO level < N            */
@@ -388,8 +393,12 @@ void pio_sim_irq_clear(pio_sim_t *pio, uint8_t irq);
 uint32_t pio_sim_get_irq_raw(const pio_sim_t *pio);
 /** Set the enable mask (INTE) for system line `line` (0 or 1). */
 void pio_sim_set_irq_enable(pio_sim_t *pio, uint8_t line, uint32_t mask);
+/** Read back the enable mask (INTE) for system line `line` (0 or 1). */
+uint32_t pio_sim_get_irq_enable(const pio_sim_t *pio, uint8_t line);
 /** Set the force mask (INTF) for system line `line` (0 or 1). */
 void pio_sim_set_irq_force(pio_sim_t *pio, uint8_t line, uint32_t mask);
+/** Read back the force mask (INTF) for system line `line` (0 or 1). */
+uint32_t pio_sim_get_irq_force(const pio_sim_t *pio, uint8_t line);
 /** Masked interrupt status (INTS) for `line`: (INTR & INTE) | INTF. */
 uint32_t pio_sim_get_ints(const pio_sim_t *pio, uint8_t line);
 /** Whether system interrupt line `line` is currently asserted (INTS != 0). */

@@ -468,6 +468,18 @@ static void test_sm_exec_irq_wait_does_not_rearm(void)
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);
 }
 
+/* pio_sim_sm_get_pc tracks the live PC and round-trips with pio_sim_sm_set_pc. */
+static void test_sm_get_pc_reads_back(void)
+{
+    const uint16_t prog[] = {pio_sim_encode_nop(), pio_sim_encode_nop()};
+    load_prog(prog, 2);
+    TEST_ASSERT_EQUAL_UINT8(0U, pio_sim_sm_get_pc(&pio, 0)); /* starts at wrap_bottom */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_UINT8(1U, pio_sim_sm_get_pc(&pio, 0)); /* advanced one instruction */
+    pio_sim_sm_set_pc(&pio, 0, 7);
+    TEST_ASSERT_EQUAL_UINT8(7U, pio_sim_sm_get_pc(&pio, 0)); /* set/get round-trip */
+}
+
 /* #3: an instruction forced via pio_sim_sm_exec executes immediately; its delay
  * field is ignored (so the next program instruction is not held off). */
 static void test_sm_exec_ignores_delay(void)
@@ -1149,6 +1161,21 @@ static void test_system_irq_lines(void)
     TEST_ASSERT_TRUE(pio_sim_interrupt_line(&pio, 0));
 }
 
+/* The INTE/INTF masks read back exactly as set, per line and independently. */
+static void test_irq_enable_force_read_back(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_irq_enable(&pio, 0)); /* default after init */
+    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_irq_force(&pio, 1));
+
+    pio_sim_set_irq_enable(&pio, 0, 0x00F0U);
+    pio_sim_set_irq_force(&pio, 1, 0x0A00U);
+    TEST_ASSERT_EQUAL_HEX32(0x00F0U, pio_sim_get_irq_enable(&pio, 0));
+    TEST_ASSERT_EQUAL_HEX32(0x0A00U, pio_sim_get_irq_force(&pio, 1));
+    /* The other line of each mask stays untouched. */
+    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_irq_enable(&pio, 1));
+    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_irq_force(&pio, 0));
+}
+
 /* ── #8: input synchroniser (always-on two-cycle delay) ────────────────────── */
 
 static void test_input_sync_delays_jmp_pin_by_two_cycles(void)
@@ -1260,6 +1287,7 @@ int main(void)
     RUN_TEST(test_in_autopush_full_does_not_reshift);
     RUN_TEST(test_irq_wait_parks_until_cleared);
     RUN_TEST(test_sm_exec_irq_wait_does_not_rearm);
+    RUN_TEST(test_sm_get_pc_reads_back);
     RUN_TEST(test_sm_exec_ignores_delay);
     RUN_TEST(test_sideset_applies_while_stalled);
 
@@ -1314,6 +1342,7 @@ int main(void)
     RUN_TEST(test_dma_chain_to_next);
     RUN_TEST(test_fdebug_flags);
     RUN_TEST(test_system_irq_lines);
+    RUN_TEST(test_irq_enable_force_read_back);
 
     RUN_TEST(test_input_sync_delays_jmp_pin_by_two_cycles);
     RUN_TEST(test_sync_settle_makes_static_input_immediate);

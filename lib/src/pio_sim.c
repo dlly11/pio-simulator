@@ -243,6 +243,8 @@ void pio_sim_clkdiv_restart(pio_sim_t *pio, uint8_t sm_mask)
 
 void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc) { pio->sm[sm].pc = pc; }
 
+uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].pc; }
+
 void pio_sim_sm_set_status_sel(pio_sim_t *pio, uint8_t sm, pio_status_sel_t sel, uint8_t n)
 {
     pio->sm[sm].status_sel = (uint8_t)sel;
@@ -496,9 +498,19 @@ void pio_sim_set_irq_enable(pio_sim_t *pio, uint8_t line, uint32_t mask)
     pio->irq_inte[line & 1U] = mask;
 }
 
+uint32_t pio_sim_get_irq_enable(const pio_sim_t *pio, uint8_t line)
+{
+    return pio->irq_inte[line & 1U];
+}
+
 void pio_sim_set_irq_force(pio_sim_t *pio, uint8_t line, uint32_t mask)
 {
     pio->irq_intf[line & 1U] = mask;
+}
+
+uint32_t pio_sim_get_irq_force(const pio_sim_t *pio, uint8_t line)
+{
+    return pio->irq_intf[line & 1U];
 }
 
 uint32_t pio_sim_get_ints(const pio_sim_t *pio, uint8_t line)
