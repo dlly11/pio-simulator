@@ -227,6 +227,14 @@ void pio_sim_sm_set_in_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bo
     pio->sm[sm].push_thresh = ((threshold == 0U) || (threshold > 32U)) ? 32U : threshold;
 }
 
+void pio_sim_sm_set_out_special(pio_sim_t *pio, uint8_t sm, bool sticky, bool inline_out_en,
+                                uint8_t out_en_sel)
+{
+    pio->sm[sm].out_sticky = sticky;
+    pio->sm[sm].out_inline_en = inline_out_en;
+    pio->sm[sm].out_en_sel = (uint8_t)(out_en_sel & 0x1FU);
+}
+
 void pio_sim_sm_set_clkdiv(pio_sim_t *pio, uint8_t sm, uint16_t div_int, uint8_t div_frac)
 {
     /* div_int == 0 means a divider of 65536 in hardware. */
@@ -451,6 +459,38 @@ static void drive_pins(pio_sim_t *pio, uint8_t base, uint8_t count, uint32_t val
     for (uint8_t i = 0; i < count; i++) {
         uint8_t pin = phys_pin(pio, (uint8_t)(base + i));
         pio_sim_set_pin(pio, pin, ((value >> i) & 1U) != 0U);
+    }
+}
+
+/* Record an OUT/SET PINS write into the SM's sticky shadow (the pins it drives
+ * and their levels), used to re-assert them every cycle under OUT_STICKY. When
+ * `driven` is false (inline OUT enable suppressed the write) the pins are dropped
+ * from the shadow, so sticky stops holding them. Side-set is not tracked: it
+ * already drives every presented cycle on its own. */
+static void track_out_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count,
+                           uint32_t value, bool driven)
+{
+    for (uint8_t i = 0; i < count; i++) {
+        uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
+        if (!driven) {
+            sm->sticky_mask &= ~bit;
+        } else {
+            sm->sticky_mask |= bit;
+            if (((value >> i) & 1U) != 0U) {
+                sm->sticky_levels |= bit;
+            } else {
+                sm->sticky_levels &= ~bit;
+            }
+        }
+    }
+}
+
+/* Re-assert this SM's held OUT/SET pin values onto the pads (OUT_STICKY). */
+static void apply_sticky(pio_sim_t *pio, const pio_sm_t *sm)
+{
+    if (sm->out_sticky && (sm->sticky_mask != 0U)) {
+        pio->pads->pin_levels =
+            (pio->pads->pin_levels & ~sm->sticky_mask) | (sm->sticky_levels & sm->sticky_mask);
     }
 }
 
@@ -844,9 +884,15 @@ static void out_store(pio_sim_t *pio, pio_sm_t *sm, uint8_t dest, uint32_t val, 
                       uint8_t *next_pc, bool *set_pc)
 {
     switch (dest) {
-    case PIO_SRC_PINS:
-        drive_pins(pio, sm->out_base, sm->out_count, val);
+    case PIO_SRC_PINS: {
+        /* Inline OUT enable: bit out_en_sel of the OUT data gates the write. */
+        bool driven = !sm->out_inline_en || (((val >> sm->out_en_sel) & 1U) != 0U);
+        if (driven) {
+            drive_pins(pio, sm->out_base, sm->out_count, val);
+        }
+        track_out_pins(pio, sm, sm->out_base, sm->out_count, val, driven);
         break;
+    }
     case PIO_SRC_X:
         sm->x = val;
         break;
@@ -992,6 +1038,7 @@ static void exec_mov(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand, uint8_t *nex
     switch (dest) {
     case PIO_DST_PINS:
         drive_pins(pio, sm->out_base, sm->out_count, v);
+        track_out_pins(pio, sm, sm->out_base, sm->out_count, v, true);
         break;
     case PIO_DST_X:
         sm->x = v;
@@ -1064,6 +1111,7 @@ static void exec_set(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand)
     switch (dest) {
     case PIO_DST_PINS:
         drive_pins(pio, sm->set_base, sm->set_count, value);
+        track_out_pins(pio, sm, sm->set_base, sm->set_count, value, true);
         break;
     case PIO_DST_X:
         sm->x = value;
@@ -1163,6 +1211,10 @@ static bool exec_one(pio_sim_t *pio, uint8_t sm_idx, uint16_t insn, uint8_t *nex
 static void sm_cycle(pio_sim_t *pio, uint8_t sm_idx)
 {
     pio_sm_t *sm = &pio->sm[sm_idx];
+
+    /* OUT_STICKY re-asserts the held pin values every cycle, including delay and
+     * stall cycles. A later (higher-numbered) SM's write this tick still wins. */
+    apply_sticky(pio, sm);
 
     if (sm->delay > 0U) {
         sm->delay--;

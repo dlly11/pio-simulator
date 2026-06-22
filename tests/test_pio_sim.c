@@ -120,6 +120,84 @@ static void test_out_autopull_eager_refill(void)
     TEST_ASSERT_EQUAL_HEX32(0xBBBBBBBBU, pio.sm[0].x);
 }
 
+/* OUT_STICKY: the SM re-asserts its last OUT pin value every cycle, so an external
+ * write to the pin is overridden back on the next cycle. */
+static void test_out_sticky_reasserts_pins(void)
+{
+    pio_sim_sm_set_out_pins(&pio, 0, 0, 1);
+    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, false, 32);
+    pio_sim_sm_set_out_special(&pio, 0, true, false, 0); /* sticky on */
+    const uint16_t prog[] = {
+        pio_sim_encode_pull(false, true),
+        pio_sim_encode_out(PIO_DST_PINS, 1),
+        pio_sim_encode_nop(),
+    };
+    load_prog(prog, 3);
+    pio_sim_tx_push(&pio, 0, 0x1U);
+    pio_sim_run(&pio, 2); /* pull; out pins,1 -> pin0 = 1 */
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 0));
+    pio_sim_set_pin(&pio, 0, false); /* external pulls it low */
+    pio_sim_run(&pio, 1);            /* nop cycle: sticky re-asserts pin0 = 1 */
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 0));
+}
+
+/* Inline OUT enable: bit out_en_sel of the OUT data gates the pin write. */
+static void test_out_inline_enable_gates_write(void)
+{
+    pio_sim_sm_set_out_pins(&pio, 0, 0, 1);
+    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, true, 2); /* autopull every 2 bits */
+    pio_sim_sm_set_out_special(&pio, 0, false, true, 1);         /* enable = data bit 1 */
+    const uint16_t prog[] = {pio_sim_encode_out(PIO_DST_PINS, 2)};
+    load_prog(prog, 1);
+    pio_sim_set_pin(&pio, 0, false);
+    pio_sim_tx_push(&pio, 0, 0x1U); /* 0b01: pin bit0=1, enable bit1=0 -> suppressed */
+    pio_sim_tx_push(&pio, 0, 0x3U); /* 0b11: pin bit0=1, enable bit1=1 -> driven   */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 0)); /* write suppressed */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 0)); /* write driven */
+}
+
+/* When two SMs drive one pin on the same cycle the higher-numbered SM wins; with
+ * inline enable = 0 that SM yields and the lower-numbered SM's value shows. */
+static void test_multi_sm_pin_priority_and_override(void)
+{
+    const uint16_t prog[] = {
+        pio_sim_encode_pull(false, true),
+        pio_sim_encode_out(PIO_DST_PINS, 1),
+        pio_sim_encode_jmp(PIO_COND_ALWAYS, 1),
+    };
+    /* Priority: SM0 drives pin 4 high, SM1 drives it low, in lockstep -> SM1 wins. */
+    pio_sim_load(&pio, 0, prog, 3);
+    for (uint8_t s = 0; s < 2; s++) {
+        pio_sim_sm_set_wrap(&pio, s, 0, 2);
+        pio_sim_sm_set_out_pins(&pio, s, 4, 1);
+        pio_sim_sm_set_out_shift(&pio, s, PIO_SHIFT_RIGHT, false, 32);
+        pio_sim_sm_set_pc(&pio, s, 0);
+    }
+    pio_sim_tx_push(&pio, 0, 0xFFFFFFFFU);
+    pio_sim_tx_push(&pio, 1, 0x0U);
+    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
+    pio_sim_run(&pio, 4);
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 4)); /* SM1 (higher) wins -> low */
+
+    /* Override: SM1 yields via inline enable (bit 1 of a 1-bit OUT is always 0). */
+    pio_sim_init(&pio);
+    pio_sim_load(&pio, 0, prog, 3);
+    for (uint8_t s = 0; s < 2; s++) {
+        pio_sim_sm_set_wrap(&pio, s, 0, 2);
+        pio_sim_sm_set_out_pins(&pio, s, 4, 1);
+        pio_sim_sm_set_out_shift(&pio, s, PIO_SHIFT_RIGHT, false, 32);
+        pio_sim_sm_set_pc(&pio, s, 0);
+    }
+    pio_sim_sm_set_out_special(&pio, 1, false, true, 1); /* SM1 suppresses its OUT */
+    pio_sim_tx_push(&pio, 0, 0xFFFFFFFFU);
+    pio_sim_tx_push(&pio, 1, 0xFFFFFFFFU);
+    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
+    pio_sim_run(&pio, 4);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 4)); /* SM1 yields -> SM0 high shows */
+}
+
 static void test_out_exec_injects_instruction(void)
 {
     /* OUT EXEC takes the OSR value as an instruction and runs it next cycle. */
@@ -1321,6 +1399,9 @@ int main(void)
     RUN_TEST(test_out_shift_left_takes_top_bits);
     RUN_TEST(test_out_autopull_refills);
     RUN_TEST(test_out_autopull_eager_refill);
+    RUN_TEST(test_out_sticky_reasserts_pins);
+    RUN_TEST(test_out_inline_enable_gates_write);
+    RUN_TEST(test_multi_sm_pin_priority_and_override);
     RUN_TEST(test_out_exec_injects_instruction);
 
     RUN_TEST(test_in_pins_shift_left);

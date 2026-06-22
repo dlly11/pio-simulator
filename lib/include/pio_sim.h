@@ -101,6 +101,17 @@ typedef struct {
     bool sideset_opt;
     bool sideset_pindirs;
 
+    /* EXECCTRL output controls (sm_config_set_out_special). out_sticky re-asserts
+     * the SM's most recent OUT/SET pin values every cycle; out_inline_en uses bit
+     * out_en_sel of the OUT data as an output enable (0 ⇒ that OUT does not drive
+     * the pins, and under sticky stops holding them). sticky_levels/sticky_mask
+     * shadow the pins this SM drives, for the per-cycle re-assert. */
+    bool out_sticky;
+    bool out_inline_en;
+    uint8_t out_en_sel;
+    uint64_t sticky_levels;
+    uint64_t sticky_mask;
+
     /* MOV STATUS source. By default STATUS is derived from the live FIFO level
      * (or, on RP2350, an IRQ flag) per status_sel/status_n, returning all-ones
      * when the condition holds and all-zeros otherwise. A test may instead pin
@@ -255,6 +266,16 @@ void pio_sim_sm_set_out_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, b
 void pio_sim_sm_set_in_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bool autopush,
                              uint8_t threshold);
 void pio_sim_sm_set_clkdiv(pio_sim_t *pio, uint8_t sm, uint16_t div_int, uint8_t div_frac);
+
+/** Configure the EXECCTRL output special behaviours (mirrors the SDK's
+ * sm_config_set_out_special). `sticky`: continuously re-assert the most recent
+ * OUT/SET pin values every cycle. `inline_out_en`: use bit `out_en_sel` of the
+ * OUT data as an output enable — when 0, that OUT does not drive the pins (and
+ * under `sticky` stops holding them, so a lower-priority SM or external level
+ * shows through). When several state machines drive one pin on the same cycle,
+ * the highest-numbered SM wins. */
+void pio_sim_sm_set_out_special(pio_sim_t *pio, uint8_t sm, bool sticky, bool inline_out_en,
+                                uint8_t out_en_sel);
 
 /**
  * Reset the fractional clock-divider accumulator of every SM whose bit is set

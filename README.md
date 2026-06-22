@@ -70,6 +70,13 @@ against the same feature surface the library was built with.
   32-pin window to GPIO 16-47 (default 0 → GPIO 0-31), as on RP2350B. Every
   SM-side pin access (IN/OUT/SET/side-set/MOV pins, `WAIT GPIO/PIN`, `JMP PIN`)
   is offset; host access (`pio_sim_get_pin`/`set_pin`) stays absolute.
+- **Output controls** — `pio_sim_sm_set_out_special` mirrors the SDK's
+  `sm_config_set_out_special`: `OUT_STICKY` re-asserts the most recent OUT/SET pin
+  values every cycle, and inline OUT-enable uses a chosen OUT-data bit to gate (and,
+  under sticky, release) the pin write. When several state machines drive one pin
+  on the same cycle, the highest-numbered SM wins (held-value contention across
+  *different* cycles is resolved to that simultaneous-write priority, not full
+  per-cycle re-arbitration).
 - **Pads, pulls & input sync** — `pio_sim_set_pull_level` gives a pin a
   pull-up/down so it reads a defined level while released (open-drain buses like
   I²C); `pio_sim_set_input_sync_bypass` skips the two-cycle input synchroniser
