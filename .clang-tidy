@@ -1,0 +1,28 @@
+---
+# clang-tidy configuration for pio_sim (pure C11/C17 library).
+# Scoped to high-signal checks for a portable, MISRA-leaning embedded library.
+# Noisy or stylistically-opinionated checks are disabled explicitly below.
+Checks: >
+  clang-analyzer-*,
+  bugprone-*,
+  cert-*,
+  misc-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -readability-function-cognitive-complexity,
+  -readability-isolate-declaration,
+  -readability-braces-around-statements,
+  -readability-avoid-nested-conditional-operator,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-branch-clone,
+  -misc-no-recursion,
+  -misc-include-cleaner,
+  -cert-err33-c,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+WarningsAsErrors: '*'
+HeaderFilterRegex: 'lib/(include|config|src)/.*\.h$'
+FormatStyle: file
+...

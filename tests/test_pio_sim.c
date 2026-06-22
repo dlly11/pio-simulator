@@ -458,7 +458,7 @@ static void test_sm_exec_irq_wait_does_not_rearm(void)
     load_prog(prog, 1);
 
     pio_sim_sm_exec(&pio, 0, pio_sim_encode_irq(false, true, 0)); /* irq 0 ; wait */
-    TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 0)); /* raised once, now parked */
+    TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 0));                   /* raised once, now parked */
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y);
 
     pio_sim_irq_clear(&pio, 0); /* external acknowledge */
@@ -762,7 +762,7 @@ static void test_wait_pin_above_in_count_never_ready(void)
     load_prog(prog, 2);
     pio_sim_sync_settle(&pio);
     pio_sim_run(&pio, 5);
-    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].pc);     /* parked on the wait */
+    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].pc); /* parked on the wait */
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y);
 
     pio_sim_sm_set_in_pin_count(&pio, 0, 8); /* now pin 6 is visible */

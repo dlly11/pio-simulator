@@ -118,6 +118,20 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+### Lint & format
+
+CI also runs `clang-format` (style in `.clang-format`) and `clang-tidy` (checks in
+`.clang-tidy`) over the library. To reproduce locally:
+
+```sh
+# formatting (no changes => clean)
+clang-format --dry-run --Werror lib/src/*.c lib/include/*.h tests/test_*.c
+
+# static analysis: needs a compile database for the include paths / feature defines
+cmake -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+clang-tidy -p build lib/src/pio_sim.c lib/src/pio_asm.c
+```
+
 ## Embedding
 
 `pio_sim` is a CMake library target with public headers. Vendor it (submodule,

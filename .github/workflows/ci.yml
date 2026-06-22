@@ -78,6 +78,29 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  # Static analysis: clang-tidy over the library sources. Compile flags and the
+  # per-platform feature defines come from CMake's compile_commands.json, so the
+  # gated v0/v1 surface is analysed exactly as built. Checks + WarningsAsErrors
+  # live in .clang-tidy.
+  clang-tidy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [RP2350, RP2040]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build clang-tidy
+      - name: Configure (export compile_commands.json)
+        run: >
+          cmake -B build -G Ninja
+          -DPIO_SIM_PLATFORM=${{ matrix.platform }}
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - name: Run clang-tidy on the library
+        run: clang-tidy -p build lib/src/pio_sim.c lib/src/pio_asm.c
+
   format:
     runs-on: ubuntu-latest
     steps:
