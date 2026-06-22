@@ -446,6 +446,22 @@ static void test_clkdiv_slows_execution(void)
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].x); /* 4th tick */
 }
 
+/* A fractional divider averages its rate exactly: 2.5 fires on ticks 3,5,8,10,…
+ * (a 3,2,3,2 cadence), so the SM advances 2 instructions in 5 ticks and 4 in 10. */
+static void test_clkdiv_fractional_cadence(void)
+{
+    const uint16_t prog[] = {
+        pio_sim_encode_nop(), pio_sim_encode_nop(), pio_sim_encode_nop(),
+        pio_sim_encode_nop(), pio_sim_encode_nop(), pio_sim_encode_nop(),
+    };
+    load_prog(prog, 6);
+    pio_sim_sm_set_clkdiv(&pio, 0, 2, 128); /* 2.5 */
+    pio_sim_run(&pio, 5);
+    TEST_ASSERT_EQUAL_UINT8(2U, pio_sim_sm_get_pc(&pio, 0));
+    pio_sim_run(&pio, 5);
+    TEST_ASSERT_EQUAL_UINT8(4U, pio_sim_sm_get_pc(&pio, 0)); /* avg 2.5 over 10 ticks */
+}
+
 static void test_wrap_returns_to_bottom(void)
 {
     /* Two-instruction loop incrementing y via set; wrap top=1 -> bottom=0. */
@@ -1459,6 +1475,7 @@ int main(void)
     RUN_TEST(test_sideset_drives_pin);
     RUN_TEST(test_delay_holds_pc);
     RUN_TEST(test_clkdiv_slows_execution);
+    RUN_TEST(test_clkdiv_fractional_cadence);
     RUN_TEST(test_wrap_returns_to_bottom);
 
     RUN_TEST(test_fifo_join_rx_depth_8);

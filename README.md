@@ -115,6 +115,19 @@ the RP2350 IN pin count, which has no RP2040 equivalent and is ignored there).
 `.origin` and `.pio_version` are recorded as metadata only — `.origin` is advisory
 since the load address is passed explicitly to `pio_asm_load_program`.
 
+## Scope (what's intentionally not modelled)
+
+This is a **functional** simulator: one `pio_sim_tick()` is one PIO system clock,
+and the per-SM clock divider is rate-exact (the 16.8 fractional accumulator
+averages to `int + frac/256` cycles per SM step). It deliberately does **not**
+model chip-level concerns outside the PIO block: real-time/wall-clock, the
+PLL/clock tree, GPIO pad electricals (drive strength, slew, schmitt/IE/OD), the
+GPIO function mux, or a full DMA controller (the DMA model is DREQ-paced — enough
+for PIO↔DMA interaction tests, not a DMA engine). One PIO timing detail is a known
+approximation: autopull/autopush refill is modelled at the end of the
+triggering OUT/IN, which the datasheet notes is pipeline-dependent and not to be
+relied upon at cycle granularity.
+
 ## Build & test
 
 The unit tests use [Unity](https://github.com/ThrowTheSwitch/Unity), pulled in as a
