@@ -674,6 +674,18 @@ static void test_sm_get_instr_reads_current(void)
     TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_pull(false, true), pio_sim_sm_get_instr(&pio, 0));
 }
 
+/* pio_sim_sm_is_stalled reflects a blocking instruction that cannot make progress. */
+static void test_sm_is_stalled(void)
+{
+    const uint16_t prog[] = {pio_sim_encode_pull(false, true), pio_sim_encode_set(PIO_DST_Y, 1)};
+    load_prog(prog, 2);
+    pio_sim_run(&pio, 1); /* pull block on an empty TX FIFO → stalls */
+    TEST_ASSERT_TRUE(pio_sim_sm_is_stalled(&pio, 0));
+    pio_sim_tx_push(&pio, 0, 0x55U);
+    pio_sim_run(&pio, 1); /* now the pull commits */
+    TEST_ASSERT_FALSE(pio_sim_sm_is_stalled(&pio, 0));
+}
+
 /* #3: an instruction forced via pio_sim_sm_exec executes immediately; its delay
  * field is ignored (so the next program instruction is not held off). */
 static void test_sm_exec_ignores_delay(void)
@@ -810,32 +822,47 @@ static void test_wait_irq_rel(void)
 
 static void test_clkdiv_restart_realigns_sms(void)
 {
-    /* A self-loop keeps each SM busy without advancing the PC, so the divider
-     * phase (the clk accumulator) is the only thing under test. */
+    /* A self-loop keeps each SM busy; the clk accumulator phase is what's tested.
+     * Dividers free-run, so SMs enabled together stay in lockstep until one divider
+     * is restarted out of phase. */
     const uint16_t prog[] = {pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
     pio_sim_load(&pio, 0, prog, 1);
     for (uint8_t s = 0; s < 2U; s++) {
         pio_sim_sm_set_wrap(&pio, s, 0, 0);
         pio_sim_sm_set_clkdiv(&pio, s, 4, 0); /* one SM cycle every 4 ticks */
     }
-    /* Start SM0 a tick ahead of SM1 so their dividers run out of phase. */
-    pio_sim_sm_set_enabled(&pio, 0, true);
-    pio_sim_run(&pio, 1);
-    pio_sim_sm_set_enabled(&pio, 1, true);
-    pio_sim_run(&pio, 3);
+    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true); /* enable both, dividers aligned */
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_EQUAL_UINT32(pio.sm[0].clk_accum, pio.sm[1].clk_accum); /* lockstep */
+
+    /* Restart only SM0 → its divider phase resets while SM1's keeps running. */
+    pio_sim_clkdiv_restart(&pio, 0x1U);
     TEST_ASSERT_TRUE(pio.sm[0].clk_accum != pio.sm[1].clk_accum);
 
-    /* Re-align: both accumulators reset to the same phase and advance together,
-     * so the two SMs now step on identical ticks (lockstep). */
+    /* Re-align both: equal phase again, and they step together thereafter. */
     pio_sim_clkdiv_restart(&pio, 0x3U);
-    TEST_ASSERT_EQUAL_UINT32(pio.sm[0].clk_accum, pio.sm[1].clk_accum);
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].clk_accum);
+    TEST_ASSERT_EQUAL_UINT32(pio.sm[0].clk_accum, pio.sm[1].clk_accum);
     pio_sim_run(&pio, 3);
-    TEST_ASSERT_EQUAL_UINT32(pio.sm[0].clk_accum, pio.sm[1].clk_accum);
     TEST_ASSERT_EQUAL_UINT32(768U, pio.sm[0].clk_accum); /* 3 × 256, no fire yet */
-    pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_UINT32(pio.sm[0].clk_accum, pio.sm[1].clk_accum);
+    pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].clk_accum); /* both fired on this tick */
+    TEST_ASSERT_EQUAL_UINT32(pio.sm[0].clk_accum, pio.sm[1].clk_accum);
+}
+
+/* The clock divider free-runs while the SM is disabled: the accumulator advances
+ * but no instruction executes. */
+static void test_clkdiv_freeruns_while_disabled(void)
+{
+    const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 1)};
+    pio_sim_load(&pio, 0, prog, 1);
+    pio_sim_sm_set_wrap(&pio, 0, 0, 0);
+    pio_sim_sm_set_clkdiv(&pio, 0, 4, 0); /* SM left disabled */
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_EQUAL_UINT32(768U, pio.sm[0].clk_accum);     /* divider free-ran */
+    TEST_ASSERT_EQUAL_UINT8(0U, pio_sim_sm_get_pc(&pio, 0)); /* but did not execute */
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].x);
 }
 
 /* ── #7: RP2350 instructions ───────────────────────────────────────────────── */
@@ -1551,6 +1578,7 @@ int main(void)
     RUN_TEST(test_sm_get_pc_reads_back);
     RUN_TEST(test_sm_is_enabled_reads_back);
     RUN_TEST(test_sm_get_instr_reads_current);
+    RUN_TEST(test_sm_is_stalled);
     RUN_TEST(test_sm_exec_ignores_delay);
     RUN_TEST(test_sideset_applies_while_stalled);
 
@@ -1565,6 +1593,7 @@ int main(void)
     RUN_TEST(test_irq_rel_preserves_high_bit);
     RUN_TEST(test_wait_irq_rel);
     RUN_TEST(test_clkdiv_restart_realigns_sms);
+    RUN_TEST(test_clkdiv_freeruns_while_disabled);
 
 #if PIO_SIM_HAS_RXFIFO_MOV
     RUN_TEST(test_mov_rxfifo_roundtrip);

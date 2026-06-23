@@ -82,8 +82,10 @@ static uint64_t pads_live(const pio_pads_t *p)
 
 /* Recompute the pad's PIO drive (pin_dirs / pin_levels) from the per-SM output
  * registers of every block that owns the pad. Higher-numbered state machines (and
- * later owner blocks) take precedence on a shared pin. Called after every PIO pin
- * or pindir write, so the resolved state is always current. */
+ * later owner blocks) take precedence on a shared pin — the hardware rule: when
+ * multiple state machines output to a GPIO on the same cycle, the highest-numbered
+ * one wins (RP2040 §3.5.6.1 / RP2350 PIO GPIO output priority). Called after every
+ * PIO pin or pindir write, so the resolved state is always current. */
 static void resolve_pads(pio_pads_t *p)
 {
     uint64_t oe = 0;
@@ -163,6 +165,8 @@ void pio_sim_sm_set_enabled(pio_sim_t *pio, uint8_t sm, bool enabled)
 }
 
 bool pio_sim_sm_is_enabled(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].enabled; }
+
+bool pio_sim_sm_is_stalled(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].stalled; }
 
 void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled)
 {
@@ -1293,11 +1297,11 @@ void pio_sim_tick(pio_sim_t *pio)
 {
     for (uint8_t i = 0; i < PIO_SIM_NUM_SM; i++) {
         pio_sm_t *sm = &pio->sm[i];
-        if (!sm->enabled) {
-            continue;
-        }
         /* Clock divider: accumulate 1.0 (in 8-bit frac units = 256) each system
-         * tick; the SM advances when the accumulator reaches the divider. */
+         * tick; an SM cycle is due when the accumulator reaches the divider. The
+         * divider free-runs even while the SM is disabled (only execution is gated
+         * by enable) — matching hardware, which is why pio_enable_sm_mask_in_sync
+         * must restart the dividers to align them rather than rely on enable timing. */
         uint32_t div_units = ((uint32_t)sm->clkdiv_int << 8U) | sm->clkdiv_frac;
         if (div_units == 0U) {
             div_units = (65536U << 8U); /* div_int == 0 → 65536 */
@@ -1305,7 +1309,9 @@ void pio_sim_tick(pio_sim_t *pio)
         sm->clk_accum += 256U;
         if (sm->clk_accum >= div_units) {
             sm->clk_accum -= div_units;
-            sm_cycle(pio, i);
+            if (sm->enabled) {
+                sm_cycle(pio, i);
+            }
         }
     }
     if (pio->on_tick != NULL) {

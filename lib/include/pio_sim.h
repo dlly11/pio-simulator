@@ -253,6 +253,11 @@ void pio_sim_sm_set_enabled(pio_sim_t *pio, uint8_t sm, bool enabled);
 /** Whether state machine `sm` is currently enabled. */
 bool pio_sim_sm_is_enabled(const pio_sim_t *pio, uint8_t sm);
 
+/** Whether state machine `sm` is currently stalled: its last cycle's instruction
+ * could not make progress — a WAIT not yet satisfied, a blocking PULL/PUSH on an
+ * empty/full FIFO, or a stalled instruction injected via pio_sim_sm_exec / OUT-EXEC. */
+bool pio_sim_sm_is_stalled(const pio_sim_t *pio, uint8_t sm);
+
 /** Enable/disable the state machines selected in `sm_mask` atomically. When
  * enabling, their clock dividers are restarted in phase (as the SDK's
  * pio_enable_sm_mask_in_sync does) so equal-divider SMs run in lockstep. */
