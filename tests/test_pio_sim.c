@@ -545,6 +545,19 @@ static void test_clkdiv_fractional_cadence(void)
     TEST_ASSERT_EQUAL_UINT8(4U, pio_sim_sm_get_pc(&pio, 0)); /* avg 2.5 over 10 ticks */
 }
 
+/* div_int == 0 encodes a divider of 65536 (plus the fraction) — it must not
+ * collapse to full speed when div_frac is non-zero. */
+static void test_clkdiv_int0_frac_is_65536(void)
+{
+    const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 1)};
+    load_prog(prog, 1);
+    pio_sim_sm_set_clkdiv(&pio, 0, 0, 128); /* 65536.5 */
+    pio_sim_run(&pio, 65536);
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].x); /* not yet: divider is 65536.5 */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].x); /* fires on tick 65537 */
+}
+
 static void test_wrap_returns_to_bottom(void)
 {
     /* Two-instruction loop incrementing y via set; wrap top=1 -> bottom=0. */
@@ -1593,6 +1606,7 @@ int main(void)
     RUN_TEST(test_delay_holds_pc);
     RUN_TEST(test_clkdiv_slows_execution);
     RUN_TEST(test_clkdiv_fractional_cadence);
+    RUN_TEST(test_clkdiv_int0_frac_is_65536);
     RUN_TEST(test_wrap_returns_to_bottom);
 
     RUN_TEST(test_fifo_join_rx_depth_8);

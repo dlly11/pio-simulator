@@ -1309,10 +1309,9 @@ void pio_sim_tick(pio_sim_t *pio)
          * divider free-runs even while the SM is disabled (only execution is gated
          * by enable) — matching hardware, which is why pio_enable_sm_mask_in_sync
          * must restart the dividers to align them rather than rely on enable timing. */
-        uint32_t div_units = ((uint32_t)sm->clkdiv_int << 8U) | sm->clkdiv_frac;
-        if (div_units == 0U) {
-            div_units = (65536U << 8U); /* div_int == 0 → 65536 */
-        }
+        /* div_int == 0 encodes 65536 regardless of the fractional part. */
+        uint32_t div_int = (sm->clkdiv_int == 0U) ? 65536U : (uint32_t)sm->clkdiv_int;
+        uint32_t div_units = (div_int << 8U) | sm->clkdiv_frac;
         sm->clk_accum += 256U;
         if (sm->clk_accum >= div_units) {
             sm->clk_accum -= div_units;
