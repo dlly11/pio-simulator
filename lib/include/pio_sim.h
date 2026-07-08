@@ -352,6 +352,14 @@ typedef enum {
     PIO_STATUS_TX_LEVEL = 0, /* all-ones while TX FIFO level < N            */
     PIO_STATUS_RX_LEVEL = 1, /* all-ones while RX FIFO level < N            */
     PIO_STATUS_IRQ_SET = 2,  /* RP2350: all-ones while IRQ flag N is set    */
+#if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
+    /* RP2350 selects the IRQ flag's PIO block via EXECCTRL STATUS_N[4:3]
+     * (0 = this PIO, 1 = prev, 2 = next); modelled as distinct selectors here.
+     * The block links come from pio_sim_set_irq_neighbors / group init; an
+     * unlinked neighbour reads the flag as clear. */
+    PIO_STATUS_IRQ_SET_PREV = 3, /* all-ones while IRQ flag N of the prev PIO is set */
+    PIO_STATUS_IRQ_SET_NEXT = 4, /* all-ones while IRQ flag N of the next PIO is set */
+#endif
 } pio_status_sel_t;
 
 /** Configure the MOV STATUS source: comparison against a FIFO level, or (on
@@ -631,8 +639,10 @@ void pio_sim_dma_step_many(pio_sim_dma_t *const *chans, uint8_t n);
 
 /** Convenience: tick `dma->pio` while servicing the channel (and any chained
  * channels) until done or `max_ticks` elapse. Returns the number of ticks run.
- * For several independent channels or a multi-PIO group, call pio_sim_dma_step
- * yourself around your own tick loop instead. */
+ * Limitation: after a chain transition only the *current* channel's PIO block
+ * is ticked, so a chain crossing PIO blocks starves the earlier block. For
+ * several independent channels, cross-PIO chains, or a multi-PIO group, call
+ * pio_sim_dma_step yourself around your own tick loop instead. */
 uint64_t pio_sim_dma_run(pio_sim_dma_t *dma, uint64_t max_ticks);
 
 /* ── Instruction encoding helpers (match pico-sdk pio_encode_*) ────────────── */
@@ -666,7 +676,12 @@ uint16_t pio_sim_encode_wait_jmppin(uint8_t polarity, uint8_t index);
 #endif
 uint16_t pio_sim_encode_nop(void);
 
-/** Execute one instruction immediately on `sm` (like pio_sm_exec). */
+/** Execute one instruction immediately on `sm` (like pio_sm_exec / an
+ * SMx_INSTR write). Side-set applies, but the instruction's delay field is
+ * ignored — as on silicon, where forced instructions skip their delay cycles
+ * (RP2040 datasheet §3.4.5.2). Instructions injected via OUT/MOV EXEC *do*
+ * execute their delay. PC only changes if the instruction writes it; a
+ * stalling instruction latches and is retried on the SM's own cycles. */
 void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn);
 
 /* Side-set / delay field positions and operand encodings. */

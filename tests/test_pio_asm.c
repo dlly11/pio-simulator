@@ -506,6 +506,38 @@ static void test_assemble_directives_and_apply(void)
 #endif
 }
 
+#if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
+/* `.mov_status irq next|prev set N` selects the neighbouring block's flag. */
+static void test_mov_status_irq_next_prev_directive(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program s\n.mov_status irq next set 3\n    nop\n", NULL, &p), p.error);
+    TEST_ASSERT_TRUE(p.has_mov_status);
+    TEST_ASSERT_EQUAL_INT(PIO_STATUS_IRQ_SET_NEXT, p.mov_status_sel);
+    TEST_ASSERT_EQUAL_UINT8(3U, p.mov_status_n);
+
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program s\n.mov_status irq prev set 5\n    nop\n", NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_INT(PIO_STATUS_IRQ_SET_PREV, p.mov_status_sel);
+    TEST_ASSERT_EQUAL_UINT8(5U, p.mov_status_n);
+
+    /* Plain `irq set N` stays local. */
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program s\n.mov_status irq set 1\n    nop\n", NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_INT(PIO_STATUS_IRQ_SET, p.mov_status_sel);
+
+    /* Applied config lands on the SM. */
+    pio_sim_t pio;
+    pio_sim_init(&pio);
+    TEST_ASSERT_TRUE(
+        pio_asm_assemble(".program s\n.mov_status irq next set 3\n    nop\n", NULL, &p));
+    pio_asm_apply_program_config(&pio, 0, &p);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)PIO_STATUS_IRQ_SET_NEXT, pio.sm[0].status_sel);
+    TEST_ASSERT_EQUAL_UINT8(3U, pio.sm[0].status_n);
+}
+#endif
+
 /* A line with more tokens than the assembler holds is rejected, not silently
  * truncated (which would drop a trailing side-set / delay and mis-encode). */
 static void test_too_many_tokens_errors(void)
@@ -764,6 +796,9 @@ int main(void)
     RUN_TEST(test_assemble_comments_and_binary);
     RUN_TEST(test_assemble_expressions);
     RUN_TEST(test_assemble_directives_and_apply);
+#if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
+    RUN_TEST(test_mov_status_irq_next_prev_directive);
+#endif
     RUN_TEST(test_too_many_tokens_errors);
     RUN_TEST(test_undefined_symbol_errors);
     RUN_TEST(test_load_program_at_origin);

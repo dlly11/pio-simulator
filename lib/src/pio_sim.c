@@ -720,6 +720,18 @@ static uint32_t read_status(const pio_sim_t *pio, const pio_sm_t *sm)
 #if PIO_SIM_HAS_IRQ_STATUS
         cond = pio_sim_irq_get(pio, (uint8_t)(sm->status_n & 7U));
         break;
+#if PIO_SIM_HAS_IRQ_PREVNEXT
+    case PIO_STATUS_IRQ_SET_PREV:
+        /* Unlinked neighbour reads clear, matching irq_target_block's NULL
+         * convention for prev/next IRQ instructions. */
+        cond = (pio->irq_prev != NULL) &&
+               pio_sim_irq_get(pio->irq_prev, (uint8_t)(sm->status_n & 7U));
+        break;
+    case PIO_STATUS_IRQ_SET_NEXT:
+        cond = (pio->irq_next != NULL) &&
+               pio_sim_irq_get(pio->irq_next, (uint8_t)(sm->status_n & 7U));
+        break;
+#endif
 #else
         /* RP2040: no IRQ status source; fall through to TX-level behaviour. */
         /* fallthrough */
@@ -986,10 +998,12 @@ static bool exec_out(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand, uint8_t *nex
         count = 32;
     }
     if (sm->autopull && (sm->osr_count >= sm->pull_thresh)) {
-        if (!osr_refill(sm)) {
-            sm->fdebug |= PIO_FDEBUG_TXSTALL; /* autopull blocked by empty TX */
-            return true;                      /* TX empty: stall */
-        }
+        /* The background refill at the top of this cycle already ran, so an
+         * exhausted OSR here means TX was empty: stall. The OUT then completes
+         * on a later cycle — at least one after a word arrives — matching the
+         * §3.5.4.1 rule that an OUT cannot fill and shift the OSR same-cycle. */
+        sm->fdebug |= PIO_FDEBUG_TXSTALL;
+        return true;
     }
     uint32_t out_val;
     if (sm->out_dir == PIO_SHIFT_RIGHT) {
@@ -1004,16 +1018,13 @@ static bool exec_out(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand, uint8_t *nex
         sm->osr_count = 32;
     }
     out_store(pio, sm, dest, out_val, count, next_pc, set_pc);
-    /* Eager autopull: refill the OSR the moment it reaches the threshold (end of
-     * this OUT), so a following MOV / JMP !OSRE sees the freshly pulled word, as
-     * on hardware (which prefetches). If TX is empty, leave the OSR empty — the
-     * next OUT's start-of-instruction check stalls and flags TXSTALL. (The
-     * datasheet notes the exact refill timing is pipeline-dependent; this models
-     * the common end-of-OUT refill.) Autopush is already eager: exec_in drains
-     * the ISR at the end of the IN that crosses its threshold. */
-    if (sm->autopull && (sm->osr_count >= sm->pull_thresh)) {
-        (void)osr_refill(sm);
-    }
+    /* No in-instruction refill: the background autopull at the top of the next
+     * SM cycle (sm_cycle) tops the OSR up before any following instruction
+     * executes, so back-to-back OUTs still stream one word per cycle from a
+     * fed FIFO, and JMP !OSRE / PULL-as-barrier observe the refreshed state.
+     * Autopush is unchanged and deliberately eager: exec_in drains the ISR at
+     * the end of the IN that crosses its threshold, matching the datasheet
+     * pseudo-code (stall-before-shift when RX is full). */
     return false;
 }
 
@@ -1285,6 +1296,19 @@ static void sm_cycle(pio_sim_t *pio, uint8_t sm_idx)
 {
     pio_sm_t *sm = &pio->sm[sm_idx];
 
+    /* Background autopull: hardware tops the OSR up from TX on any cycle where
+     * the shift count has reached the threshold — stall and delay cycles
+     * included — independently of what instruction is executing (RP2040
+     * datasheet §3.5.4.1). Running it before this cycle's instruction also
+     * enforces the documented rule that an OUT cannot fill the OSR and shift
+     * from it on the same cycle: an OUT that finds the OSR exhausted stalls at
+     * least one cycle while the refill lands. (The datasheet notes the exact
+     * refill point is pipeline-dependent and not to be relied upon; this
+     * models the documented rules at one-tick granularity.) */
+    if (sm->autopull && (sm->osr_count >= sm->pull_thresh)) {
+        (void)osr_refill(sm);
+    }
+
     if (sm->delay > 0U) {
         sm->delay--;
         return;
@@ -1490,12 +1514,15 @@ void pio_sim_group_enable_sm_mask_sync(pio_sim_group_t *g, const uint8_t *masks)
 
 void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn)
 {
-    /* Execute immediately, out of band, like pio_sm_exec(). Side-set and delay
-     * still apply; PC is untouched unless the instruction writes it. Clear any
-     * stall latched by the SM's own program first: the injected instruction is
-     * a fresh first presentation, so first-cycle side effects (e.g. `irq n
-     * wait` raising its flag) must fire — otherwise the wait could never be
-     * satisfied. */
+    /* Execute immediately, out of band, like pio_sm_exec(). Side-set still
+     * applies but the delay field is IGNORED — matching silicon, where delay
+     * cycles on a forced (SMx_INSTR-written) instruction do not occur (RP2040
+     * datasheet §3.4.5.2; contrast OUT/MOV EXEC, whose injected instruction
+     * does execute its delay — see sm_cycle's from_exec path). PC is untouched
+     * unless the instruction writes it. Clear any stall latched by the SM's
+     * own program first: the injected instruction is a fresh first
+     * presentation, so first-cycle side effects (e.g. `irq n wait` raising its
+     * flag) must fire — otherwise the wait could never be satisfied. */
     pio->sm[SM_IDX(sm)].stalled = false;
     uint8_t next_pc = 0;
     bool set_pc = false;

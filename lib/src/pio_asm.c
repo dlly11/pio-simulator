@@ -1303,6 +1303,19 @@ static bool parse_mov_status(pa_parse_state_t *ps, char *tok[], uint8_t nt)
 #if PIO_SIM_HAS_IRQ_STATUS
     } else if (ieq(tok[1], "irq")) {
         out->mov_status_sel = PIO_STATUS_IRQ_SET;
+#if PIO_SIM_HAS_IRQ_PREVNEXT
+        /* `irq next set N` / `irq prev set N`: the flag is read from the
+         * neighbouring PIO block (EXECCTRL STATUS_N[4:3] on RP2350). */
+        for (uint8_t i = 2; (i + 1U) < nt; i++) {
+            if (ieq(tok[i], "next")) {
+                out->mov_status_sel = PIO_STATUS_IRQ_SET_NEXT;
+            } else if (ieq(tok[i], "prev")) {
+                out->mov_status_sel = PIO_STATUS_IRQ_SET_PREV;
+            } else {
+                /* `set` marker or other positional token: ignore. */
+            }
+        }
+#endif
 #endif
     } else {
         return false;
