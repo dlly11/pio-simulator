@@ -15,8 +15,13 @@ Pico SDK, no RTOS.
   clock. Non-blocking FIFO ops match the hardware: `push noblock` on a full RX
   FIFO discards the word and clears the ISR; `pull noblock` on an empty TX FIFO
   loads the OSR from scratch X. On RP2350 it also models the 48-GPIO window
-  (GPIOBASE), inter-PIO IRQ signalling, multi-PIO groups, and DMA pacing — see
-  below.
+  (GPIOBASE), inter-PIO IRQ signalling, and multi-PIO groups. Companion modules
+  cover the chip around the block: `pio_gpio` (PADS_BANK0 pad registers and the
+  IO_BANK0 FUNCSEL mux with output/input overrides), `pio_dma` (the full 12/16-
+  channel DMA controller with chaining, IRQs, pacing timers and the CRC
+  sniffer), `pio_clock` (XOSC→PLL→clk_sys tree with tick↔time conversion), and
+  `pio_chip` (all blocks + shared pads + DMA + clock behind one tick call) — see
+  Scope below.
 - **`pio_asm`** — a pioasm-compatible assembler: all mnemonics and operand forms
   (incl. RP2350's `mov rxfifo[]`, `wait jmppin`, `irq/wait prev|next`, `mov
   pindirs`), every directive (`.program`, `.define`, `.side_set`, `.wrap_target`,
@@ -127,18 +132,46 @@ the RP2350 IN pin count, which has no RP2040 equivalent and is ignored there).
 `.origin` and `.pio_version` are recorded as metadata only — `.origin` is advisory
 since the load address is passed explicitly to `pio_asm_load_program`.
 
-## Scope (what's intentionally not modelled)
+## Scope
 
 This is a **functional** simulator: one `pio_sim_tick()` is one PIO system clock,
 and the per-SM clock divider is rate-exact (the 16.8 fractional accumulator
-averages to `int + frac/256` cycles per SM step). It deliberately does **not**
-model chip-level concerns outside the PIO block: real-time/wall-clock, the
-PLL/clock tree, GPIO pad electricals (drive strength, slew, schmitt/IE/OD), the
-GPIO function mux, or a full DMA controller (the DMA model is DREQ-paced — enough
-for PIO↔DMA interaction tests, not a DMA engine). One PIO timing detail is a known
-approximation: autopull/autopush refill is modelled at the end of the
-triggering OUT/IN, which the datasheet notes is pipeline-dependent and not to be
-relied upon at cycle granularity.
+averages to `int + frac/256` cycles per SM step). The chip-level surroundings of
+the PIO block are modelled too:
+
+- **Clock tree** (`pio_clock.h`): XOSC → PLL_SYS → clk_sys divider with
+  datasheet-validated parameters and exact integer tick↔ns/µs conversion. It
+  does not change stepping — a tick is still one clk_sys cycle; the tree gives
+  it a duration.
+- **GPIO pads** (`pio_gpio.h`): PADS_BANK0 with IE, OD, pulls (both enabled =
+  bus keeper) and RP2350 pad isolation simulated exactly; DRIVE strength,
+  SLEWFAST and SCHMITT are accepted/stored but are analog and do not affect the
+  digital simulation.
+- **GPIO function mux** (`pio_gpio.h`): per-pin FUNCSEL routing with
+  OUTOVER/OEOVER/INOVER; inputs always visible to the PIO, as on silicon.
+- **DMA** (`pio_dma.h`): the full 12/16-channel controller — address
+  generation, rings, chaining/null triggers, DREQ + pacing timers, byte swap,
+  the CRC sniffer, IRQ lines and abort.
+- **Chip umbrella** (`pio_chip.h`): all PIO blocks + shared pads + DMA + clock
+  in one `pio_chip_tick()`.
+
+Documented simulator-only deviations (each noted at its API):
+
+- Pins reset to a sim-only `LEGACY_ANY_PIO` function (every block may drive
+  every pin) and pads reset to friendly defaults (no pulls). Hardware-accurate
+  routing/reset are opt-in via `pio_sim_gpio_set_function` and
+  `pio_sim_pads_reset_hw`.
+- The DMA moves one atomic element per tick, whole-controller, with
+  level-sensitive DREQ — deterministic, and equivalent for PIO-FIFO workloads,
+  but not the pipelined bus of real silicon.
+- Autopull is a background OSR refill at one-tick granularity, following the
+  datasheet rules (refills during stalls/delays; an OUT cannot fill and shift
+  the OSR in one cycle). The datasheet notes the exact refill point is
+  pipeline-dependent and not to be relied upon.
+
+Still intentionally out of scope: analog pad behaviour (drive-strength
+contention, slew, hysteresis), real-time execution, bus-cycle-exact DMA
+pipelining, and the RP2350 DMA MPU/security attributes.
 
 ## Build & test
 
@@ -205,6 +238,10 @@ pio_sim_init(&pio);
 pio_program_t prog;
 pio_asm_assemble(".program blink\n set pins, 1 [1]\n set pins, 0 [1]\n", NULL, &prog);
 pio_asm_load_program(&pio, /*sm=*/0, /*offset=*/0, &prog);
+/* Loading only writes the instruction words. Directives that map to SM config
+ * (.clock_div, .fifo, .mov_status, .out/.in/.set, side-set) take effect only
+ * via pio_asm_apply_program_config: */
+pio_asm_apply_program_config(&pio, /*sm=*/0, &prog);
 pio_sim_sm_set_enabled(&pio, 0, true);
 
 for (int i = 0; i < 8; i++) pio_sim_tick(&pio);

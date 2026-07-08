@@ -4,8 +4,11 @@
 
 #include "unity.h"
 
+#include "pio_chip.h"
 #include "pio_dma.h"
 #include "pio_sim.h"
+
+#include "pio_gpio.h"
 
 static pio_sim_t pio;
 static pio_dma_t dma;
@@ -419,6 +422,63 @@ static void test_cross_pio_transfer_in_group(void)
     TEST_ASSERT_EQUAL_HEX32(0xAB2U, pio_sim_sm_get_osr(&p2, 0));
 }
 
+static pio_chip_t chip; /* file scope: too large for the test stack */
+
+static void test_chip_loopback_dma_pin_dma(void)
+{
+    /* Whole-chip path: DMA -> PIO0 TX -> pin 0 (via FUNCSEL) -> PIO1 input ->
+     * PIO1 RX -> DMA, using pio_chip_tick for lockstep, plus a wall-clock
+     * conversion from the default tree. */
+    pio_chip_init(&chip);
+    pio_sim_t *p0 = pio_chip_pio(&chip, 0);
+    pio_sim_t *p1 = pio_chip_pio(&chip, 1);
+
+    /* PIO0 SM0: pull a word, drive its LSB onto pin 0 (shift right = LSB first). */
+    pio_sim_sm_set_out_shift(p0, 0, PIO_SHIFT_RIGHT, false, 32);
+    pio_sim_sm_set_out_pins(p0, 0, 0, 1);
+    pio_sim_sm_set_pindirs(p0, 0, 0, 1, true);
+    const uint16_t src_prog[] = {pio_sim_encode_pull(false, true),
+                                 pio_sim_encode_out(PIO_DST_PINS, 1),
+                                 pio_sim_encode_jmp(PIO_COND_ALWAYS, 2)};
+    pio_sim_load(p0, 0, src_prog, 3);
+    pio_sim_sm_set_wrap(p0, 0, 0, 2);
+    pio_sim_sm_set_enabled(p0, 0, true);
+    pio_sim_gpio_set_function(p0, 0, PIO_GPIO_FUNC_PIO0); /* pad follows PIO0 */
+
+    /* PIO1 SM0: wait for the rising pin, capture it, push once, park. */
+    pio_sim_sm_set_in_base(p1, 0, 0);
+    const uint16_t cap_prog[] = {pio_sim_encode_wait(1, PIO_WAIT_PIN, 0),
+                                 pio_sim_encode_in(PIO_SRC_PINS, 1),
+                                 pio_sim_encode_push(false, true),
+                                 pio_sim_encode_jmp(PIO_COND_ALWAYS, 3)};
+    pio_sim_load(p1, 0, cap_prog, 4);
+    pio_sim_sm_set_wrap(p1, 0, 0, 3);
+    pio_sim_sm_set_enabled(p1, 0, true);
+
+    static uint32_t word_in = 0x1U;
+    static uint32_t word_out = 0;
+    pio_dma_channel_config_t c;
+    pio_dma_channel_get_default_config(&c, 0);
+    c.treq_sel = PIO_DMA_DREQ_PIO_TX(0, 0);
+    pio_dma_channel_configure(&chip.dma, 0, &c, pio_dma_addr_txf(0, 0),
+                              pio_dma_addr_mem(&word_in), 1, true);
+    pio_dma_channel_get_default_config(&c, 1);
+    c.incr_write = true;
+    c.treq_sel = PIO_DMA_DREQ_PIO_RX(1, 0);
+    pio_dma_channel_configure(&chip.dma, 1, &c, pio_dma_addr_mem(&word_out),
+                              pio_dma_addr_rxf(1, 0), 1, true);
+
+    pio_chip_run(&chip, 40);
+    TEST_ASSERT_FALSE(pio_dma_channel_is_busy(&chip.dma, 1));
+    TEST_ASSERT_EQUAL_HEX32(0x1U, word_out & 0x1U);
+    /* 40 chip ticks at the boot-default clk_sys have a defined duration. */
+#if PIO_SIM_PIO_VERSION >= 1
+    TEST_ASSERT_EQUAL_UINT64(267ULL, pio_chip_ticks_to_ns(&chip, 40)); /* 150 MHz */
+#else
+    TEST_ASSERT_EQUAL_UINT64(320ULL, pio_chip_ticks_to_ns(&chip, 40)); /* 125 MHz */
+#endif
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -437,5 +497,6 @@ int main(void)
     RUN_TEST(test_one_transfer_per_tick_and_priority);
     RUN_TEST(test_channel_count_matches_platform);
     RUN_TEST(test_cross_pio_transfer_in_group);
+    RUN_TEST(test_chip_loopback_dma_pin_dma);
     return UNITY_END();
 }

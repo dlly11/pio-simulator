@@ -322,6 +322,8 @@ void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled);
 
 /* ── Configuration (mirrors the pico-sdk sm_config_set_* surface) ──────────── */
 
+/** Program wrap. Both addresses are inclusive: the instruction at `top`
+ * executes, then the PC wraps to `bottom` (unless `top` jumped). */
 void pio_sim_sm_set_wrap(pio_sim_t *pio, uint8_t sm, uint8_t bottom, uint8_t top);
 /** Side-set config. `bit_count` is the pico-sdk convention: data bits *plus*
  * the enable bit when `opt` is true (so `.side_set 2 opt` passes 3). */
