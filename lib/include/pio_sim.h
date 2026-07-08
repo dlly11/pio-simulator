@@ -101,12 +101,17 @@ typedef struct {
     bool sideset_opt;
     bool sideset_pindirs;
 
-    /* Per-SM output registers (the SM's continuously-driven pin output + pindir).
-     * out_pin_val holds the value of pins it has written via OUT/SET/MOV PINS or
-     * side-set; out_pin_oe marks the pins it drives as outputs (its pindir
-     * register). The pad resolves these across all driving SMs by priority. */
+    /* Per-SM output registers. out_pin_val latches the value of pins written via
+     * OUT/SET/MOV PINS or side-set; out_pin_oe marks the pins driven as outputs
+     * (the pindir register); wrote_this_cycle records which pins were actually
+     * written during the current SM cycle. The pad applies each cycle's writes
+     * with highest-SM-wins priority (hardware collates only *simultaneous*
+     * writes — see resolve_pads); unwritten pins hold their latched level.
+     * Mutate these only through the API / instructions, never directly, or the
+     * resolved pad state desynchronises. */
     uint64_t out_pin_val;
     uint64_t out_pin_oe;
+    uint64_t wrote_this_cycle;
 
     /* EXECCTRL output controls (sm_config_set_out_special). out_inline_en uses bit
      * out_en_sel of the OUT data as an output enable; when it is 0 the OUT does not

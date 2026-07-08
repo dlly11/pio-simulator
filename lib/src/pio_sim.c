@@ -81,21 +81,25 @@ static uint64_t pads_live(const pio_pads_t *p)
 }
 
 /* Recompute the pad's PIO drive (pin_dirs / pin_levels) from the per-SM output
- * registers of every block that owns the pad. Higher-numbered state machines (and
- * later owner blocks) take precedence on a shared pin — the hardware rule: when
- * multiple state machines output to a GPIO on the same cycle, the highest-numbered
- * one wins (RP2040 §3.5.6.1 / RP2350 PIO GPIO output priority). Called after every
- * PIO pin or pindir write, so the resolved state is always current. */
+ * registers of every block that owns the pad. Hardware collates the pin *writes*
+ * of each cycle: when multiple state machines write the same GPIO on the same
+ * cycle, the highest-numbered one wins (RP2040 §3.5.6.1 / RP2350 PIO GPIO output
+ * priority); a pin nobody writes this cycle holds its latched level, so on a
+ * later cycle any SM's write lands regardless of number. OUT_STICKY makes an SM
+ * re-assert its driven pins every cycle (see pio_sim_tick), which is what gives
+ * it continuous priority. Called after every pin/pindir write and once per tick. */
 static void resolve_pads(pio_pads_t *p)
 {
     uint64_t oe = 0;
-    uint64_t val = 0;
+    uint64_t val = p->pin_levels; /* unwritten pins keep their latched level */
     for (uint8_t o = 0; o < p->owner_count; o++) {
         const struct pio_sim *b = p->owners[o];
         for (uint8_t s = 0; s < PIO_SIM_NUM_SM; s++) {
-            uint64_t soe = b->sm[s].out_pin_oe;
-            val = (val & ~soe) | (b->sm[s].out_pin_val & soe);
-            oe |= soe;
+            /* Later iterations overwrite earlier ones, so on a same-cycle
+             * conflict the highest-numbered SM (of the latest owner) wins. */
+            uint64_t written = b->sm[s].wrote_this_cycle;
+            val = (val & ~written) | (b->sm[s].out_pin_val & written);
+            oe |= b->sm[s].out_pin_oe;
         }
     }
     p->pin_dirs = oe;
@@ -499,9 +503,10 @@ static bool pio_input_level(const pio_sim_t *pio, uint8_t pin)
     return (synced & bit) != 0U;
 }
 
-/* An OUT/SET/MOV PINS or side-set write updates this SM's pin output register, then
- * re-resolves the pad. The pin only drives the pad where this SM's pindir (oe) is
- * also set. */
+/* An OUT/SET/MOV PINS or side-set write updates this SM's pin output register,
+ * records the pins as written this cycle (they compete for same-cycle priority),
+ * then re-resolves the pad. The pin only drives the pad where this SM's pindir
+ * (oe) is also set. */
 static void drive_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count, uint32_t value)
 {
     count = clamp_pin_count(count);
@@ -512,6 +517,7 @@ static void drive_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count
         } else {
             sm->out_pin_val &= ~bit;
         }
+        sm->wrote_this_cycle |= bit;
     }
     resolve_pads(pio->pads);
 }
@@ -538,7 +544,9 @@ static void drive_pindirs(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t co
 static void release_out_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count)
 {
     for (uint8_t i = 0; i < count; i++) {
-        sm->out_pin_oe &= ~((uint64_t)1U << phys_pin(pio, (uint8_t)(base + i)));
+        uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
+        sm->out_pin_oe &= ~bit;
+        sm->wrote_this_cycle &= ~bit; /* released pins no longer compete */
     }
     resolve_pads(pio->pads);
 }
@@ -1309,6 +1317,12 @@ static void sm_cycle(pio_sim_t *pio, uint8_t sm_idx)
 
 void pio_sim_tick(pio_sim_t *pio)
 {
+    /* Open a fresh write window: a pin write is a one-shot event of the cycle
+     * it happens in, so last tick's writes must not keep competing for the
+     * same-cycle priority collation in resolve_pads. */
+    for (uint8_t i = 0; i < PIO_SIM_NUM_SM; i++) {
+        pio->sm[i].wrote_this_cycle = 0;
+    }
     for (uint8_t i = 0; i < PIO_SIM_NUM_SM; i++) {
         pio_sm_t *sm = &pio->sm[i];
         /* Clock divider: accumulate 1.0 (in 8-bit frac units = 256) each system
@@ -1324,9 +1338,18 @@ void pio_sim_tick(pio_sim_t *pio)
             sm->clk_accum -= div_units;
             if (sm->enabled) {
                 sm_cycle(pio, i);
+                if (sm->out_sticky) {
+                    /* OUT_STICKY: re-assert every driven pin each cycle, keeping
+                     * this SM in the priority contest even without a new write. */
+                    sm->wrote_this_cycle |= sm->out_pin_oe;
+                }
             }
         }
     }
+    /* Re-resolve once with every SM's final write set for this tick, so sticky
+     * re-assertions and the cross-SM priority collation land before the device
+     * hook and the input synchroniser observe the pads. */
+    resolve_pads(pio->pads);
     if (pio->on_tick != NULL) {
         pio->on_tick(pio, pio->device_ctx);
     }

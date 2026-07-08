@@ -225,28 +225,77 @@ static void test_multi_sm_pin_priority_and_override(void)
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 4)); /* SM1 released -> SM0 high shows */
 }
 
-/* Higher-priority SM wins even across cycles: SM1 drives pin 5 low and holds it,
- * SM0 drives it high a cycle later — SM1 still wins (a temporal last-writer model
- * would show high). */
-static void test_multi_sm_priority_across_cycles(void)
+/* Shared helper for the pin-arbitration tests: SM0 and SM1 both own pin 5. */
+static void setup_two_sms_on_pin5(void)
 {
+    for (uint8_t s = 0; s < 2; s++) {
+        pio_sim_sm_set_set_pins(&pio, s, 5, 1);
+        pio_sim_sm_set_pindirs(&pio, s, 5, 1, true);
+    }
+}
+
+/* Hardware collates only *simultaneous* writes: when SM0 and SM1 write pin 5 on
+ * the same cycle, the higher-numbered SM1 wins (RP2040 §3.5.6.1). */
+static void test_pin_priority_same_cycle_higher_sm_wins(void)
+{
+    const uint16_t sm1prog[] = {pio_sim_encode_set(PIO_DST_PINS, 0)}; /* low  */
+    const uint16_t sm0prog[] = {pio_sim_encode_set(PIO_DST_PINS, 1)}; /* high */
+    pio_sim_load(&pio, 0, sm1prog, 1);
+    pio_sim_load(&pio, 10, sm0prog, 1);
+    setup_two_sms_on_pin5();
+    pio_sim_sm_set_wrap(&pio, 1, 0, 0);
+    pio_sim_sm_set_pc(&pio, 1, 0);
+    pio_sim_sm_set_wrap(&pio, 0, 10, 10);
+    pio_sim_sm_set_pc(&pio, 0, 10);
+    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
+    pio_sim_run(&pio, 1);                        /* both write pin 5 this cycle */
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* SM1 (higher) wins -> low */
+}
+
+/* Without OUT_STICKY a pin write is a one-shot event: SM1 writes pin 5 low, and
+ * on a *later* cycle SM0 writes it high with no competing write — SM0's write
+ * lands (last writer), regardless of SM numbers. */
+static void test_pin_no_sticky_last_writer_wins(void)
+{
+    /* SM1 writes low on cycle 1 then parks on a jmp loop (no further writes);
+     * SM0 nops through cycle 1 and writes high on cycle 2. */
     const uint16_t sm1prog[] = {pio_sim_encode_set(PIO_DST_PINS, 0),
                                 pio_sim_encode_jmp(PIO_COND_ALWAYS, 1)};
     const uint16_t sm0prog[] = {pio_sim_encode_nop(), pio_sim_encode_set(PIO_DST_PINS, 1),
                                 pio_sim_encode_jmp(PIO_COND_ALWAYS, 12)};
     pio_sim_load(&pio, 0, sm1prog, 2);  /* SM1 at 0..1 */
     pio_sim_load(&pio, 10, sm0prog, 3); /* SM0 at 10..12 */
-    for (uint8_t s = 0; s < 2; s++) {
-        pio_sim_sm_set_set_pins(&pio, s, 5, 1);
-        pio_sim_sm_set_pindirs(&pio, s, 5, 1, true);
-    }
+    setup_two_sms_on_pin5();
     pio_sim_sm_set_wrap(&pio, 1, 1, 1);
     pio_sim_sm_set_pc(&pio, 1, 0);
     pio_sim_sm_set_wrap(&pio, 0, 12, 12);
     pio_sim_sm_set_pc(&pio, 0, 10);
     pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
-    pio_sim_run(&pio, 3);                        /* SM1 drove low (cyc1); SM0 drove high (cyc2) */
-    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* SM1 priority holds it low */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* cycle 1: SM1's low landed */
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 5)); /* cycle 2: SM0's uncontested high wins */
+}
+
+/* OUT_STICKY re-asserts the SM's driven pins every cycle, so a sticky SM1 keeps
+ * winning the per-cycle collation against SM0's later write even while parked. */
+static void test_out_sticky_retains_priority_each_cycle(void)
+{
+    const uint16_t sm1prog[] = {pio_sim_encode_set(PIO_DST_PINS, 0),
+                                pio_sim_encode_jmp(PIO_COND_ALWAYS, 1)};
+    const uint16_t sm0prog[] = {pio_sim_encode_nop(), pio_sim_encode_set(PIO_DST_PINS, 1),
+                                pio_sim_encode_jmp(PIO_COND_ALWAYS, 12)};
+    pio_sim_load(&pio, 0, sm1prog, 2);
+    pio_sim_load(&pio, 10, sm0prog, 3);
+    setup_two_sms_on_pin5();
+    pio_sim_sm_set_out_special(&pio, 1, true, false, 0); /* SM1 sticky */
+    pio_sim_sm_set_wrap(&pio, 1, 1, 1);
+    pio_sim_sm_set_pc(&pio, 1, 0);
+    pio_sim_sm_set_wrap(&pio, 0, 12, 12);
+    pio_sim_sm_set_pc(&pio, 0, 10);
+    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
+    pio_sim_run(&pio, 3); /* SM0's high on cycle 2 collides with SM1's sticky low */
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* sticky SM1 still wins */
 }
 
 /* Pin-span counts clamp to 32 (the SM pin window), so an oversized count can
@@ -1620,7 +1669,9 @@ int main(void)
     RUN_TEST(test_out_sticky_releases_on_inline_disable);
     RUN_TEST(test_out_inline_enable_gates_write);
     RUN_TEST(test_multi_sm_pin_priority_and_override);
-    RUN_TEST(test_multi_sm_priority_across_cycles);
+    RUN_TEST(test_pin_priority_same_cycle_higher_sm_wins);
+    RUN_TEST(test_pin_no_sticky_last_writer_wins);
+    RUN_TEST(test_out_sticky_retains_priority_each_cycle);
     RUN_TEST(test_out_count_clamped_to_32);
     RUN_TEST(test_pin_floats_when_released);
     RUN_TEST(test_host_release_pin);
