@@ -1025,6 +1025,13 @@ static bool exec_pushpull(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
     if (cond && (sm->osr_count < sm->pull_thresh)) {
         return false; /* ifempty but not empty enough → nop */
     }
+    /* With autopull enabled, a PULL is a no-op while the OSR still holds data
+     * (shift count below threshold): autopull already keeps the OSR topped up,
+     * so PULL acts as a barrier rather than popping — and losing — another TX
+     * word (RP2040 datasheet §3.5.4.2). */
+    if (sm->autopull && (sm->osr_count < sm->pull_thresh)) {
+        return false;
+    }
     if (pio_sim_tx_empty(pio, sm_idx)) {
         sm->fdebug |= PIO_FDEBUG_TXSTALL; /* PULL blocked/substituted on empty TX */
         if (block) {

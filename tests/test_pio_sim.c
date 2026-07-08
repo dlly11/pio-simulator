@@ -122,6 +122,26 @@ static void test_out_autopull_eager_refill(void)
     TEST_ASSERT_EQUAL_HEX32(0xBBBBBBBBU, pio.sm[0].x);
 }
 
+/* With autopull enabled, PULL is a no-op (a barrier) while the OSR is full —
+ * it must not pop and discard another TX word (RP2040 §3.5.4.2). */
+static void test_pull_noop_when_autopull_osr_full(void)
+{
+    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, true, 32);
+    const uint16_t prog[] = {
+        pio_sim_encode_out(PIO_DST_X, 32),  /* autopulls word A into OSR, X <- A */
+        pio_sim_encode_pull(false, true),   /* OSR already refilled with B: no-op */
+        pio_sim_encode_mov(PIO_DST_Y, PIO_MOV_NONE, PIO_SRC_OSR),
+    };
+    load_prog(prog, 3);
+    pio_sim_tx_push(&pio, 0, 0xAAAAAAAAU);
+    pio_sim_tx_push(&pio, 0, 0xBBBBBBBBU);
+    pio_sim_tx_push(&pio, 0, 0xCCCCCCCCU);
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_EQUAL_HEX32(0xAAAAAAAAU, pio.sm[0].x);
+    TEST_ASSERT_EQUAL_HEX32(0xBBBBBBBBU, pio.sm[0].y); /* PULL did not clobber OSR */
+    TEST_ASSERT_EQUAL_UINT8(1U, pio_sim_tx_level(&pio, 0)); /* C still queued */
+}
+
 /* Under OUT_STICKY, an OUT whose inline-enable bit is 0 *releases* the pins (clears
  * the SM's output enable) so they fall back to the pull / float — distinct from the
  * non-sticky case, which merely holds the previous value. */
@@ -1574,6 +1594,7 @@ int main(void)
     RUN_TEST(test_out_shift_left_takes_top_bits);
     RUN_TEST(test_out_autopull_refills);
     RUN_TEST(test_out_autopull_eager_refill);
+    RUN_TEST(test_pull_noop_when_autopull_osr_full);
     RUN_TEST(test_out_sticky_releases_on_inline_disable);
     RUN_TEST(test_out_inline_enable_gates_write);
     RUN_TEST(test_multi_sm_pin_priority_and_override);
