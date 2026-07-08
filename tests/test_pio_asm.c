@@ -582,6 +582,24 @@ static void test_load_program_pc_starts_at_offset(void)
     TEST_ASSERT_EQUAL_UINT32(5U, pio.sm[0].x); /* preamble ran */
 }
 
+/* Non-public defines are local to their program (pioasm scoping): one from a
+ * non-selected program must not leak into the selected program's symbols. */
+static void test_define_not_leaked_from_other_program(void)
+{
+    const char *src = ".program a\n.define LOCAL 7\n    set x, LOCAL\n"
+                      ".program b\n    set x, LOCAL\n";
+    pio_program_t p;
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src, "a", &p), p.error);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 7), p.insns[0]);
+    TEST_ASSERT_FALSE(pio_asm_assemble(src, "b", &p)); /* LOCAL is a's alone */
+    /* PUBLIC defines (and top-level ones) stay global. */
+    const char *src2 = ".define TOP 3\n"
+                       ".program a\n.define public SHARED 5\n    set x, SHARED\n"
+                       ".program b\n    set x, (SHARED + TOP)\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src2, "b", &p), p.error);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 8), p.insns[0]);
+}
+
 /* irq in absolute (non-rel) set/wait/clear forms. */
 static void test_irq_absolute(void)
 {
@@ -734,6 +752,7 @@ int main(void)
     RUN_TEST(test_undefined_symbol_errors);
     RUN_TEST(test_load_program_at_origin);
     RUN_TEST(test_reverse_binds_loosest);
+    RUN_TEST(test_define_not_leaked_from_other_program);
     RUN_TEST(test_in_status_rejected);
     RUN_TEST(test_load_program_pc_starts_at_offset);
     RUN_TEST(test_irq_absolute);

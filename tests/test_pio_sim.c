@@ -1050,6 +1050,24 @@ static void test_rxfifo_host_index_access(void)
     pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_HEX32(0x0BADC0DEU, pio.sm[0].osr);
 }
+/* Operand bit 4 discriminates the indexed RX-FIFO MOV from PUSH/PULL: a
+ * PUSH/PULL word with only reserved low bits set must still execute as a
+ * PUSH/PULL, not be misrouted to the RX register file. */
+static void test_mov_rxfifo_discriminator_bit4(void)
+{
+    pio_sim_sm_set_in_shift(&pio, 0, PIO_SHIFT_LEFT, false, 32);
+    const uint16_t prog[] = {
+        pio_sim_encode_in(PIO_SRC_X, 1),
+        (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | 0x20U | 0x01U), /* push block + rsvd bit0 */
+    };
+    load_prog(prog, 2);
+    pio.sm[0].x = 1;
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_FALSE(pio_sim_rx_empty(&pio, 0)); /* pushed as a normal PUSH */
+    uint32_t w = 0;
+    TEST_ASSERT_TRUE(pio_sim_rx_pop(&pio, 0, &w));
+    TEST_ASSERT_EQUAL_UINT32(1U, w);
+}
 #endif /* PIO_SIM_HAS_RXFIFO_MOV */
 
 static void test_irq_next_prev_have_no_local_effect(void)
@@ -1734,6 +1752,7 @@ int main(void)
     RUN_TEST(test_mov_rxfifo_roundtrip);
     RUN_TEST(test_mov_rxfifo_y_indexed);
     RUN_TEST(test_rxfifo_host_index_access);
+    RUN_TEST(test_mov_rxfifo_discriminator_bit4);
 #endif
     RUN_TEST(test_irq_next_prev_have_no_local_effect);
 #if PIO_SIM_HAS_WAIT_JMPPIN

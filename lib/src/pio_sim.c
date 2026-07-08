@@ -1055,8 +1055,8 @@ static bool exec_pushpull(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
 }
 
 #if PIO_SIM_HAS_RXFIFO_MOV
-/* RP2350 indexed RX-FIFO MOV (shares the PUSH/PULL opcode; selected when the
- * low five operand bits are non-zero with bit 4 set). bit 7 chooses direction
+/* RP2350 indexed RX-FIFO MOV (shares the PUSH/PULL opcode; selected when
+ * operand bit 4 is set). bit 7 chooses direction
  * (0: rxfifo[idx] <- ISR, 1: OSR <- rxfifo[idx]); bit 3 selects the index
  * source (1: literal in bits [1:0], 0: scratch register Y). The RX FIFO is
  * treated as a 4-entry register file; see PIO_FIFO_JOIN_RX_PUT/GET. */
@@ -1215,9 +1215,9 @@ static bool exec_one(pio_sim_t *pio, uint8_t sm_idx, uint16_t insn, uint8_t *nex
         break;
     case PIO_OP_PUSHPULL:
 #if PIO_SIM_HAS_RXFIFO_MOV
-        /* RP2350 indexed RX-FIFO MOV reuses this opcode (arg2 != 0); plain
-         * PUSH/PULL have the low five operand bits clear. */
-        if ((operand & 0x1FU) != 0U) {
+        /* RP2350 indexed RX-FIFO MOV reuses this opcode; operand bit 4 is the
+         * discriminator (plain PUSH/PULL encode it as 0). */
+        if ((operand & 0x10U) != 0U) {
             exec_mov_rxfifo(pio, sm_idx, operand);
         } else {
             stalled = exec_pushpull(pio, sm_idx, operand);

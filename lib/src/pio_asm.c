@@ -1348,11 +1348,17 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
         ps->idx = 0;
         return LINE_OK;
     }
-    /* `.define [PUBLIC] <NAME> <value>` — collected globally (a top-level define
-     * precedes any .program, so this must run before the in_program gate). */
+    /* `.define [PUBLIC] <NAME> <value>` — handled before the in_program gate
+     * because top-level defines precede any .program. Scoping matches pioasm:
+     * top-level and PUBLIC defines are global; a non-public define inside a
+     * program body is local to it, so one from a *non-selected* program must
+     * not leak into the selected program's symbol table. */
     if (ieq(tok[0], ".define")) {
         if (ps->pass == 1) {
             uint8_t ni = ((nt >= 2U) && ieq(tok[1], "public")) ? 2U : 1U;
+            if ((ni == 1U) && ps->seen_any_program && !ps->in_program) {
+                return LINE_OK; /* non-public define in another program: skip */
+            }
             uint32_t val = 0;
             if ((nt < (uint8_t)(ni + 2U)) ||
                 !resolve_uint_join(ps->ctx, tok, (uint8_t)(ni + 1U), nt, &val)) {
