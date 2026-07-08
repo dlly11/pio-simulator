@@ -5,6 +5,8 @@
 
 #include "pio_asm.h"
 
+#include "pio_sim_internal.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -186,17 +188,6 @@ static void expr_skip_ws(expr_t *e)
     }
 }
 
-/* Host-side 32-bit reversal for the `::` operator (mirrors pio_sim.c reverse32). */
-static uint32_t expr_reverse32(uint32_t v_in)
-{
-    uint32_t v = v_in;
-    v = ((v & 0x55555555U) << 1U) | ((v >> 1U) & 0x55555555U);
-    v = ((v & 0x33333333U) << 2U) | ((v >> 2U) & 0x33333333U);
-    v = ((v & 0x0F0F0F0FU) << 4U) | ((v >> 4U) & 0x0F0F0F0FU);
-    v = ((v & 0x00FF00FFU) << 8U) | ((v >> 8U) & 0x00FF00FFU);
-    v = (v << 16U) | (v >> 16U);
-    return v;
-}
 
 static int64_t expr_reverse(expr_t *e); /* lowest-precedence entry, fwd decl */
 
@@ -356,7 +347,7 @@ static int64_t expr_reverse(expr_t *e)
     expr_skip_ws(e);
     if ((e->p[0] == ':') && (e->p[1] == ':')) {
         e->p += 2;
-        return (int64_t)expr_reverse32((uint32_t)expr_reverse(e));
+        return (int64_t)pio_reverse32((uint32_t)expr_reverse(e));
     }
     return expr_shift(e);
 }
@@ -1645,7 +1636,7 @@ bool pio_asm_assemble(const char *src, const char *name, pio_program_t *out)
     (void)memset(&ctx, 0, sizeof(ctx));
     ctx.out = out;
 
-    pa_parse_state_t ps = {&ctx, name, 1, false, false, false, false, false, 0};
+    pa_parse_state_t ps = {.ctx = &ctx, .name = name, .pass = 1};
 
     /* Pass 1: select the program, collect labels and side-set/wrap. */
     if (!run_pass(&ps, src)) {

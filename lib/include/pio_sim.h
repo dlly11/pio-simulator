@@ -84,8 +84,8 @@ typedef struct {
     uint32_t y;
     uint32_t osr;
     uint32_t isr;
-    uint8_t osr_count; /* bits shifted out (0 = full, 32 = empty)  */
-    uint8_t isr_count; /* bits shifted in  (0 = empty, 32 = full)  */
+    uint8_t osr_count; /* bits consumed from the OSR: 0 = full (fresh word), 32 = exhausted */
+    uint8_t isr_count; /* bits accumulated in the ISR: 0 = empty, 32 = full                 */
 
     /* Shift configuration */
     pio_shift_dir_t out_dir;
@@ -167,6 +167,7 @@ typedef struct {
  * PIO_SIM_NUM_PINS, so 64-bit to cover RP2350's 48). Normally each PIO block owns
  * its own pads; a multi-PIO group can point several blocks at one shared
  * pio_pads_t so they drive and sample the same wires. */
+struct pio_sim; /* owners[] below points back at the blocks sharing these pads */
 typedef struct {
     /* Resolved PIO drive: recomputed from the owning state machines' per-SM output
      * registers on every pin/pindir write (see resolve_pads). pin_dirs marks pins
@@ -729,6 +730,14 @@ void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn);
 #define PIO_MOV_DST_PC 5U
 #define PIO_MOV_DST_ISR 6U
 #define PIO_MOV_DST_OSR 7U
+
+#if PIO_SIM_HAS_RXFIFO_MOV
+/* Indexed RX-FIFO MOV operand bits (RP2350; shares the PUSH/PULL opcode).
+ * Plain PUSH/PULL encode operand bit 4 as 0, so it discriminates the two. */
+#define PIO_MOV_RXFIFO_BIT 0x10U /* 1 = indexed RX-FIFO MOV, 0 = PUSH/PULL     */
+#define PIO_MOV_RXFIFO_GET 0x80U /* 1 = OSR <- rxfifo[idx], 0 = rxfifo[idx] <- ISR */
+#define PIO_MOV_RXFIFO_IDX 0x08U /* 1 = literal index in bits [1:0], 0 = Y     */
+#endif
 
 /* WAIT sources */
 #define PIO_WAIT_GPIO 0U

@@ -47,6 +47,7 @@
 
 #include "pio_sim.h"
 
+/* Included directly (IWYU): this header uses bool/uint*_t itself. */
 #include <stdbool.h>
 #include <stdint.h>
 

@@ -5,6 +5,8 @@
 
 #include "pio_sim.h"
 
+#include "pio_sim_internal.h"
+
 #include <string.h>
 
 /* ── FIFO ──────────────────────────────────────────────────────────────────── */
@@ -49,16 +51,6 @@ static bool fifo_pop(pio_fifo_t *f, uint32_t *v)
 
 static uint32_t mask_n(uint8_t n) { return (n >= 32U) ? 0xFFFFFFFFU : (((uint32_t)1U << n) - 1U); }
 
-static uint32_t reverse32(uint32_t v_in)
-{
-    uint32_t v = v_in;
-    v = ((v & 0x55555555U) << 1U) | ((v >> 1U) & 0x55555555U);
-    v = ((v & 0x33333333U) << 2U) | ((v >> 2U) & 0x33333333U);
-    v = ((v & 0x0F0F0F0FU) << 4U) | ((v >> 4U) & 0x0F0F0F0FU);
-    v = ((v & 0x00FF00FFU) << 8U) | ((v >> 8U) & 0x00FF00FFU);
-    v = (v << 16U) | (v >> 16U);
-    return v;
-}
 
 /* Map a state-machine pin "view" index to a physical GPIO. The PIO pin mux is a
  * 32-pin window (indices wrap mod 32); on RP2350 GPIOBASE then offsets the whole
@@ -1081,8 +1073,8 @@ static bool exec_pushpull(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
 static void exec_mov_rxfifo(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
 {
     pio_sm_t *sm = &pio->sm[sm_idx];
-    bool from_rx = (operand & 0x80U) != 0U;
-    bool idx_literal = (operand & 0x08U) != 0U;
+    bool from_rx = (operand & PIO_MOV_RXFIFO_GET) != 0U;
+    bool idx_literal = (operand & PIO_MOV_RXFIFO_IDX) != 0U;
     uint8_t idx = idx_literal ? (uint8_t)(operand & 0x3U) : (uint8_t)(sm->y & 0x3U);
     if (from_rx) {
         /* SM get is only valid with FJOIN_RX_GET set (GET or PUTGET mode). */
@@ -1114,7 +1106,7 @@ static void exec_mov(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand, uint8_t *nex
     if (mov_op == PIO_MOV_INVERT) {
         v = ~v;
     } else if (mov_op == PIO_MOV_REVERSE) {
-        v = reverse32(v);
+        v = pio_reverse32(v);
     } else {
         /* PIO_MOV_NONE: value unchanged. */
     }
@@ -1245,7 +1237,7 @@ static bool exec_one(pio_sim_t *pio, uint8_t sm_idx, uint16_t insn, uint8_t *nex
 #if PIO_SIM_HAS_RXFIFO_MOV
         /* RP2350 indexed RX-FIFO MOV reuses this opcode; operand bit 4 is the
          * discriminator (plain PUSH/PULL encode it as 0). */
-        if ((operand & 0x10U) != 0U) {
+        if ((operand & PIO_MOV_RXFIFO_BIT) != 0U) {
             exec_mov_rxfifo(pio, sm_idx, operand);
         } else {
             stalled = exec_pushpull(pio, sm_idx, operand);
@@ -1562,24 +1554,26 @@ uint16_t pio_sim_encode_irq(bool clear, bool wait, uint8_t index)
 #if PIO_SIM_HAS_RXFIFO_MOV
 uint16_t pio_sim_encode_mov_to_rxfifo(uint8_t index)
 {
-    /* op=100, bit4 (mov-rx discriminator) + bit3 (literal index) + index[1:0] */
-    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | 0x10U | 0x08U | (index & 0x3U));
+    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_BIT |
+                      PIO_MOV_RXFIFO_IDX | (index & 0x3U));
 }
 
 uint16_t pio_sim_encode_mov_from_rxfifo(uint8_t index)
 {
-    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | 0x80U | 0x10U | 0x08U | (index & 0x3U));
+    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_GET |
+                      PIO_MOV_RXFIFO_BIT | PIO_MOV_RXFIFO_IDX | (index & 0x3U));
 }
 
 uint16_t pio_sim_encode_mov_to_rxfifo_y(void)
 {
-    /* bit3 clear → index taken from scratch register Y */
-    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | 0x10U);
+    /* PIO_MOV_RXFIFO_IDX clear → index taken from scratch register Y */
+    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_BIT);
 }
 
 uint16_t pio_sim_encode_mov_from_rxfifo_y(void)
 {
-    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | 0x80U | 0x10U);
+    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_GET |
+                      PIO_MOV_RXFIFO_BIT);
 }
 #endif /* PIO_SIM_HAS_RXFIFO_MOV */
 

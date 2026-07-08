@@ -2,7 +2,9 @@
 cmake_minimum_required(VERSION 3.21)
 project(pio_sim LANGUAGES C)
 
-set(CMAKE_C_STANDARD 17)
+# The library is written to C11 (what the headers and README promise); keep the
+# build floor there so embedders on older toolchains aren't forced past it.
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Target chip: RP2040 (PIO version 0) or RP2350 (PIO version 1, a superset).
