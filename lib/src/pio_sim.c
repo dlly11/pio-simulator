@@ -40,6 +40,11 @@ static bool fifo_pop(pio_fifo_t *f, uint32_t *v)
     return true;
 }
 
+/* Public-API state-machine index guard: out-of-range `sm` is masked into 0..3
+ * rather than indexing out of bounds — the same defensive convention as the
+ * `irq & 7U` and `line & 1U` masks elsewhere in the API. */
+#define SM_IDX(sm) ((sm) & (PIO_SIM_NUM_SM - 1U))
+
 /* ── Bit helpers ───────────────────────────────────────────────────────────── */
 
 static uint32_t mask_n(uint8_t n) { return (n >= 32U) ? 0xFFFFFFFFU : (((uint32_t)1U << n) - 1U); }
@@ -161,16 +166,16 @@ void pio_sim_load(pio_sim_t *pio, uint8_t offset, const uint16_t *insns, uint8_t
     }
 }
 
-void pio_sim_sm_restart(pio_sim_t *pio, uint8_t sm) { sm_reset_exec(&pio->sm[sm]); }
+void pio_sim_sm_restart(pio_sim_t *pio, uint8_t sm) { sm_reset_exec(&pio->sm[SM_IDX(sm)]); }
 
 void pio_sim_sm_set_enabled(pio_sim_t *pio, uint8_t sm, bool enabled)
 {
-    pio->sm[sm].enabled = enabled;
+    pio->sm[SM_IDX(sm)].enabled = enabled;
 }
 
-bool pio_sim_sm_is_enabled(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].enabled; }
+bool pio_sim_sm_is_enabled(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].enabled; }
 
-bool pio_sim_sm_is_stalled(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].stalled; }
+bool pio_sim_sm_is_stalled(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].stalled; }
 
 void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled)
 {
@@ -188,21 +193,21 @@ void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled)
 
 void pio_sim_sm_set_wrap(pio_sim_t *pio, uint8_t sm, uint8_t bottom, uint8_t top)
 {
-    pio->sm[sm].wrap_bottom = bottom;
-    pio->sm[sm].wrap_top = top;
+    pio->sm[SM_IDX(sm)].wrap_bottom = bottom;
+    pio->sm[SM_IDX(sm)].wrap_top = top;
 }
 
 void pio_sim_sm_set_sideset(pio_sim_t *pio, uint8_t sm, uint8_t bit_count, bool opt, bool pindirs)
 {
     /* bit_count is the pico-sdk "bit_count" = data bits + (opt ? 1 : 0). */
-    pio->sm[sm].sideset_total_bits = bit_count;
-    pio->sm[sm].sideset_opt = opt;
-    pio->sm[sm].sideset_pindirs = pindirs;
+    pio->sm[SM_IDX(sm)].sideset_total_bits = bit_count;
+    pio->sm[SM_IDX(sm)].sideset_opt = opt;
+    pio->sm[SM_IDX(sm)].sideset_pindirs = pindirs;
 }
 
 void pio_sim_sm_set_sideset_base(pio_sim_t *pio, uint8_t sm, uint8_t base)
 {
-    pio->sm[sm].sideset_base = base;
+    pio->sm[SM_IDX(sm)].sideset_base = base;
 }
 
 /* Pin-span counts are at most 32 (the SM pin window): clamp so the pin-drive
@@ -211,29 +216,29 @@ static uint8_t clamp_pin_count(uint8_t count) { return (count > 32U) ? 32U : cou
 
 void pio_sim_sm_set_out_pins(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count)
 {
-    pio->sm[sm].out_base = base;
-    pio->sm[sm].out_count = clamp_pin_count(count);
+    pio->sm[SM_IDX(sm)].out_base = base;
+    pio->sm[SM_IDX(sm)].out_count = clamp_pin_count(count);
 }
 
 void pio_sim_sm_set_set_pins(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count)
 {
-    pio->sm[sm].set_base = base;
-    pio->sm[sm].set_count = clamp_pin_count(count);
+    pio->sm[SM_IDX(sm)].set_base = base;
+    pio->sm[SM_IDX(sm)].set_count = clamp_pin_count(count);
 }
 
 void pio_sim_sm_set_in_base(pio_sim_t *pio, uint8_t sm, uint8_t base)
 {
-    pio->sm[sm].in_base = base;
+    pio->sm[SM_IDX(sm)].in_base = base;
 }
 
 void pio_sim_sm_set_out_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count)
 {
-    pio->sm[sm].out_count = clamp_pin_count(count);
+    pio->sm[SM_IDX(sm)].out_count = clamp_pin_count(count);
 }
 
 void pio_sim_sm_set_set_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count)
 {
-    pio->sm[sm].set_count = clamp_pin_count(count);
+    pio->sm[SM_IDX(sm)].set_count = clamp_pin_count(count);
 }
 
 #if PIO_SIM_HAS_IN_PIN_COUNT
@@ -241,41 +246,44 @@ void pio_sim_sm_set_in_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count)
 {
     /* count == 0 or > 32 → 32 (unmasked), matching the hardware field where the
      * value 0 encodes "all 32 pins visible". */
-    pio->sm[sm].in_count = ((count == 0U) || (count > 32U)) ? 32U : count;
+    pio->sm[SM_IDX(sm)].in_count = ((count == 0U) || (count > 32U)) ? 32U : count;
 }
 #endif
 
-void pio_sim_sm_set_jmp_pin(pio_sim_t *pio, uint8_t sm, uint8_t pin) { pio->sm[sm].jmp_pin = pin; }
+void pio_sim_sm_set_jmp_pin(pio_sim_t *pio, uint8_t sm, uint8_t pin)
+{
+    pio->sm[SM_IDX(sm)].jmp_pin = pin;
+}
 
 void pio_sim_sm_set_out_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bool autopull,
                               uint8_t threshold)
 {
-    pio->sm[sm].out_dir = dir;
-    pio->sm[sm].autopull = autopull;
-    pio->sm[sm].pull_thresh = ((threshold == 0U) || (threshold > 32U)) ? 32U : threshold;
+    pio->sm[SM_IDX(sm)].out_dir = dir;
+    pio->sm[SM_IDX(sm)].autopull = autopull;
+    pio->sm[SM_IDX(sm)].pull_thresh = ((threshold == 0U) || (threshold > 32U)) ? 32U : threshold;
 }
 
 void pio_sim_sm_set_in_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bool autopush,
                              uint8_t threshold)
 {
-    pio->sm[sm].in_dir = dir;
-    pio->sm[sm].autopush = autopush;
-    pio->sm[sm].push_thresh = ((threshold == 0U) || (threshold > 32U)) ? 32U : threshold;
+    pio->sm[SM_IDX(sm)].in_dir = dir;
+    pio->sm[SM_IDX(sm)].autopush = autopush;
+    pio->sm[SM_IDX(sm)].push_thresh = ((threshold == 0U) || (threshold > 32U)) ? 32U : threshold;
 }
 
 void pio_sim_sm_set_out_special(pio_sim_t *pio, uint8_t sm, bool sticky, bool inline_out_en,
                                 uint8_t out_en_sel)
 {
-    pio->sm[sm].out_sticky = sticky;
-    pio->sm[sm].out_inline_en = inline_out_en;
-    pio->sm[sm].out_en_sel = (uint8_t)(out_en_sel & 0x1FU);
+    pio->sm[SM_IDX(sm)].out_sticky = sticky;
+    pio->sm[SM_IDX(sm)].out_inline_en = inline_out_en;
+    pio->sm[SM_IDX(sm)].out_en_sel = (uint8_t)(out_en_sel & 0x1FU);
 }
 
 void pio_sim_sm_set_clkdiv(pio_sim_t *pio, uint8_t sm, uint16_t div_int, uint8_t div_frac)
 {
     /* div_int == 0 means a divider of 65536 in hardware. */
-    pio->sm[sm].clkdiv_int = div_int;
-    pio->sm[sm].clkdiv_frac = div_frac;
+    pio->sm[SM_IDX(sm)].clkdiv_int = div_int;
+    pio->sm[SM_IDX(sm)].clkdiv_frac = div_frac;
 }
 
 void pio_sim_clkdiv_restart(pio_sim_t *pio, uint8_t sm_mask)
@@ -287,32 +295,32 @@ void pio_sim_clkdiv_restart(pio_sim_t *pio, uint8_t sm_mask)
     }
 }
 
-void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc) { pio->sm[sm].pc = pc; }
+void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc) { pio->sm[SM_IDX(sm)].pc = pc; }
 
-uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].pc; }
+uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].pc; }
 
 uint16_t pio_sim_sm_get_instr(const pio_sim_t *pio, uint8_t sm)
 {
-    const pio_sm_t *s = &pio->sm[sm];
+    const pio_sm_t *s = &pio->sm[SM_IDX(sm)];
     return s->exec_pending ? s->exec_insn : pio->insn[s->pc];
 }
 
 void pio_sim_sm_set_status_sel(pio_sim_t *pio, uint8_t sm, pio_status_sel_t sel, uint8_t n)
 {
-    pio->sm[sm].status_sel = (uint8_t)sel;
-    pio->sm[sm].status_n = n;
-    pio->sm[sm].status_override = false;
+    pio->sm[SM_IDX(sm)].status_sel = (uint8_t)sel;
+    pio->sm[SM_IDX(sm)].status_n = n;
+    pio->sm[SM_IDX(sm)].status_override = false;
 }
 
 void pio_sim_sm_set_status_value(pio_sim_t *pio, uint8_t sm, uint32_t value)
 {
-    pio->sm[sm].status_value = value;
-    pio->sm[sm].status_override = true;
+    pio->sm[SM_IDX(sm)].status_value = value;
+    pio->sm[SM_IDX(sm)].status_override = true;
 }
 
 void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join)
 {
-    pio_sm_t *s = &pio->sm[sm];
+    pio_sm_t *s = &pio->sm[SM_IDX(sm)];
     s->fifo_join = (uint8_t)join;
     switch (join) {
     case PIO_FIFO_JOIN_TX:
@@ -350,7 +358,7 @@ void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join)
 
 void pio_sim_sm_set_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count, bool out)
 {
-    pio_sm_t *s = &pio->sm[sm];
+    pio_sm_t *s = &pio->sm[SM_IDX(sm)];
     for (uint8_t i = 0; i < count; i++) {
         uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
         if (out) {
@@ -408,19 +416,25 @@ void pio_sim_set_input_sync_bypass(pio_sim_t *pio, uint64_t mask) { pio->pads->s
 
 bool pio_sim_tx_full(const pio_sim_t *pio, uint8_t sm)
 {
-    return pio->sm[sm].tx.count >= pio->sm[sm].tx.cap;
+    return pio->sm[SM_IDX(sm)].tx.count >= pio->sm[SM_IDX(sm)].tx.cap;
 }
-bool pio_sim_tx_empty(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].tx.count == 0U; }
+bool pio_sim_tx_empty(const pio_sim_t *pio, uint8_t sm)
+{
+    return pio->sm[SM_IDX(sm)].tx.count == 0U;
+}
 bool pio_sim_rx_full(const pio_sim_t *pio, uint8_t sm)
 {
-    return pio->sm[sm].rx.count >= pio->sm[sm].rx.cap;
+    return pio->sm[SM_IDX(sm)].rx.count >= pio->sm[SM_IDX(sm)].rx.cap;
 }
-bool pio_sim_rx_empty(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].rx.count == 0U; }
+bool pio_sim_rx_empty(const pio_sim_t *pio, uint8_t sm)
+{
+    return pio->sm[SM_IDX(sm)].rx.count == 0U;
+}
 
 bool pio_sim_tx_push(pio_sim_t *pio, uint8_t sm, uint32_t word)
 {
-    if (!fifo_push(&pio->sm[sm].tx, word)) {
-        pio->sm[sm].fdebug |= PIO_FDEBUG_TXOVER; /* host wrote a full TX FIFO */
+    if (!fifo_push(&pio->sm[SM_IDX(sm)].tx, word)) {
+        pio->sm[SM_IDX(sm)].fdebug |= PIO_FDEBUG_TXOVER; /* host wrote a full TX FIFO */
         return false;
     }
     return true;
@@ -428,8 +442,8 @@ bool pio_sim_tx_push(pio_sim_t *pio, uint8_t sm, uint32_t word)
 
 bool pio_sim_rx_pop(pio_sim_t *pio, uint8_t sm, uint32_t *word)
 {
-    if (!fifo_pop(&pio->sm[sm].rx, word)) {
-        pio->sm[sm].fdebug |= PIO_FDEBUG_RXUNDER; /* host read an empty RX FIFO */
+    if (!fifo_pop(&pio->sm[SM_IDX(sm)].rx, word)) {
+        pio->sm[SM_IDX(sm)].fdebug |= PIO_FDEBUG_RXUNDER; /* host read an empty RX FIFO */
         return false;
     }
     return true;
@@ -437,30 +451,30 @@ bool pio_sim_rx_pop(pio_sim_t *pio, uint8_t sm, uint32_t *word)
 
 void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm)
 {
-    fifo_clear(&pio->sm[sm].tx);
-    fifo_clear(&pio->sm[sm].rx);
+    fifo_clear(&pio->sm[SM_IDX(sm)].tx);
+    fifo_clear(&pio->sm[SM_IDX(sm)].rx);
 }
 
 #if PIO_SIM_HAS_RXFIFO_MOV
 uint32_t pio_sim_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index)
 {
-    return pio->sm[sm].rx.buf[index & 0x3U];
+    return pio->sm[SM_IDX(sm)].rx.buf[index & 0x3U];
 }
 
 void pio_sim_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word)
 {
-    pio->sm[sm].rx.buf[index & 0x3U] = word;
+    pio->sm[SM_IDX(sm)].rx.buf[index & 0x3U] = word;
 }
 #endif
 
-uint8_t pio_sim_tx_level(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].tx.count; }
-uint8_t pio_sim_rx_level(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].rx.count; }
+uint8_t pio_sim_tx_level(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].tx.count; }
+uint8_t pio_sim_rx_level(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].rx.count; }
 
-uint8_t pio_sim_get_fdebug(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].fdebug; }
+uint8_t pio_sim_get_fdebug(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].fdebug; }
 
 void pio_sim_clear_fdebug(pio_sim_t *pio, uint8_t sm, uint8_t mask)
 {
-    pio->sm[sm].fdebug &= (uint8_t)~mask;
+    pio->sm[SM_IDX(sm)].fdebug &= (uint8_t)~mask;
 }
 
 /* ── Pin access ────────────────────────────────────────────────────────────── */
@@ -1477,7 +1491,7 @@ void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn)
      * a fresh first presentation, so first-cycle side effects (e.g. `irq n
      * wait` raising its flag) must fire — otherwise the wait could never be
      * satisfied. */
-    pio->sm[sm].stalled = false;
+    pio->sm[SM_IDX(sm)].stalled = false;
     uint8_t next_pc = 0;
     bool set_pc = false;
     uint8_t delay = 0;
@@ -1486,16 +1500,16 @@ void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn)
                   * is ignored (side-set still applies). */
     if (committed) {
         if (set_pc) {
-            pio->sm[sm].pc = next_pc;
+            pio->sm[SM_IDX(sm)].pc = next_pc;
         }
     } else {
         /* A stalling instruction injected via exec latches as pending so the
          * SM retries it on its next cycle. Mark it stalled too, so a parking
          * instruction (e.g. `irq ... wait`) treats the next cycle as a retry and
          * does not re-trigger its first-cycle side effect (re-raising the flag). */
-        pio->sm[sm].exec_pending = true;
-        pio->sm[sm].exec_insn = insn;
-        pio->sm[sm].stalled = true;
+        pio->sm[SM_IDX(sm)].exec_pending = true;
+        pio->sm[SM_IDX(sm)].exec_insn = insn;
+        pio->sm[SM_IDX(sm)].stalled = true;
     }
 }
 

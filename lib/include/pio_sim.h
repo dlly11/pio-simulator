@@ -472,7 +472,7 @@ void pio_sim_irq_clear(pio_sim_t *pio, uint8_t irq);
  * sources with its own enable (INTE) and OR-in force (INTF) mask. */
 #define PIO_INTR_SM_RXNEMPTY(sm) ((uint32_t)1U << (sm))       /* bits 0..3  */
 #define PIO_INTR_SM_TXNFULL(sm) ((uint32_t)1U << (4U + (sm))) /* bits 4..7  */
-#define PIO_INTR_SM_IRQ(i) ((uint32_t)1U << (8U + (i))) /* bits 8..11 (v0) / 8..15 (v1) */
+#define PIO_INTR_SM_IRQ(i) ((uint32_t)1U << (8U + (i)))       /* bits 8..11 (v0) / 8..15 (v1) */
 
 /** Raw interrupt source word (INTR), independent of the enable/force masks. */
 uint32_t pio_sim_get_irq_raw(const pio_sim_t *pio);

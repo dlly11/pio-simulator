@@ -82,7 +82,8 @@ static void test_out_shift_left_takes_top_bits(void)
 {
     pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_LEFT, false, 32);
     const uint16_t prog[] = {
-        pio_sim_encode_pull(false, true), pio_sim_encode_out(PIO_DST_X, 4), /* top 4 bits of OSR */
+        pio_sim_encode_pull(false, true),
+        pio_sim_encode_out(PIO_DST_X, 4), /* top 4 bits of OSR */
     };
     load_prog(prog, 2);
     pio_sim_tx_push(&pio, 0, 0xC000000A);
@@ -128,8 +129,8 @@ static void test_pull_noop_when_autopull_osr_full(void)
 {
     pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, true, 32);
     const uint16_t prog[] = {
-        pio_sim_encode_out(PIO_DST_X, 32),  /* autopulls word A into OSR, X <- A */
-        pio_sim_encode_pull(false, true),   /* OSR already refilled with B: no-op */
+        pio_sim_encode_out(PIO_DST_X, 32), /* autopulls word A into OSR, X <- A */
+        pio_sim_encode_pull(false, true),  /* OSR already refilled with B: no-op */
         pio_sim_encode_mov(PIO_DST_Y, PIO_MOV_NONE, PIO_SRC_OSR),
     };
     load_prog(prog, 3);
@@ -138,7 +139,7 @@ static void test_pull_noop_when_autopull_osr_full(void)
     pio_sim_tx_push(&pio, 0, 0xCCCCCCCCU);
     pio_sim_run(&pio, 3);
     TEST_ASSERT_EQUAL_HEX32(0xAAAAAAAAU, pio.sm[0].x);
-    TEST_ASSERT_EQUAL_HEX32(0xBBBBBBBBU, pio.sm[0].y); /* PULL did not clobber OSR */
+    TEST_ASSERT_EQUAL_HEX32(0xBBBBBBBBU, pio.sm[0].y);      /* PULL did not clobber OSR */
     TEST_ASSERT_EQUAL_UINT8(1U, pio_sim_tx_level(&pio, 0)); /* C still queued */
 }
 
@@ -416,7 +417,8 @@ static void test_pull_blocks_until_tx(void)
 static void test_pull_noblock_on_empty_copies_x(void)
 {
     const uint16_t prog[] = {
-        pio_sim_encode_set(PIO_DST_X, 12), pio_sim_encode_pull(false, false), /* noblock */
+        pio_sim_encode_set(PIO_DST_X, 12),
+        pio_sim_encode_pull(false, false), /* noblock */
     };
     load_prog(prog, 2);
     pio_sim_run(&pio, 2);
@@ -1072,7 +1074,7 @@ static void test_rxfifo_mode_enforced(void)
     const uint16_t put[] = {pio_sim_encode_mov_to_rxfifo(1)};
     load_prog(put, 1);
     pio_sim_run(&pio, 1);
-    TEST_ASSERT_EQUAL_HEX32(0x0U, pio.sm[0].rx.buf[1]); /* put rejected in GET mode */
+    TEST_ASSERT_EQUAL_HEX32(0x0U, pio.sm[0].rx.buf[1]);  /* put rejected in GET mode */
     TEST_ASSERT_EQUAL_HEX32(0x22222222U, pio.sm[0].isr); /* ISR untouched */
 }
 

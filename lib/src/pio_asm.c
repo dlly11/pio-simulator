@@ -96,7 +96,7 @@ static bool parse_uint(const char *s_in, uint32_t *out)
         } else {
             return false;
         }
-        v = v * (uint32_t)base + digit;
+        v = (v * (uint32_t)base) + digit;
     }
     *out = v;
     return true;
