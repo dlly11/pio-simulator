@@ -99,7 +99,7 @@ jobs:
           -DPIO_SIM_PLATFORM=${{ matrix.platform }}
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       - name: Run clang-tidy on the library
-        run: clang-tidy -p build lib/src/pio_sim.c lib/src/pio_asm.c
+        run: clang-tidy -p build lib/src/pio_sim.c lib/src/pio_dma.c lib/src/pio_asm.c
 
   format:
     runs-on: ubuntu-latest
@@ -111,6 +111,7 @@ jobs:
         run: >
           clang-format --dry-run --Werror
           lib/src/pio_sim.c lib/include/pio_sim.h
+          lib/src/pio_dma.c
           lib/src/pio_asm.c lib/include/pio_asm.h
           lib/config/pio_sim_config.h
           tests/test_pio_sim.c tests/test_pio_asm.c

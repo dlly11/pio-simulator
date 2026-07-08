@@ -460,28 +460,28 @@ static int src_field(const char *s)
 static int out_dest_field(const char *s)
 {
     if (ieq(s, "pins")) {
-        return 0;
+        return (int)PIO_OUT_DST_PINS;
     }
     if (ieq(s, "x")) {
-        return 1;
+        return (int)PIO_OUT_DST_X;
     }
     if (ieq(s, "y")) {
-        return 2;
+        return (int)PIO_OUT_DST_Y;
     }
     if (ieq(s, "null")) {
-        return 3;
+        return (int)PIO_OUT_DST_NULL;
     }
     if (ieq(s, "pindirs")) {
-        return 4;
+        return (int)PIO_OUT_DST_PINDIRS;
     }
     if (ieq(s, "pc")) {
-        return 5;
+        return (int)PIO_OUT_DST_PC;
     }
     if (ieq(s, "isr")) {
-        return 6;
+        return (int)PIO_OUT_DST_ISR;
     }
     if (ieq(s, "exec")) {
-        return 7;
+        return (int)PIO_OUT_DST_EXEC;
     }
     return -1;
 }
@@ -490,48 +490,48 @@ static int out_dest_field(const char *s)
 static int mov_dest_field(const char *s)
 {
     if (ieq(s, "pins")) {
-        return 0;
+        return (int)PIO_MOV_DST_PINS;
     }
     if (ieq(s, "x")) {
-        return 1;
+        return (int)PIO_MOV_DST_X;
     }
     if (ieq(s, "y")) {
-        return 2;
+        return (int)PIO_MOV_DST_Y;
     }
 #if PIO_SIM_HAS_MOV_PINDIRS
     if (ieq(s, "pindirs")) {
-        return 3;
+        return (int)PIO_MOV_DST_PINDIRS;
     }
 #endif
     if (ieq(s, "exec")) {
-        return 4;
+        return (int)PIO_MOV_DST_EXEC;
     }
     if (ieq(s, "pc")) {
-        return 5;
+        return (int)PIO_MOV_DST_PC;
     }
     if (ieq(s, "isr")) {
-        return 6;
+        return (int)PIO_MOV_DST_ISR;
     }
     if (ieq(s, "osr")) {
-        return 7;
+        return (int)PIO_MOV_DST_OSR;
     }
     return -1;
 }
 
-/* SET destination name → field. */
+/* SET destination name → field (same numbering as OUT for the valid subset). */
 static int set_dest_field(const char *s)
 {
     if (ieq(s, "pins")) {
-        return 0;
+        return (int)PIO_DST_PINS;
     }
     if (ieq(s, "x")) {
-        return 1;
+        return (int)PIO_DST_X;
     }
     if (ieq(s, "y")) {
-        return 2;
+        return (int)PIO_DST_Y;
     }
     if (ieq(s, "pindirs")) {
-        return 4;
+        return (int)PIO_DST_PINDIRS;
     }
     return -1;
 }

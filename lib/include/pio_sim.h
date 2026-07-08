@@ -674,15 +674,38 @@ void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn);
 #define PIO_SRC_ISR 6U
 #define PIO_SRC_OSR 7U
 
+/* Generic destination aliases (OUT/SET numbering); kept for compatibility.
+ * OUT and MOV number some destinations differently — use the per-instruction
+ * families below where the instruction matters. */
 #define PIO_DST_PINS 0U
 #define PIO_DST_X 1U
 #define PIO_DST_Y 2U
 #define PIO_DST_NULL 3U
 #define PIO_DST_PINDIRS 4U
-#define PIO_DST_EXEC 4U /* MOV dest EXEC == 4; OUT dest EXEC == 7 (see encode) */
+#define PIO_DST_EXEC 4U /* MOV numbering — same value as PIO_DST_PINDIRS */
 #define PIO_DST_PC 5U
 #define PIO_DST_ISR 6U
 #define PIO_DST_OSR 7U
+
+/* OUT instruction destinations. */
+#define PIO_OUT_DST_PINS 0U
+#define PIO_OUT_DST_X 1U
+#define PIO_OUT_DST_Y 2U
+#define PIO_OUT_DST_NULL 3U
+#define PIO_OUT_DST_PINDIRS 4U
+#define PIO_OUT_DST_PC 5U
+#define PIO_OUT_DST_ISR 6U
+#define PIO_OUT_DST_EXEC 7U
+
+/* MOV instruction destinations (PINDIRS is RP2350-only; EXEC differs from OUT). */
+#define PIO_MOV_DST_PINS 0U
+#define PIO_MOV_DST_X 1U
+#define PIO_MOV_DST_Y 2U
+#define PIO_MOV_DST_PINDIRS 3U
+#define PIO_MOV_DST_EXEC 4U
+#define PIO_MOV_DST_PC 5U
+#define PIO_MOV_DST_ISR 6U
+#define PIO_MOV_DST_OSR 7U
 
 /* WAIT sources */
 #define PIO_WAIT_GPIO 0U
