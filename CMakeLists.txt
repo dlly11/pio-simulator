@@ -24,8 +24,8 @@ endif()
 
 # The simulator + assembler. Pure C, no dependencies. Consumers link `pio_sim`
 # and get the public headers (pio_sim.h, pio_asm.h) transitively.
-add_library(pio_sim STATIC lib/src/pio_sim.c lib/src/pio_gpio.c lib/src/pio_dma.c
-    lib/src/pio_asm.c)
+add_library(pio_sim STATIC lib/src/pio_sim.c lib/src/pio_gpio.c lib/src/pio_clock.c
+    lib/src/pio_dma.c lib/src/pio_asm.c)
 target_include_directories(pio_sim
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/lib/include
