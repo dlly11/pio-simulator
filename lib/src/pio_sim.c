@@ -66,15 +66,83 @@ static uint8_t phys_pin(const pio_sim_t *pio, uint8_t view)
 #endif
 }
 
-/* Resolved live pad level, by driver priority: a PIO output wins on the pins it
- * drives; else an external (host/device) driver; else a pull; else the pin floats
- * and reads 0 (true high-impedance). */
+/* Chip-side drive after the function mux and IO_BANK0 overrides, before the
+ * pad stage: PIO drive (already FUNCSEL-gated in resolve_pads) plus the
+ * selected peripheral's output on non-PIO pins, with OUTOVER/OEOVER applied. */
+void pio_pads_chip_drive(const pio_pads_t *p, uint64_t *oe_out, uint64_t *lvl_out)
+{
+    uint64_t pio_oe = p->pin_dirs;
+    uint64_t per_oe = p->periph_oe & p->periph_sel_mask & ~pio_oe;
+    uint64_t oe = pio_oe | per_oe;
+    uint64_t lvl = (p->pin_levels & pio_oe) | (p->periph_level & per_oe);
+    lvl = ((lvl ^ p->outover_inv) | p->outover_high) & ~p->outover_low;
+    oe = ((oe ^ p->oeover_inv) | p->oeover_high) & ~p->oeover_low;
+    /* Pad output-disable overrides everything the chip asks for. */
+    oe &= ~p->pad_od;
+#if PIO_SIM_HAS_PAD_ISO
+    /* Isolation freezes the pad at the drive latched when ISO was raised. */
+    oe = (oe & ~p->pad_iso) | (p->iso_oe & p->pad_iso);
+    lvl = (lvl & ~p->pad_iso) | (p->iso_levels & p->pad_iso);
+#endif
+    *oe_out = oe;
+    *lvl_out = lvl;
+}
+
+/* Resolved live pad level, by driver priority: the chip (PIO through the mux,
+ * or the selected peripheral) wins on pins it drives; else an external
+ * (off-chip) driver; else the pulls — up reads 1, down reads 0, both enabled
+ * is the bus keeper holding the last driven level; else the pin floats and
+ * reads 0 (true high-impedance). */
 static uint64_t pads_live(const pio_pads_t *p)
 {
-    uint64_t pio = p->pin_dirs;
-    uint64_t ext = p->ext_drive & ~pio;
-    uint64_t pull = p->pull_enable & ~pio & ~ext;
-    return (p->pin_levels & pio) | (p->ext_levels & ext) | (p->pull_level & pull);
+    uint64_t oe;
+    uint64_t lvl;
+    pio_pads_chip_drive(p, &oe, &lvl);
+    uint64_t ext = p->ext_drive & ~oe;
+    uint64_t undriven = ~oe & ~ext;
+    uint64_t keeper = p->pad_pue & p->pad_pde & undriven;
+    uint64_t pull_up = p->pad_pue & ~p->pad_pde & undriven;
+    return (lvl & oe) | (p->ext_levels & ext) | pull_up | (p->keep_state & keeper);
+}
+
+/* The input view the PIO logic sees, before the synchroniser: the wire level
+ * gated by the pad's input enable (IE=0 reads 0; RP2350 isolation also gates
+ * the input) and transformed by INOVER. */
+static uint64_t pads_input_view(const pio_pads_t *p)
+{
+    uint64_t v = pads_live(p) & p->pad_ie;
+#if PIO_SIM_HAS_PAD_ISO
+    v &= ~p->pad_iso;
+#endif
+    return ((v ^ p->inover_inv) | p->inover_high) & ~p->inover_low;
+}
+
+/* Bus keeper: latch the level of every driven pad so pue&pde can hold it once
+ * the driver lets go. Clocked once per system tick, with the synchroniser. */
+static void pads_update_keeper(pio_pads_t *p)
+{
+    uint64_t oe;
+    uint64_t lvl;
+    pio_pads_chip_drive(p, &oe, &lvl);
+    uint64_t driven = oe | p->ext_drive;
+    uint64_t level = (lvl & oe) | (p->ext_levels & p->ext_drive & ~oe);
+    p->keep_state = (p->keep_state & ~driven) | (level & driven);
+}
+
+/* Reset a pad set to the simulator's legacy-friendly defaults: every pin's
+ * input enabled, no pulls, and FUNCSEL at the sim-only LEGACY_ANY_PIO value so
+ * every owning block can drive every pin (the pre-mux behaviour). Datasheet
+ * reset values are opt-in via pio_sim_pads_reset_hw (pio_gpio.h). */
+void pio_pads_init_defaults(pio_pads_t *p)
+{
+    p->pad_ie = ~(uint64_t)0;
+    for (uint8_t i = 0; i < PIO_SIM_NUM_PINS; i++) {
+        p->funcsel[i] = 0xFFU; /* PIO_GPIO_FUNC_LEGACY_ANY_PIO */
+    }
+    for (uint8_t o = 0; o < PIO_SIM_NUM_PIO; o++) {
+        p->pio_func_mask[o] = ~(uint64_t)0;
+    }
+    p->periph_sel_mask = 0;
 }
 
 /* Recompute the pad's PIO drive (pin_dirs / pin_levels) from the per-SM output
@@ -91,12 +159,15 @@ static void resolve_pads(pio_pads_t *p)
     uint64_t val = p->pin_levels; /* unwritten pins keep their latched level */
     for (uint8_t o = 0; o < p->owner_count; o++) {
         const struct pio_sim *b = p->owners[o];
+        /* Function mux: owner slot o only reaches pins whose FUNCSEL selects
+         * FUNC_PIO<o> (or the legacy any-PIO default). */
+        uint64_t fmask = p->pio_func_mask[o];
         for (uint8_t s = 0; s < PIO_SIM_NUM_SM; s++) {
             /* Later iterations overwrite earlier ones, so on a same-cycle
              * conflict the highest-numbered SM (of the latest owner) wins. */
-            uint64_t written = b->sm[s].wrote_this_cycle;
+            uint64_t written = b->sm[s].wrote_this_cycle & fmask;
             val = (val & ~written) | (b->sm[s].out_pin_val & written);
-            oe |= b->sm[s].out_pin_oe;
+            oe |= b->sm[s].out_pin_oe & fmask;
         }
     }
     p->pin_dirs = oe;
@@ -130,6 +201,7 @@ void pio_sim_init(pio_sim_t *pio)
     pio->pads = &pio->pads_embedded;    /* own pads until joined to a shared group */
     pio->pads_embedded.owners[0] = pio; /* this block drives its own pads */
     pio->pads_embedded.owner_count = 1;
+    pio_pads_init_defaults(&pio->pads_embedded);
     for (uint8_t i = 0; i < PIO_SIM_NUM_SM; i++) {
         pio_sm_t *sm = &pio->sm[i];
         sm->enabled = false;
@@ -408,18 +480,20 @@ uint8_t pio_sim_get_gpio_base(const pio_sim_t *pio) { return pio->gpio_base; }
 
 void pio_sim_sync_settle(pio_sim_t *pio)
 {
-    uint64_t live = pads_live(pio->pads);
-    pio->pads->in_sync[0] = live;
-    pio->pads->in_sync[1] = live;
+    uint64_t view = pads_input_view(pio->pads);
+    pio->pads->in_sync[0] = view;
+    pio->pads->in_sync[1] = view;
 }
 
 void pio_sim_set_pull_level(pio_sim_t *pio, uint64_t mask, bool level)
 {
-    pio->pads->pull_enable |= mask;
+    /* Thin alias over the PADS_BANK0 pull bits: up = PUE, down = PDE. */
     if (level) {
-        pio->pads->pull_level |= mask;
+        pio->pads->pad_pue |= mask;
+        pio->pads->pad_pde &= ~mask;
     } else {
-        pio->pads->pull_level &= ~mask;
+        pio->pads->pad_pde |= mask;
+        pio->pads->pad_pue &= ~mask;
     }
 }
 
@@ -515,7 +589,13 @@ void pio_sim_release_pin(pio_sim_t *pio, uint8_t pin)
 
 bool pio_sim_pin_is_pio_output(const pio_sim_t *pio, uint8_t pin)
 {
-    return (pio->pads->pin_dirs & ((uint64_t)1U << (pin % PIO_SIM_NUM_PINS))) != 0U;
+    /* The PIO's resolved OE as it reaches the pad: output-disable (and RP2350
+     * isolation) block the drive even though the SM's OE register stays set. */
+    uint64_t oe = pio->pads->pin_dirs & ~pio->pads->pad_od;
+#if PIO_SIM_HAS_PAD_ISO
+    oe &= ~pio->pads->pad_iso;
+#endif
+    return (oe & ((uint64_t)1U << (pin % PIO_SIM_NUM_PINS))) != 0U;
 }
 
 /* Level a state machine samples for an input pin (physical GPIO): the second
@@ -525,7 +605,7 @@ static bool pio_input_level(const pio_sim_t *pio, uint8_t pin)
 {
     const pio_pads_t *p = pio->pads;
     uint64_t bit = (uint64_t)1U << (pin % PIO_SIM_NUM_PINS);
-    uint64_t synced = (p->in_sync[1] & ~p->sync_bypass) | (pads_live(p) & p->sync_bypass);
+    uint64_t synced = (p->in_sync[1] & ~p->sync_bypass) | (pads_input_view(p) & p->sync_bypass);
     return (synced & bit) != 0U;
 }
 
@@ -1426,8 +1506,9 @@ void pio_sim_tick(pio_sim_t *pio)
      * pads are shared across a group the group clocks them once instead, so a
      * block only clocks the synchroniser of pads it owns. */
     if (pio->pads == &pio->pads_embedded) {
+        pads_update_keeper(pio->pads);
         pio->pads->in_sync[1] = pio->pads->in_sync[0];
-        pio->pads->in_sync[0] = pads_live(pio->pads);
+        pio->pads->in_sync[0] = pads_input_view(pio->pads);
     }
     pio->cycle++;
 }
@@ -1503,6 +1584,7 @@ void pio_sim_group_init_shared(pio_sim_group_t *g, pio_sim_t *const *blocks, uin
 {
     pio_sim_group_init(g, blocks, count);
     (void)memset(&g->pads, 0, sizeof(g->pads));
+    pio_pads_init_defaults(&g->pads);
     g->shared = true;
     for (uint8_t i = 0; i < g->count; i++) {
         g->blk[i]->pads = &g->pads;    /* all blocks now drive/sample the same wires */
@@ -1532,8 +1614,9 @@ void pio_sim_group_tick(pio_sim_group_t *g)
     if (g->shared) {
         /* Blocks skip the synchroniser of pads they don't own, so clock the one
          * shared pipeline here — exactly once per system tick. */
+        pads_update_keeper(&g->pads);
         g->pads.in_sync[1] = g->pads.in_sync[0];
-        g->pads.in_sync[0] = pads_live(&g->pads);
+        g->pads.in_sync[0] = pads_input_view(&g->pads);
     }
 }
 

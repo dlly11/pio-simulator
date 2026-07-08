@@ -3,7 +3,25 @@
 #ifndef PIO_SIM_INTERNAL_H
 #define PIO_SIM_INTERNAL_H
 
+#include "pio_sim.h"
+
 #include <stdint.h>
+
+/* Pad plumbing shared between pio_sim.c and pio_gpio.c. */
+
+/* Chip-side drive after the function mux, IO_BANK0 overrides, pad OD and
+ * (RP2350) isolation — what the chip presents to the pad, before external
+ * drivers and pulls. */
+void pio_pads_chip_drive(const pio_pads_t *p, uint64_t *oe_out, uint64_t *lvl_out);
+
+/* Reset a pad set to the simulator's legacy-friendly defaults (IE on, no
+ * pulls, FUNCSEL = LEGACY_ANY_PIO). Called by pio_sim_init / group init. */
+void pio_pads_init_defaults(pio_pads_t *p);
+
+/* Recompute the FUNCSEL routing caches (pio_func_mask[], periph_sel_mask)
+ * from funcsel[]. Implemented in pio_gpio.c; pio_sim.c never changes
+ * funcsel, so only the pio_gpio API calls it. */
+void pio_pads_recompute_funcsel(pio_pads_t *p);
 
 /* 32-bit bit-order reversal (MOV ::/bit-reverse op and the assembler's `::`
  * expression operator share this definition). */

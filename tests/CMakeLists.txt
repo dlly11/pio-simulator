@@ -9,7 +9,7 @@ target_include_directories(unity PUBLIC
 target_compile_definitions(unity PUBLIC UNITY_INCLUDE_CONFIG_H)
 target_compile_options(unity PRIVATE -w)
 
-foreach(t test_pio_sim test_pio_asm)
+foreach(t test_pio_sim test_pio_asm test_pio_gpio)
     add_executable(${t} ${t}.c)
     target_link_libraries(${t} PRIVATE pio_sim unity)
     add_test(NAME ${t} COMMAND ${t})

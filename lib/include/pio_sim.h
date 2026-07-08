@@ -183,15 +183,45 @@ typedef struct {
     uint64_t in_sync[2];
 
     /* External drive: pins the host/device drives via pio_sim_set_pin (and clears
-     * with pio_sim_release_pin). Used for pins the PIO does not drive. */
+     * with pio_sim_release_pin). Models an *off-chip* driver on the wire — a
+     * peripheral inside the chip drives through the function mux instead (see
+     * periph_oe/periph_level and pio_gpio.h). */
     uint64_t ext_drive;
     uint64_t ext_levels;
 
-    /* Pull model: pins selected in pull_enable read their pull_level bit when no
-     * block (and no external driver) is driving them, modelling pull-ups/downs and
-     * open-drain buses. A pin with no driver and no pull floats and reads 0. */
-    uint64_t pull_enable;
-    uint64_t pull_level;
+    /* ── Pad registers (PADS_BANK0, digital-relevant fields; see pio_gpio.h) ──
+     * pad_pue/pad_pde model the pull resistors (both set = bus keeper, which
+     * holds the last driven level in keep_state). pad_od forces the pad off;
+     * pad_ie=0 makes the PIO read the pin as 0 (host pio_sim_get_pin still
+     * returns the wire). DRIVE/SLEWFAST/SCHMITT are stored in pad_cfg but do
+     * not affect the digital simulation. */
+    uint64_t pad_ie;      /* input enable (reset: all-ones)          */
+    uint64_t pad_od;      /* output disable                          */
+    uint64_t pad_pue;     /* pull-up enable                          */
+    uint64_t pad_pde;     /* pull-down enable                        */
+    uint64_t keep_state;  /* bus-keeper latch: last driven level     */
+#if PIO_SIM_HAS_PAD_ISO
+    uint64_t pad_iso;     /* RP2350 isolation: freezes output, gates input */
+    uint64_t iso_levels;  /* output level latched when ISO was set   */
+    uint64_t iso_oe;      /* output enable latched when ISO was set  */
+#endif
+    uint8_t pad_cfg[PIO_SIM_NUM_PINS]; /* stored-only: DRIVE[1:0]|SLEW<<2|SCHMITT<<3 */
+
+    /* ── IO_BANK0 function mux (see pio_gpio.h) ──
+     * funcsel routes each pad's output/OE: a PIO block only drives pins whose
+     * FUNCSEL selects it (owner slot i = FUNC_PIOi); other functions drive via
+     * periph_oe/periph_level. Inputs are always visible to the PIO regardless
+     * of funcsel, matching silicon. The default 0xFF (LEGACY_ANY_PIO) is a
+     * simulator-only value letting every owner drive, preserving the pre-mux
+     * behaviour. The *over masks implement OUTOVER/OEOVER/INOVER. */
+    uint8_t funcsel[PIO_SIM_NUM_PINS];
+    uint64_t pio_func_mask[PIO_SIM_NUM_PIO]; /* pins routed to owner slot i (cache) */
+    uint64_t periph_sel_mask;                /* pins routed to a non-PIO function   */
+    uint64_t periph_oe;    /* selected peripheral's output enable per pin */
+    uint64_t periph_level; /* selected peripheral's output level per pin  */
+    uint64_t outover_inv, outover_low, outover_high; /* OUTOVER per-pin masks */
+    uint64_t oeover_inv, oeover_low, oeover_high;    /* OEOVER  per-pin masks */
+    uint64_t inover_inv, inover_low, inover_high;    /* INOVER  per-pin masks */
 
     /* Per-pin INPUT_SYNC_BYPASS: bits set here skip the two-cycle synchroniser. */
     uint64_t sync_bypass;

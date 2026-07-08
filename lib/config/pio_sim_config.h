@@ -44,6 +44,8 @@
 #define PIO_SIM_HAS_MOV_PINDIRS (PIO_SIM_PIO_VERSION >= 1)  /* mov pindirs, <src> */
 #define PIO_SIM_HAS_IN_PIN_COUNT (PIO_SIM_PIO_VERSION >= 1) /* IN pin count mask  */
 #define PIO_SIM_HAS_INTR_IRQ8 (PIO_SIM_PIO_VERSION >= 1)    /* 8 IRQ flags in INTR */
+#define PIO_SIM_HAS_PAD_ISO (PIO_SIM_PIO_VERSION >= 1)      /* pad isolation latch */
+#define PIO_SIM_HAS_FUNCSEL_PIO2 (PIO_SIM_PIO_VERSION >= 1) /* FUNCSEL F8 = PIO2  */
 
 /* Number of PIO blocks in the device: RP2040 has 2 (PIO0/1), RP2350 has 3
  * (PIO0/1/2). Used by the multi-PIO group helper. */
@@ -52,5 +54,24 @@
 #else
 #define PIO_SIM_NUM_PIO 2U
 #endif
+
+/* DMA controller shape: RP2040 has 12 channels and 2 system IRQ outputs;
+ * RP2350 has 16 channels and 4. (Used by the pio_dma engine.) */
+#if PIO_SIM_PIO_VERSION >= 1
+#define PIO_SIM_DMA_NUM_CHANNELS 16U
+#define PIO_SIM_DMA_NUM_IRQS 4U
+#else
+#define PIO_SIM_DMA_NUM_CHANNELS 12U
+#define PIO_SIM_DMA_NUM_IRQS 2U
+#endif
+
+/* PLL_SYS parameter limits (used by the pio_clock module): the VCO floor is
+ * 750 MHz on RP2040 and 400 MHz on RP2350; both cap at 1600 MHz. */
+#if PIO_SIM_PIO_VERSION >= 1
+#define PIO_SIM_PLL_VCO_MIN_HZ 400000000ULL
+#else
+#define PIO_SIM_PLL_VCO_MIN_HZ 750000000ULL
+#endif
+#define PIO_SIM_PLL_VCO_MAX_HZ 1600000000ULL
 
 #endif /* PIO_SIM_CONFIG_H */
