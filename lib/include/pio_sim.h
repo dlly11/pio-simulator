@@ -237,6 +237,14 @@ typedef struct pio_sim {
     void (*on_tick)(struct pio_sim *pio, void *ctx);
     void *device_ctx;
 
+    /* Per-instruction trace hook (see pio_sim_set_trace): fires when an
+     * instruction *commits* — never on stall or delay cycles — including
+     * instructions injected via OUT/MOV EXEC or pio_sim_sm_exec. `pc` is the
+     * address the word was fetched from (the parked PC for injected words);
+     * read pio->sm[sm] through the pointer for the post-execute registers. */
+    void (*on_insn)(const struct pio_sim *pio, uint8_t sm, uint8_t pc, uint16_t insn, void *ctx);
+    void *trace_ctx;
+
     uint64_t cycle; /* system clocks elapsed */
 
     /* Diagnostic: counts instruction fetches from addresses never written by
@@ -342,6 +350,18 @@ void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc);
  * WAIT) without reaching into the struct. */
 uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm);
 
+/** Scratch / shift register accessors: the state after the last tick. The
+ * struct fields are public too; these mirror the get_pc/get_instr style so
+ * callers need not depend on the struct layout. */
+uint32_t pio_sim_sm_get_x(const pio_sim_t *pio, uint8_t sm);
+uint32_t pio_sim_sm_get_y(const pio_sim_t *pio, uint8_t sm);
+uint32_t pio_sim_sm_get_isr(const pio_sim_t *pio, uint8_t sm);
+uint32_t pio_sim_sm_get_osr(const pio_sim_t *pio, uint8_t sm);
+/** Shift counts: bits accumulated in the ISR / consumed from the OSR (see the
+ * isr_count/osr_count fields for the exact convention). */
+uint8_t pio_sim_sm_get_isr_count(const pio_sim_t *pio, uint8_t sm);
+uint8_t pio_sim_sm_get_osr_count(const pio_sim_t *pio, uint8_t sm);
+
 /** Instruction word state machine `sm` would execute next: an instruction injected
  * via OUT/MOV EXEC or pio_sim_sm_exec if one is pending, else the word at its PC.
  * Mirrors reading the SDK's SMx_INSTR register. */
@@ -395,6 +415,17 @@ void pio_sim_sm_set_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t co
 
 /** Register the external device callback (NULL to clear). */
 void pio_sim_set_device(pio_sim_t *pio, void (*on_tick)(pio_sim_t *, void *), void *ctx);
+
+/** Per-instruction trace callback type. `pc` is the fetch address of the
+ * committed word (parked PC for injected instructions); `insn` the executed
+ * word. The SM's post-execute registers are readable via `pio->sm[sm]`. */
+typedef void (*pio_sim_trace_fn)(const pio_sim_t *pio, uint8_t sm, uint8_t pc, uint16_t insn,
+                                 void *ctx);
+
+/** Install (or clear, with NULL) the per-instruction trace hook. It fires once
+ * per committed instruction on any SM of this block — stall retries and delay
+ * cycles do not fire it. */
+void pio_sim_set_trace(pio_sim_t *pio, pio_sim_trace_fn fn, void *ctx);
 
 #if PIO_SIM_HAS_IRQ_PREVNEXT
 /** RP2350: link the neighbouring PIO blocks addressed by `irq/wait ... prev|next`.
@@ -536,10 +567,22 @@ void pio_sim_run(pio_sim_t *pio, uint64_t n);
 uint64_t pio_sim_run_until_rx(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks);
 
 /**
- * Run until the TX FIFO of `sm` has drained (empty) or `max_ticks` elapse.
- * Returns the number of ticks run.
+ * Run until the TX FIFO of `sm` is empty or `max_ticks` elapse. Returns the
+ * number of ticks run. FIFO-level only: the SM may still be shifting out a
+ * word it already pulled into the OSR — use pio_sim_run_until_tx_drained to
+ * wait for that word as well.
  */
 uint64_t pio_sim_run_until_tx_empty(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks);
+
+/**
+ * Run until state machine `sm` stalls on an empty TX FIFO or `max_ticks`
+ * elapse — the pico-sdk idiom for "all data actually shifted out": it clears
+ * the sticky FDEBUG TXSTALL flag, ticks until it sets again (TX empty *and*
+ * the OSR's last word consumed), and returns the number of ticks run. The
+ * program must keep OUTing/PULLing for the stall to occur, as streaming
+ * programs do; otherwise the call runs the full max_ticks.
+ */
+uint64_t pio_sim_run_until_tx_drained(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks);
 
 /* ── Multi-PIO group ───────────────────────────────────────────────────────────
  * A device has more than one PIO block (RP2040: 2, RP2350: 3 — PIO_SIM_NUM_PIO).
@@ -617,7 +660,8 @@ typedef struct pio_sim_dma {
 } pio_sim_dma_t;
 
 /** Set up a simple channel: `count` 32-bit words between `buf` and SM `sm`'s
- * FIFO, incrementing, no ring, no chain. */
+ * FIFO, incrementing, no ring, no chain. `buf` is only read in PIO_DMA_TO_SM
+ * mode (non-const because the one field serves both directions). */
 void pio_sim_dma_init(pio_sim_dma_t *dma, pio_sim_t *pio, uint8_t sm, pio_dma_dir_t dir,
                       uint32_t *buf, uint32_t count);
 

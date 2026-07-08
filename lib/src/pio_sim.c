@@ -291,6 +291,21 @@ void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc) { pio->sm[SM_IDX(
 
 uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].pc; }
 
+uint32_t pio_sim_sm_get_x(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].x; }
+uint32_t pio_sim_sm_get_y(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].y; }
+uint32_t pio_sim_sm_get_isr(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].isr; }
+uint32_t pio_sim_sm_get_osr(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].osr; }
+
+uint8_t pio_sim_sm_get_isr_count(const pio_sim_t *pio, uint8_t sm)
+{
+    return pio->sm[SM_IDX(sm)].isr_count;
+}
+
+uint8_t pio_sim_sm_get_osr_count(const pio_sim_t *pio, uint8_t sm)
+{
+    return pio->sm[SM_IDX(sm)].osr_count;
+}
+
 uint16_t pio_sim_sm_get_instr(const pio_sim_t *pio, uint8_t sm)
 {
     const pio_sm_t *s = &pio->sm[SM_IDX(sm)];
@@ -366,6 +381,12 @@ void pio_sim_set_device(pio_sim_t *pio, void (*on_tick)(pio_sim_t *, void *), vo
 {
     pio->on_tick = on_tick;
     pio->device_ctx = ctx;
+}
+
+void pio_sim_set_trace(pio_sim_t *pio, pio_sim_trace_fn fn, void *ctx)
+{
+    pio->on_insn = fn;
+    pio->trace_ctx = ctx;
 }
 
 #if PIO_SIM_HAS_IRQ_PREVNEXT
@@ -1335,6 +1356,10 @@ static void sm_cycle(pio_sim_t *pio, uint8_t sm_idx)
         return; /* retry same instruction next cycle */
     }
     sm->stalled = false;
+    if (pio->on_insn != NULL) {
+        /* PC not yet advanced: report the committed word's fetch address. */
+        pio->on_insn(pio, sm_idx, sm->pc, insn, pio->trace_ctx);
+    }
 
     /* An injected instruction does not advance PC or wrap on its own (unless it
      * was a jmp/out-pc). It clears the pending flag once executed. */
@@ -1427,9 +1452,25 @@ uint64_t pio_sim_run_until_rx(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks)
 uint64_t pio_sim_run_until_tx_empty(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks)
 {
     uint64_t t = 0;
-    /* Drain when both the FIFO is empty and the SM is not mid-transfer holding
-     * a pulled word (best-effort: callers pad with a margin). */
+    /* FIFO-empty only: the SM may still hold (and be shifting) a word it
+     * already pulled into the OSR — use pio_sim_run_until_tx_drained to wait
+     * for that word too. */
     while ((t < max_ticks) && !pio_sim_tx_empty(pio, sm)) {
+        pio_sim_tick(pio);
+        t++;
+    }
+    return t;
+}
+
+uint64_t pio_sim_run_until_tx_drained(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks)
+{
+    /* The pico-sdk idiom: clear the sticky TXSTALL flag, then run until it
+     * sets again — the SM stalling on an empty TX means the FIFO is empty AND
+     * the OSR's last word has been fully consumed. Requires the program to
+     * keep OUTing/PULLing (as streaming programs do); bounded by max_ticks. */
+    pio_sim_clear_fdebug(pio, sm, PIO_FDEBUG_TXSTALL);
+    uint64_t t = 0;
+    while ((t < max_ticks) && ((pio_sim_get_fdebug(pio, sm) & PIO_FDEBUG_TXSTALL) == 0U)) {
         pio_sim_tick(pio);
         t++;
     }
@@ -1531,6 +1572,9 @@ void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn)
     (void)delay; /* a forced instruction executes immediately; its delay field
                   * is ignored (side-set still applies). */
     if (committed) {
+        if (pio->on_insn != NULL) {
+            pio->on_insn(pio, SM_IDX(sm), pio->sm[SM_IDX(sm)].pc, insn, pio->trace_ctx);
+        }
         if (set_pc) {
             pio->sm[SM_IDX(sm)].pc = next_pc;
         }

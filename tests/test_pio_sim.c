@@ -164,6 +164,99 @@ static void test_out_autopull_empty_then_fed_stalls_one_extra_cycle(void)
     TEST_ASSERT_EQUAL_UINT8(1U, pio_sim_sm_get_pc(&pio, 0)); /* moved on */
 }
 
+static void test_register_accessors_read_back(void)
+{
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_X, 5),
+        pio_sim_encode_set(PIO_DST_Y, 9),
+        pio_sim_encode_in(PIO_SRC_X, 4),
+    };
+    load_prog(prog, 3);
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_EQUAL_UINT32(5U, pio_sim_sm_get_x(&pio, 0));
+    TEST_ASSERT_EQUAL_UINT32(9U, pio_sim_sm_get_y(&pio, 0));
+    TEST_ASSERT_EQUAL_UINT32(5U, pio_sim_sm_get_isr(&pio, 0)); /* shifted left 4, in 5 */
+    TEST_ASSERT_EQUAL_UINT8(4U, pio_sim_sm_get_isr_count(&pio, 0));
+    TEST_ASSERT_EQUAL_UINT8(32U, pio_sim_sm_get_osr_count(&pio, 0)); /* untouched: exhausted */
+    TEST_ASSERT_EQUAL_UINT32(0U, pio_sim_sm_get_osr(&pio, 0));
+}
+
+static uint8_t trace_pcs[8];
+static uint16_t trace_insns[8];
+static uint8_t trace_count;
+
+static void trace_record(const pio_sim_t *p, uint8_t sm, uint8_t pc, uint16_t insn, void *ctx)
+{
+    (void)p;
+    (void)sm;
+    (void)ctx;
+    if (trace_count < 8U) {
+        trace_pcs[trace_count] = pc;
+        trace_insns[trace_count] = insn;
+    }
+    trace_count++;
+}
+
+static void test_trace_hook_fires_on_commit_only(void)
+{
+    /* 3-instruction program: a pull that stalls (TX empty) must not trace
+     * until it commits; a delay cycle must not trace either. */
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_X, 3),
+        (uint16_t)(pio_sim_encode_set(PIO_DST_Y, 1) | (1U << 8U)), /* [1] delay */
+        pio_sim_encode_pull(false, true),
+    };
+    load_prog(prog, 3);
+    trace_count = 0;
+    pio_sim_set_trace(&pio, trace_record, NULL);
+
+    pio_sim_run(&pio, 5); /* set x; set y [1]; delay; pull stalls twice */
+    TEST_ASSERT_EQUAL_UINT8(2U, trace_count); /* stall + delay cycles: no trace */
+    TEST_ASSERT_EQUAL_UINT8(0U, trace_pcs[0]);
+    TEST_ASSERT_EQUAL_HEX16(prog[0], trace_insns[0]);
+    TEST_ASSERT_EQUAL_UINT8(1U, trace_pcs[1]);
+    TEST_ASSERT_EQUAL_HEX16(prog[1], trace_insns[1]);
+
+    pio_sim_tx_push(&pio, 0, 42U);
+    pio_sim_run(&pio, 1); /* pull commits now */
+    TEST_ASSERT_EQUAL_UINT8(3U, trace_count);
+    TEST_ASSERT_EQUAL_UINT8(2U, trace_pcs[2]);
+    TEST_ASSERT_EQUAL_HEX16(prog[2], trace_insns[2]);
+
+    /* Forced instructions trace too, with the parked PC. */
+    pio_sim_sm_exec(&pio, 0, pio_sim_encode_set(PIO_DST_X, 1));
+    TEST_ASSERT_EQUAL_UINT8(4U, trace_count);
+
+    pio_sim_set_trace(&pio, NULL, NULL);
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_UINT8(4U, trace_count); /* cleared: no more callbacks */
+}
+
+static void test_run_until_tx_drained_waits_for_osr(void)
+{
+    /* Stream two words out a pin with autopull: run_until_tx_empty returns
+     * while the last word is still shifting from the OSR; _drained returns
+     * only once the SM stalls on truly exhausted data. */
+    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, true, 32);
+    pio_sim_sm_set_out_pins(&pio, 0, 0, 1);
+    pio_sim_sm_set_pindirs(&pio, 0, 0, 1, true);
+    const uint16_t prog[] = {pio_sim_encode_out(PIO_DST_PINS, 1),
+                             pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
+    load_prog(prog, 2);
+    pio_sim_sm_set_wrap(&pio, 0, 0, 0);
+    pio_sim_tx_push(&pio, 0, 0xFFFFFFFFU);
+    pio_sim_tx_push(&pio, 0, 0xFFFFFFFFU);
+
+    uint64_t t_empty = pio_sim_run_until_tx_empty(&pio, 0, 1000);
+    TEST_ASSERT_TRUE(pio_sim_tx_empty(&pio, 0));
+    TEST_ASSERT_TRUE(t_empty < 40U); /* FIFO empty well before 64 bits are out */
+
+    uint64_t t_drained = pio_sim_run_until_tx_drained(&pio, 0, 1000);
+    TEST_ASSERT_TRUE(t_drained < 1000U);                    /* did stall, not time out */
+    TEST_ASSERT_TRUE((t_empty + t_drained) >= 64U);         /* all 64 bits shifted */
+    TEST_ASSERT_EQUAL_UINT8(32U, pio_sim_sm_get_osr_count(&pio, 0));
+}
+
 static void test_autopull_background_refill_without_out(void)
 {
     /* The refill is not tied to OUT: after a push, an SM parked on non-OUT
@@ -1922,6 +2015,9 @@ int main(void)
     RUN_TEST(test_out_autopull_streams_word_per_cycle);
     RUN_TEST(test_out_autopull_empty_then_fed_stalls_one_extra_cycle);
     RUN_TEST(test_autopull_background_refill_without_out);
+    RUN_TEST(test_register_accessors_read_back);
+    RUN_TEST(test_trace_hook_fires_on_commit_only);
+    RUN_TEST(test_run_until_tx_drained_waits_for_osr);
     RUN_TEST(test_pull_noop_when_autopull_osr_full);
     RUN_TEST(test_out_sticky_releases_on_inline_disable);
     RUN_TEST(test_out_inline_enable_gates_write);
