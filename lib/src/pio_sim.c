@@ -1536,7 +1536,12 @@ uint64_t pio_sim_dma_run(pio_sim_dma_t *dma, uint64_t max_ticks)
 void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn)
 {
     /* Execute immediately, out of band, like pio_sm_exec(). Side-set and delay
-     * still apply; PC is untouched unless the instruction writes it. */
+     * still apply; PC is untouched unless the instruction writes it. Clear any
+     * stall latched by the SM's own program first: the injected instruction is
+     * a fresh first presentation, so first-cycle side effects (e.g. `irq n
+     * wait` raising its flag) must fire — otherwise the wait could never be
+     * satisfied. */
+    pio->sm[sm].stalled = false;
     uint8_t next_pc = 0;
     bool set_pc = false;
     uint8_t delay = 0;

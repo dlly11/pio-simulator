@@ -697,6 +697,28 @@ static void test_sm_exec_irq_wait_does_not_rearm(void)
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);
 }
 
+/* An `irq n wait` injected while the SM is already stalled (e.g. parked on a
+ * blocking PULL) must still raise its flag on first presentation — the stale
+ * program stall must not suppress it, or the wait deadlocks forever. */
+static void test_sm_exec_irq_wait_from_stalled_sm(void)
+{
+    const uint16_t prog[] = {pio_sim_encode_pull(false, true), pio_sim_encode_set(PIO_DST_Y, 1)};
+    load_prog(prog, 2);
+    pio_sim_run(&pio, 1); /* PULL stalls on the empty TX FIFO */
+    TEST_ASSERT_TRUE(pio_sim_sm_is_stalled(&pio, 0));
+
+    pio_sim_sm_exec(&pio, 0, pio_sim_encode_irq(false, true, 1)); /* irq 1 ; wait */
+    TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 1)); /* raised despite the prior stall */
+
+    pio_sim_irq_clear(&pio, 1); /* acknowledge: the injected wait can commit */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_FALSE(pio.sm[0].exec_pending);
+
+    pio_sim_tx_push(&pio, 0, 0x123U); /* program resumes on its own PULL */
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);
+}
+
 /* pio_sim_sm_get_pc tracks the live PC and round-trips with pio_sim_sm_set_pc. */
 static void test_sm_get_pc_reads_back(void)
 {
@@ -1636,6 +1658,7 @@ int main(void)
     RUN_TEST(test_in_autopush_full_does_not_reshift);
     RUN_TEST(test_irq_wait_parks_until_cleared);
     RUN_TEST(test_sm_exec_irq_wait_does_not_rearm);
+    RUN_TEST(test_sm_exec_irq_wait_from_stalled_sm);
     RUN_TEST(test_sm_get_pc_reads_back);
     RUN_TEST(test_sm_is_enabled_reads_back);
     RUN_TEST(test_sm_get_instr_reads_current);
