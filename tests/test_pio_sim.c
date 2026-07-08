@@ -1352,6 +1352,69 @@ static void test_group_shared_pads(void)
     TEST_ASSERT_TRUE((b.sm[0].x & 1U) != 0U);
 }
 
+/* Regression: with shared pads, a block's previous-tick pin writes must not
+ * compete for same-cycle priority during a later block's tick of the next
+ * cycle. B (the later, higher-priority owner) writes GPIO 0 high on tick 1
+ * only; A writes it low on tick 2. A's on_tick hook — which fires after A's
+ * own resolve but before B's tick — must see A's write win on tick 2, because
+ * B wrote nothing that cycle. */
+static uint8_t group_seen_levels[8];
+static uint8_t group_seen_count;
+
+static void group_record_pin0(pio_sim_t *p, void *ctx)
+{
+    (void)ctx;
+    if (group_seen_count < 8U) {
+        group_seen_levels[group_seen_count] = pio_sim_get_pin(p, 0) ? 1U : 0U;
+    }
+    group_seen_count++;
+}
+
+static void test_group_stale_write_does_not_win_priority(void)
+{
+    pio_sim_t a;
+    pio_sim_t b;
+    pio_sim_init(&a);
+    pio_sim_init(&b);
+    pio_sim_t *blocks[] = {&a, &b};
+    pio_sim_group_t g;
+    pio_sim_group_init_shared(&g, blocks, 2);
+
+    const uint16_t nop = pio_sim_encode_mov(PIO_DST_Y, PIO_MOV_NONE, PIO_SRC_Y);
+
+    /* B: tick 1 sets GPIO 0 high, then parks on a nop self-loop. */
+    pio_sim_sm_set_set_pins(&b, 0, 0, 1);
+    pio_sim_sm_set_pindirs(&b, 0, 0, 1, true);
+    const uint16_t bprog[] = {pio_sim_encode_set(PIO_DST_PINS, 1), nop,
+                              pio_sim_encode_jmp(PIO_COND_ALWAYS, 1)};
+    pio_sim_load(&b, 0, bprog, 3);
+    pio_sim_sm_set_wrap(&b, 0, 0, 2);
+    pio_sim_sm_set_enabled(&b, 0, true);
+
+    /* A: tick 1 is a nop, tick 2 drives GPIO 0 low, then parks. */
+    pio_sim_sm_set_set_pins(&a, 0, 0, 1);
+    pio_sim_sm_set_pindirs(&a, 0, 0, 1, true);
+    const uint16_t aprog[] = {nop, pio_sim_encode_set(PIO_DST_PINS, 0),
+                              pio_sim_encode_jmp(PIO_COND_ALWAYS, 2)};
+    pio_sim_load(&a, 0, aprog, 3);
+    pio_sim_sm_set_wrap(&a, 0, 0, 2);
+    pio_sim_sm_set_enabled(&a, 0, true);
+
+    group_seen_count = 0;
+    pio_sim_set_device(&a, group_record_pin0, NULL);
+
+    pio_sim_group_run(&g, 3);
+    TEST_ASSERT_EQUAL_UINT8(3, group_seen_count);
+    /* Tick 1: B's set lands after A's hook ran, so A saw the idle level. */
+    TEST_ASSERT_EQUAL_UINT8(0, group_seen_levels[0]);
+    /* Tick 2: only A wrote this cycle — its low write must win even though
+     * B is the higher-priority owner (B's tick-1 write is stale). */
+    TEST_ASSERT_EQUAL_UINT8(0, group_seen_levels[1]);
+    /* Tick 3: nobody writes; the pad holds A's latched level. */
+    TEST_ASSERT_EQUAL_UINT8(0, group_seen_levels[2]);
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&a, 0));
+}
+
 static void test_pull_open_drain(void)
 {
     /* GPIO 3 pulled high: reads high while released, low while a SM drives it. */
@@ -1828,6 +1891,7 @@ int main(void)
     RUN_TEST(test_group_wires_irq_ring);
 #endif
     RUN_TEST(test_group_shared_pads);
+    RUN_TEST(test_group_stale_write_does_not_win_priority);
     RUN_TEST(test_pull_open_drain);
     RUN_TEST(test_input_sync_bypass);
     RUN_TEST(test_sm_mask_enabled);

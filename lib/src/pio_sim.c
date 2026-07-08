@@ -1448,6 +1448,19 @@ void pio_sim_group_init_shared(pio_sim_group_t *g, pio_sim_t *const *blocks, uin
 
 void pio_sim_group_tick(pio_sim_group_t *g)
 {
+    /* Open the write window for the whole group before any block runs: with
+     * shared pads, resolve_pads at the end of block A's tick scans every
+     * owner's SMs, so block B's flags from the previous tick must already be
+     * cleared or B's stale writes would wrongly win same-cycle priority in the
+     * pad state block A's on_tick hook observes. (Each block's own tick
+     * re-clears its own flags — harmless.) Remaining sequential-model caveat:
+     * block A's on_tick still runs before later blocks have executed this
+     * tick, so it sees their *previous* outputs, one tick stale. */
+    for (uint8_t i = 0; i < g->count; i++) {
+        for (uint8_t s = 0; s < PIO_SIM_NUM_SM; s++) {
+            g->blk[i]->sm[s].wrote_this_cycle = 0;
+        }
+    }
     for (uint8_t i = 0; i < g->count; i++) {
         pio_sim_tick(g->blk[i]);
     }
