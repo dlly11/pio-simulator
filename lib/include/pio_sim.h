@@ -147,6 +147,7 @@ typedef struct {
 
     pio_fifo_t tx;
     pio_fifo_t rx;
+    uint8_t fifo_join; /* pio_fifo_join_t: gates the SM-side RX put/get MOVs */
 } pio_sm_t;
 
 /* ── Pad model ─────────────────────────────────────────────────────────────────
@@ -340,17 +341,23 @@ void pio_sim_sm_set_status_sel(pio_sim_t *pio, uint8_t sm, pio_status_sel_t sel,
 void pio_sim_sm_set_status_value(pio_sim_t *pio, uint8_t sm, uint32_t value);
 
 /* FIFO join: 0 = none (4+4), 1 = join TX (8 TX, 0 RX), 2 = join RX (8 RX, 0 TX).
- * RP2350 adds two random-access RX modes (4-entry register file addressed by
- * the MOV-RX-FIFO instructions): PUT (SM writes, system reads) and GET (system
- * writes, SM reads). */
+ * RP2350 adds the random-access RX modes (4-entry register file addressed by
+ * the MOV-RX-FIFO instructions): PUT (SM writes, system reads), GET (system
+ * writes, SM reads), and PUTGET (both FJOIN_RX_PUT and FJOIN_RX_GET: the SM has
+ * random-access put *and* get — a scratchpad). The direction restrictions are
+ * enforced: an SM put is a no-op outside PUT/PUTGET, an SM get outside
+ * GET/PUTGET. */
 typedef enum {
     PIO_FIFO_JOIN_NONE = 0,
     PIO_FIFO_JOIN_TX = 1,
     PIO_FIFO_JOIN_RX = 2,
-    PIO_FIFO_JOIN_RX_PUT = 3, /* RP2350: SM writes RX via `mov rxfifo[], isr`  */
-    PIO_FIFO_JOIN_RX_GET = 4, /* RP2350: SM reads RX via `mov osr, rxfifo[]`   */
+    PIO_FIFO_JOIN_RX_PUT = 3,    /* RP2350: SM writes RX via `mov rxfifo[], isr`  */
+    PIO_FIFO_JOIN_RX_GET = 4,    /* RP2350: SM reads RX via `mov osr, rxfifo[]`   */
+    PIO_FIFO_JOIN_RX_PUTGET = 5, /* RP2350: both put and get (SM scratch file)    */
 } pio_fifo_join_t;
 
+/** Configure the FIFO join mode for `sm`. Also clears both FIFOs (changing the
+ * join reshapes the storage, as on hardware). */
 void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join);
 
 /** Set the PIO output-enable (pindir) for a span of pins, as pindir config does. */
@@ -460,12 +467,12 @@ void pio_sim_irq_clear(pio_sim_t *pio, uint8_t irq);
 
 /* ── System interrupt lines (IRQ0 / IRQ1) ──────────────────────────────────────
  * The PIO raises two system interrupt lines from a set of sources (the INTR
- * register): per-SM RX-FIFO-not-empty, per-SM TX-FIFO-not-full, and the low four
- * SM IRQ flags. Each line gates the sources with its own enable (INTE) and OR-in
- * force (INTF) mask. */
+ * register): per-SM RX-FIFO-not-empty, per-SM TX-FIFO-not-full, and the SM IRQ
+ * flags — the low four on RP2040, all eight on RP2350. Each line gates the
+ * sources with its own enable (INTE) and OR-in force (INTF) mask. */
 #define PIO_INTR_SM_RXNEMPTY(sm) ((uint32_t)1U << (sm))       /* bits 0..3  */
 #define PIO_INTR_SM_TXNFULL(sm) ((uint32_t)1U << (4U + (sm))) /* bits 4..7  */
-#define PIO_INTR_SM_IRQ(i) ((uint32_t)1U << (8U + (i)))       /* bits 8..11 */
+#define PIO_INTR_SM_IRQ(i) ((uint32_t)1U << (8U + (i))) /* bits 8..11 (v0) / 8..15 (v1) */
 
 /** Raw interrupt source word (INTR), independent of the enable/force masks. */
 uint32_t pio_sim_get_irq_raw(const pio_sim_t *pio);

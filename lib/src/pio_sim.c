@@ -313,6 +313,7 @@ void pio_sim_sm_set_status_value(pio_sim_t *pio, uint8_t sm, uint32_t value)
 void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join)
 {
     pio_sm_t *s = &pio->sm[sm];
+    s->fifo_join = (uint8_t)join;
     switch (join) {
     case PIO_FIFO_JOIN_TX:
         s->tx.cap = PIO_SIM_FIFO_MAX;
@@ -324,6 +325,7 @@ void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join)
         break;
     case PIO_FIFO_JOIN_RX_PUT:
     case PIO_FIFO_JOIN_RX_GET:
+    case PIO_FIFO_JOIN_RX_PUTGET:
 #if PIO_SIM_HAS_RXFIFO_MOV
         /* RP2350 random-access RX: a 4-entry register file addressed by the
          * MOV-RX-FIFO instructions; the TX FIFO is disabled. */
@@ -333,6 +335,7 @@ void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join)
         /* RP2040: these modes do not exist; behave as the default 4+4 split. */
         s->tx.cap = PIO_SIM_FIFO_DEPTH;
         s->rx.cap = PIO_SIM_FIFO_DEPTH;
+        s->fifo_join = (uint8_t)PIO_FIFO_JOIN_NONE;
 #endif
         break;
     case PIO_FIFO_JOIN_NONE:
@@ -341,12 +344,8 @@ void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join)
         s->rx.cap = PIO_SIM_FIFO_DEPTH;
         break;
     }
-    s->tx.head = 0;
-    s->tx.tail = 0;
-    s->tx.count = 0;
-    s->rx.head = 0;
-    s->rx.tail = 0;
-    s->rx.count = 0;
+    fifo_clear(&s->tx);
+    fifo_clear(&s->rx);
 }
 
 void pio_sim_sm_set_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count, bool out)
@@ -590,7 +589,12 @@ uint32_t pio_sim_get_irq_raw(const pio_sim_t *pio)
             intr |= PIO_INTR_SM_TXNFULL(sm);
         }
     }
-    for (uint8_t i = 0; i < 4U; i++) { /* only the low four flags route to the line */
+#if PIO_SIM_HAS_INTR_IRQ8
+    uint8_t irq_route_count = PIO_SIM_NUM_IRQ; /* RP2350: all 8 flags route */
+#else
+    uint8_t irq_route_count = 4U; /* RP2040: only the low four flags route */
+#endif
+    for (uint8_t i = 0; i < irq_route_count; i++) {
         if ((pio->irq & (1U << i)) != 0U) {
             intr |= PIO_INTR_SM_IRQ(i);
         }
@@ -1067,9 +1071,19 @@ static void exec_mov_rxfifo(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
     bool idx_literal = (operand & 0x08U) != 0U;
     uint8_t idx = idx_literal ? (uint8_t)(operand & 0x3U) : (uint8_t)(sm->y & 0x3U);
     if (from_rx) {
+        /* SM get is only valid with FJOIN_RX_GET set (GET or PUTGET mode). */
+        if ((sm->fifo_join != (uint8_t)PIO_FIFO_JOIN_RX_GET) &&
+            (sm->fifo_join != (uint8_t)PIO_FIFO_JOIN_RX_PUTGET)) {
+            return;
+        }
         sm->osr = sm->rx.buf[idx];
         sm->osr_count = 0;
     } else {
+        /* SM put is only valid with FJOIN_RX_PUT set (PUT or PUTGET mode). */
+        if ((sm->fifo_join != (uint8_t)PIO_FIFO_JOIN_RX_PUT) &&
+            (sm->fifo_join != (uint8_t)PIO_FIFO_JOIN_RX_PUTGET)) {
+            return;
+        }
         sm->rx.buf[idx] = sm->isr;
         sm->isr = 0;
         sm->isr_count = 0;

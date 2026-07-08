@@ -1239,7 +1239,11 @@ static bool parse_fifo_config(const char *t, pio_fifo_join_t *out)
         return true;
     }
 #if PIO_SIM_HAS_RXFIFO_MOV
-    if (ieq(t, "txput") || ieq(t, "putget")) {
+    if (ieq(t, "putget")) {
+        *out = PIO_FIFO_JOIN_RX_PUTGET; /* both FJOIN_RX_PUT and FJOIN_RX_GET */
+        return true;
+    }
+    if (ieq(t, "txput")) {
         *out = PIO_FIFO_JOIN_RX_PUT;
         return true;
     }

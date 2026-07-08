@@ -43,6 +43,7 @@
 #define PIO_SIM_HAS_GPIO_BASE (PIO_SIM_PIO_VERSION >= 1)    /* GPIOBASE 0/16 win. */
 #define PIO_SIM_HAS_MOV_PINDIRS (PIO_SIM_PIO_VERSION >= 1)  /* mov pindirs, <src> */
 #define PIO_SIM_HAS_IN_PIN_COUNT (PIO_SIM_PIO_VERSION >= 1) /* IN pin count mask  */
+#define PIO_SIM_HAS_INTR_IRQ8 (PIO_SIM_PIO_VERSION >= 1)    /* 8 IRQ flags in INTR */
 
 /* Number of PIO blocks in the device: RP2040 has 2 (PIO0/1), RP2350 has 3
  * (PIO0/1/2). Used by the multi-PIO group helper. */

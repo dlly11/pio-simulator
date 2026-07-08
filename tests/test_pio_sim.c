@@ -999,7 +999,8 @@ static void test_clkdiv_freeruns_while_disabled(void)
 #if PIO_SIM_HAS_RXFIFO_MOV
 static void test_mov_rxfifo_roundtrip(void)
 {
-    pio_sim_sm_set_fifo_join(&pio, 0, PIO_FIFO_JOIN_RX_PUT);
+    /* PUTGET (both FJOIN bits): the SM may randomly put *and* get. */
+    pio_sim_sm_set_fifo_join(&pio, 0, PIO_FIFO_JOIN_RX_PUTGET);
     const uint16_t prog[] = {
         pio_sim_encode_mov_to_rxfifo(2),
         pio_sim_encode_mov_from_rxfifo(2),
@@ -1018,6 +1019,7 @@ static void test_mov_rxfifo_roundtrip(void)
 
 static void test_mov_rxfifo_y_indexed(void)
 {
+    pio_sim_sm_set_fifo_join(&pio, 0, PIO_FIFO_JOIN_RX_PUT);
     const uint16_t prog[] = {
         pio_sim_encode_set(PIO_DST_Y, 3),
         pio_sim_encode_mov_to_rxfifo_y(),
@@ -1050,6 +1052,30 @@ static void test_rxfifo_host_index_access(void)
     pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_HEX32(0x0BADC0DEU, pio.sm[0].osr);
 }
+/* The RX register-file direction restrictions are enforced: an SM get is a
+ * no-op outside GET/PUTGET mode, an SM put a no-op outside PUT/PUTGET mode. */
+static void test_rxfifo_mode_enforced(void)
+{
+    /* PUT mode: an SM get must not load the OSR. */
+    pio_sim_sm_set_fifo_join(&pio, 0, PIO_FIFO_JOIN_RX_PUT);
+    pio.sm[0].rx.buf[1] = 0x11111111U;
+    pio.sm[0].osr = 0x0U;
+    const uint16_t get[] = {pio_sim_encode_mov_from_rxfifo(1)};
+    load_prog(get, 1);
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_HEX32(0x0U, pio.sm[0].osr); /* get rejected in PUT mode */
+
+    /* GET mode: an SM put must not write the register file. */
+    pio_sim_init(&pio);
+    pio_sim_sm_set_fifo_join(&pio, 0, PIO_FIFO_JOIN_RX_GET);
+    pio.sm[0].isr = 0x22222222U;
+    const uint16_t put[] = {pio_sim_encode_mov_to_rxfifo(1)};
+    load_prog(put, 1);
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_HEX32(0x0U, pio.sm[0].rx.buf[1]); /* put rejected in GET mode */
+    TEST_ASSERT_EQUAL_HEX32(0x22222222U, pio.sm[0].isr); /* ISR untouched */
+}
+
 /* Operand bit 4 discriminates the indexed RX-FIFO MOV from PUSH/PULL: a
  * PUSH/PULL word with only reserved low bits set must still execute as a
  * PUSH/PULL, not be misrouted to the RX register file. */
@@ -1555,6 +1581,26 @@ static void test_system_irq_lines(void)
     TEST_ASSERT_TRUE(pio_sim_interrupt_line(&pio, 0));
 }
 
+/* IRQ-flag routing into INTR: RP2350 routes all eight SM IRQ flags (INTR bits
+ * 8..15); RP2040 routes only the low four. */
+static void test_intr_irq_flag_routing(void)
+{
+    pio.irq = 0xFFU; /* all eight flags raised */
+    uint32_t intr = pio_sim_get_irq_raw(&pio);
+#if PIO_SIM_HAS_INTR_IRQ8
+    for (uint8_t i = 0; i < 8U; i++) {
+        TEST_ASSERT_TRUE((intr & PIO_INTR_SM_IRQ(i)) != 0U);
+    }
+#else
+    for (uint8_t i = 0; i < 4U; i++) {
+        TEST_ASSERT_TRUE((intr & PIO_INTR_SM_IRQ(i)) != 0U);
+    }
+    for (uint8_t i = 4U; i < 8U; i++) {
+        TEST_ASSERT_TRUE((intr & PIO_INTR_SM_IRQ(i)) == 0U);
+    }
+#endif
+}
+
 /* The INTE/INTF masks read back exactly as set, per line and independently. */
 static void test_irq_enable_force_read_back(void)
 {
@@ -1752,6 +1798,7 @@ int main(void)
     RUN_TEST(test_mov_rxfifo_roundtrip);
     RUN_TEST(test_mov_rxfifo_y_indexed);
     RUN_TEST(test_rxfifo_host_index_access);
+    RUN_TEST(test_rxfifo_mode_enforced);
     RUN_TEST(test_mov_rxfifo_discriminator_bit4);
 #endif
     RUN_TEST(test_irq_next_prev_have_no_local_effect);
@@ -1789,6 +1836,7 @@ int main(void)
     RUN_TEST(test_dma_chain_to_next);
     RUN_TEST(test_fdebug_flags);
     RUN_TEST(test_system_irq_lines);
+    RUN_TEST(test_intr_irq_flag_routing);
     RUN_TEST(test_irq_enable_force_read_back);
 
     RUN_TEST(test_input_sync_delays_jmp_pin_by_two_cycles);

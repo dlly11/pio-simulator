@@ -582,6 +582,21 @@ static void test_load_program_pc_starts_at_offset(void)
     TEST_ASSERT_EQUAL_UINT32(5U, pio.sm[0].x); /* preamble ran */
 }
 
+#if PIO_SIM_HAS_RXFIFO_MOV
+/* `.fifo putget` selects the combined put+get mode (both FJOIN_RX bits), not
+ * plain PUT; txput/txget map to their single-direction modes. */
+static void test_fifo_putget_maps_to_putget(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program f\n.fifo putget\n    nop\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(PIO_FIFO_JOIN_RX_PUTGET, p.fifo_join);
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program f\n.fifo txput\n    nop\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(PIO_FIFO_JOIN_RX_PUT, p.fifo_join);
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program f\n.fifo txget\n    nop\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(PIO_FIFO_JOIN_RX_GET, p.fifo_join);
+}
+#endif
+
 /* Non-public defines are local to their program (pioasm scoping): one from a
  * non-selected program must not leak into the selected program's symbols. */
 static void test_define_not_leaked_from_other_program(void)
@@ -729,6 +744,7 @@ int main(void)
     RUN_TEST(test_assemble_irq_rel);
 #if PIO_SIM_HAS_RXFIFO_MOV
     RUN_TEST(test_assemble_mov_rxfifo);
+    RUN_TEST(test_fifo_putget_maps_to_putget);
 #endif
 #if PIO_SIM_HAS_WAIT_JMPPIN
     RUN_TEST(test_assemble_wait_jmppin);
