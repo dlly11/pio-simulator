@@ -117,9 +117,12 @@ typedef struct {
 bool pio_asm_assemble(const char *src, const char *name, pio_program_t *out);
 
 /**
- * Convenience: assemble `prog` into `pio` at `offset`, applying side-set and
- * wrap config to state machine `sm`. Returns false (and leaves pio untouched
- * beyond the load) if prog->ok is false.
+ * Convenience: load an already-assembled `prog` into `pio` at `offset`
+ * (relocating JMP targets), apply its side-set and wrap config to state
+ * machine `sm`, and set the SM's PC to `offset` — the program's first
+ * instruction, as the SDK's pio_sm_init does, so a preamble before
+ * .wrap_target runs once. Returns false and does nothing if prog->ok is
+ * false.
  */
 bool pio_asm_load_program(pio_sim_t *pio, uint8_t sm, uint8_t offset, const pio_program_t *prog);
 

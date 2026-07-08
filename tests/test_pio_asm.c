@@ -537,6 +537,51 @@ static void test_load_program_at_origin(void)
     TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_jmp(PIO_COND_ALWAYS, 5), pio.insn[6]); /* jmp 0 -> 5 */
 }
 
+/* `::` (reverse) binds loosest of all, as in pioasm's grammar: `::2 >> 27` is
+ * ::(2 >> 27) = 0, not (::2) >> 27 = 8. */
+static void test_reverse_binds_loosest(void)
+{
+    const char *src = ".program r\n"
+                      ".define E (::2 >> 27) & 0x1F\n"
+                      ".define F (::E + 4) >> 27\n"
+                      "    set x, E\n"
+                      "    set y, F\n";
+    pio_program_t p;
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 0), p.insns[0]);
+    /* F = ::(0 + 4) >> 27 = 0x20000000 >> 27 = 4 (old precedence gave 0). */
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_Y, 4), p.insns[1]);
+}
+
+/* `in status` must be rejected: IN source encoding 101 is reserved on hardware
+ * (STATUS is a MOV-only source), and real pioasm rejects it. */
+static void test_in_status_rejected(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    in status, 8\n", NULL, &p));
+    /* …while mov from status stays accepted. */
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program t\n    mov x, status\n", NULL, &p));
+}
+
+/* pio_asm_load_program starts the SM at the program's first instruction (the
+ * SDK's pio_sm_init convention), so a preamble before .wrap_target runs once. */
+static void test_load_program_pc_starts_at_offset(void)
+{
+    const char *src = ".program pre\n"
+                      "    set x, 5\n" /* preamble: must execute */
+                      ".wrap_target\n"
+                      "    set y, 1\n"
+                      ".wrap\n";
+    pio_program_t p;
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_UINT8(1U, p.wrap_bottom);
+    TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 2, &p));
+    TEST_ASSERT_EQUAL_UINT8(2U, pio_sim_sm_get_pc(&pio, 0)); /* offset, not wrap */
+    pio_sim_sm_set_enabled(&pio, 0, true);
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_UINT32(5U, pio.sm[0].x); /* preamble ran */
+}
+
 /* irq in absolute (non-rel) set/wait/clear forms. */
 static void test_irq_absolute(void)
 {
@@ -688,6 +733,9 @@ int main(void)
     RUN_TEST(test_too_many_tokens_errors);
     RUN_TEST(test_undefined_symbol_errors);
     RUN_TEST(test_load_program_at_origin);
+    RUN_TEST(test_reverse_binds_loosest);
+    RUN_TEST(test_in_status_rejected);
+    RUN_TEST(test_load_program_pc_starts_at_offset);
     RUN_TEST(test_irq_absolute);
     RUN_TEST(test_more_dest_src_fields);
     RUN_TEST(test_arity_errors);

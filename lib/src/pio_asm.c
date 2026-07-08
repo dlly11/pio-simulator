@@ -167,7 +167,8 @@ static bool find_define(const asm_ctx_t *ctx, const char *name, uint32_t *out)
 /* ── Expression evaluator (pioasm-compatible) ──────────────────────────────────
  * Integer expressions over `.define` symbols, labels, and literals, matching
  * real pioasm's operators and precedence. Tightest binding first:
- *   unary - , ::(32-bit reverse)  >  & | ^  >  * /  >  + -  >  << >>
+ *   unary -  >  & | ^  >  * /  >  + -  >  << >>  >  ::(32-bit reverse)
+ * (pioasm's grammar binds `::` loosest of all, so `::A + 1` is `::(A + 1)`.)
  * Operands: decimal / 0x / 0b literals, identifiers (define first, then label),
  * and parenthesised sub-expressions. Evaluated in int64, truncated to 32 bits at
  * the use site. Whitespace between tokens is ignored, so a spaced or glued form
@@ -197,14 +198,14 @@ static uint32_t expr_reverse32(uint32_t v_in)
     return v;
 }
 
-static int64_t expr_shift(expr_t *e); /* lowest-precedence entry, fwd decl */
+static int64_t expr_reverse(expr_t *e); /* lowest-precedence entry, fwd decl */
 
 static int64_t expr_primary(expr_t *e)
 {
     expr_skip_ws(e);
     if (*e->p == '(') {
         e->p++;
-        int64_t v = expr_shift(e);
+        int64_t v = expr_reverse(e);
         expr_skip_ws(e);
         if (*e->p == ')') {
             e->p++;
@@ -266,10 +267,6 @@ static int64_t expr_unary(expr_t *e)
     if (*e->p == '-') {
         e->p++;
         return -expr_unary(e);
-    }
-    if ((e->p[0] == ':') && (e->p[1] == ':')) {
-        e->p += 2;
-        return (int64_t)expr_reverse32((uint32_t)expr_unary(e));
     }
     return expr_primary(e);
 }
@@ -352,12 +349,24 @@ static int64_t expr_shift(expr_t *e) /* << >> — loosest binary */
     return v;
 }
 
+/* `::` (32-bit reverse) binds loosest of all, matching pioasm's grammar: it
+ * applies to the whole expression to its right (right-recursive). */
+static int64_t expr_reverse(expr_t *e)
+{
+    expr_skip_ws(e);
+    if ((e->p[0] == ':') && (e->p[1] == ':')) {
+        e->p += 2;
+        return (int64_t)expr_reverse32((uint32_t)expr_reverse(e));
+    }
+    return expr_shift(e);
+}
+
 /* Resolve an integer operand: a full expression (literal / define / label /
  * arithmetic). Truncated to 32 bits. */
 static bool resolve_uint(const asm_ctx_t *ctx, const char *s, uint32_t *out)
 {
     expr_t e = {ctx, s, true};
-    int64_t v = expr_shift(&e);
+    int64_t v = expr_reverse(&e);
     expr_skip_ws(&e);
     if (!e.ok || (*e.p != '\0')) {
         return false;
@@ -818,6 +827,12 @@ static bool enc_in(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
         return false;
     }
     int src = src_field(tok[1]);
+    if (src == (int)PIO_SRC_STATUS) {
+        /* IN source encoding 101 is reserved on hardware (STATUS is a MOV-only
+         * source); real pioasm rejects it too. */
+        pa_set_error(ctx, "status is not a valid in source");
+        return false;
+    }
     uint32_t cnt;
     if ((src < 0) || !resolve_uint_join(ctx, tok, 2, n, &cnt)) {
         pa_set_error(ctx, "bad in operands");
@@ -1674,7 +1689,9 @@ bool pio_asm_load_program(pio_sim_t *pio, uint8_t sm, uint8_t offset, const pio_
     pio_sim_sm_set_wrap(pio, sm, (uint8_t)(offset + prog->wrap_bottom),
                         (uint8_t)(offset + prog->wrap_top));
     pio_sim_sm_set_sideset(pio, sm, prog->sideset_bits, prog->sideset_opt, prog->sideset_pindirs);
-    pio_sim_sm_set_pc(pio, sm, (uint8_t)(offset + prog->wrap_bottom));
+    /* Start at the program's first instruction (the SDK's pio_sm_init
+     * convention), so any preamble before .wrap_target runs once. */
+    pio_sim_sm_set_pc(pio, sm, offset);
     return true;
 }
 
