@@ -5,6 +5,12 @@ on:
     branches: [main, master]
   pull_request:
 
+# One run per ref: a push on top of an in-flight run (or a same-repo PR
+# doubling a branch push) cancels the stale jobs instead of stacking 9 more.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
@@ -13,7 +19,7 @@ jobs:
         cc: [gcc, clang]
         platform: [RP2350, RP2040]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
       - name: Install toolchain
@@ -27,8 +33,11 @@ jobs:
 
   sanitizers:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [RP2350, RP2040] # exercise the v0-gated paths under ASan/UBSan too
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
       - name: Install toolchain
@@ -36,6 +45,7 @@ jobs:
       - name: Configure (ASan + UBSan)
         run: >
           cmake -B build-san -G Ninja
+          -DPIO_SIM_PLATFORM=${{ matrix.platform }}
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
       - name: Build
         run: cmake --build build-san
@@ -51,13 +61,13 @@ jobs:
       matrix:
         platform: [RP2350, RP2040]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
       - name: Install toolchain
         run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ bison flex
       - name: Checkout pinned Pico SDK (for pioasm)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: raspberrypi/pico-sdk
           ref: '2.1.0'
@@ -88,7 +98,7 @@ jobs:
       matrix:
         platform: [RP2350, RP2040]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
       - name: Install toolchain
@@ -104,7 +114,7 @@ jobs:
   format:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install clang-format
         run: sudo apt-get update && sudo apt-get install -y clang-format
       - name: Check formatting
