@@ -1,5 +1,7 @@
 # pio_sim
 
+![ci](https://github.com/dlly11/pio-simulator/actions/workflows/ci.yml/badge.svg)
+
 A pure-C functional simulator and assembler for the **RP2040 / RP2350 PIO**
 block. It runs real PIO programs off-hardware so you can unit-test PIO logic
 (protocols, timing, FIFO behaviour) in a normal host build — no silicon, no
@@ -145,10 +147,22 @@ git submodule. Clone with `--recurse-submodules`, or initialise it after cloning
 
 ```sh
 git submodule update --init
-cmake -B build -G Ninja
+cmake -B build        # -G Ninja optional; any generator works
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
+
+No CMake handy? The library is dependency-free, so a bare compiler run works too:
+
+```sh
+gcc -std=c11 -Wall -Wextra -I lib/include -I lib/config -I third_party/unity/src \
+    lib/src/pio_sim.c lib/src/pio_dma.c lib/src/pio_asm.c \
+    tests/test_pio_sim.c third_party/unity/src/unity.c -o test_sim && ./test_sim
+```
+
+CI builds gcc + clang across both platforms (`-DPIO_SIM_PLATFORM=RP2040|RP2350`),
+runs the suites under ASan/UBSan, lints with clang-tidy/clang-format, and
+cross-checks the assembler's encodings against the real pioasm (see below).
 
 ### Lint & format
 
@@ -161,7 +175,7 @@ clang-format --dry-run --Werror lib/src/*.c lib/include/*.h tests/test_*.c
 
 # static analysis: needs a compile database for the include paths / feature defines
 cmake -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-clang-tidy -p build lib/src/pio_sim.c lib/src/pio_asm.c
+clang-tidy -p build lib/src/pio_sim.c lib/src/pio_dma.c lib/src/pio_asm.c
 ```
 
 ## Embedding

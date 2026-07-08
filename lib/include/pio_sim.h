@@ -16,6 +16,18 @@
  * runs one SM cycle when it elapses. An SM cycle either consumes a pending
  * delay, retries a stalled instruction, or fetches and executes one
  * instruction (committing side-set, then arming any post-instruction delay).
+ *
+ * API contract:
+ *  - `sm` selects a state machine (0..3). Out-of-range values are masked into
+ *    range (sm & 3), like the `irq & 7` and `line & 1` masks — not reported.
+ *  - The library is not thread-safe: drive a pio_sim_t (and anything sharing
+ *    its pads) from one thread.
+ *  - Lifetimes: a pio_sim_group_t must outlive its member blocks' use — group
+ *    init repoints each block's `pads` into the group (a later pio_sim_init on
+ *    a member resets that member to its own pads). A pio_sim_dma_t's `buf` and
+ *    `chain` targets must outlive the transfer.
+ *  - The structs are transparent for test convenience; prefer the accessors,
+ *    and never write pin/pad fields directly (see the pio_sm_t note).
  */
 
 #ifndef PIO_SIM_H
@@ -272,6 +284,8 @@ void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled);
 /* ── Configuration (mirrors the pico-sdk sm_config_set_* surface) ──────────── */
 
 void pio_sim_sm_set_wrap(pio_sim_t *pio, uint8_t sm, uint8_t bottom, uint8_t top);
+/** Side-set config. `bit_count` is the pico-sdk convention: data bits *plus*
+ * the enable bit when `opt` is true (so `.side_set 2 opt` passes 3). */
 void pio_sim_sm_set_sideset(pio_sim_t *pio, uint8_t sm, uint8_t bit_count, bool opt, bool pindirs);
 void pio_sim_sm_set_sideset_base(pio_sim_t *pio, uint8_t sm, uint8_t base);
 void pio_sim_sm_set_out_pins(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count);
@@ -289,10 +303,15 @@ void pio_sim_sm_set_set_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count);
 void pio_sim_sm_set_in_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count);
 #endif
 void pio_sim_sm_set_jmp_pin(pio_sim_t *pio, uint8_t sm, uint8_t pin);
+/** OUT shift config. A `threshold` of 0 (or > 32) means 32, as in the
+ * hardware SHIFTCTRL field where 0 encodes a full 32-bit threshold. */
 void pio_sim_sm_set_out_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bool autopull,
                               uint8_t threshold);
+/** IN shift config; `threshold` 0 (or > 32) means 32, as for out_shift. */
 void pio_sim_sm_set_in_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bool autopush,
                              uint8_t threshold);
+/** Clock divider, 16.8 fixed point. `div_int` of 0 means 65536 (the hardware
+ * encoding), regardless of `div_frac`. */
 void pio_sim_sm_set_clkdiv(pio_sim_t *pio, uint8_t sm, uint16_t div_int, uint8_t div_frac);
 
 /** Configure the EXECCTRL output special behaviours (mirrors the SDK's
@@ -313,6 +332,8 @@ void pio_sim_sm_set_out_special(pio_sim_t *pio, uint8_t sm, bool sticky, bool in
  * ticks (e.g. the etm_4bit_lo/hi pair or the cross-SM JTAG programs).
  */
 void pio_sim_clkdiv_restart(pio_sim_t *pio, uint8_t sm_mask);
+/** Set the program counter directly. Does not restart the SM or clear a
+ * latched stall/pending exec — use pio_sim_sm_restart for a full reset. */
 void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc);
 
 /** Current program counter of state machine `sm`. Mirrors the SDK's
@@ -426,7 +447,7 @@ void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm);
  * writes via `mov rxfifo[], isr` and the host reads with pio_sim_rxfifo_get; in
  * GET mode the host writes with pio_sim_rxfifo_put and the SM reads via
  * `mov osr, rxfifo[]`. These — not pio_sim_rx_pop/tx_push — are the host access
- * path for those modes. */
+ * path for those modes. `index` is masked to the 4-entry file (index & 3). */
 uint32_t pio_sim_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index);
 void pio_sim_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word);
 #endif
@@ -462,7 +483,9 @@ bool pio_sim_pin_is_pio_output(const pio_sim_t *pio, uint8_t pin);
 
 /* ── IRQ access ────────────────────────────────────────────────────────────── */
 
+/** Read SM IRQ flag `irq` (masked to the 8 flags: irq & 7). */
 bool pio_sim_irq_get(const pio_sim_t *pio, uint8_t irq);
+/** Clear SM IRQ flag `irq` (masked: irq & 7) — the host-side acknowledge. */
 void pio_sim_irq_clear(pio_sim_t *pio, uint8_t irq);
 
 /* ── System interrupt lines (IRQ0 / IRQ1) ──────────────────────────────────────
