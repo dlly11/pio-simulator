@@ -201,16 +201,20 @@ void pio_sim_sm_set_sideset_base(pio_sim_t *pio, uint8_t sm, uint8_t base)
     pio->sm[sm].sideset_base = base;
 }
 
+/* Pin-span counts are at most 32 (the SM pin window): clamp so the pin-drive
+ * loops below never shift a 32-bit value by ≥ 32. */
+static uint8_t clamp_pin_count(uint8_t count) { return (count > 32U) ? 32U : count; }
+
 void pio_sim_sm_set_out_pins(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count)
 {
     pio->sm[sm].out_base = base;
-    pio->sm[sm].out_count = count;
+    pio->sm[sm].out_count = clamp_pin_count(count);
 }
 
 void pio_sim_sm_set_set_pins(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count)
 {
     pio->sm[sm].set_base = base;
-    pio->sm[sm].set_count = count;
+    pio->sm[sm].set_count = clamp_pin_count(count);
 }
 
 void pio_sim_sm_set_in_base(pio_sim_t *pio, uint8_t sm, uint8_t base)
@@ -220,12 +224,12 @@ void pio_sim_sm_set_in_base(pio_sim_t *pio, uint8_t sm, uint8_t base)
 
 void pio_sim_sm_set_out_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count)
 {
-    pio->sm[sm].out_count = count;
+    pio->sm[sm].out_count = clamp_pin_count(count);
 }
 
 void pio_sim_sm_set_set_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count)
 {
-    pio->sm[sm].set_count = count;
+    pio->sm[sm].set_count = clamp_pin_count(count);
 }
 
 #if PIO_SIM_HAS_IN_PIN_COUNT
@@ -500,6 +504,7 @@ static bool pio_input_level(const pio_sim_t *pio, uint8_t pin)
  * also set. */
 static void drive_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count, uint32_t value)
 {
+    count = clamp_pin_count(count);
     for (uint8_t i = 0; i < count; i++) {
         uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
         if (((value >> i) & 1U) != 0U) {
@@ -515,6 +520,7 @@ static void drive_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count
  * (pindir) register, then re-resolves the pad. */
 static void drive_pindirs(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count, uint32_t value)
 {
+    count = clamp_pin_count(count);
     for (uint8_t i = 0; i < count; i++) {
         uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
         if (((value >> i) & 1U) != 0U) {
@@ -540,6 +546,7 @@ static void release_out_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t
 static uint32_t read_in_pins(const pio_sim_t *pio, uint8_t base, uint8_t count)
 {
     uint32_t v = 0;
+    count = clamp_pin_count(count);
     for (uint8_t i = 0; i < count; i++) {
         uint8_t pin = phys_pin(pio, (uint8_t)(base + i));
         if (pio_input_level(pio, pin)) {

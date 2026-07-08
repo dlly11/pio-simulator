@@ -229,6 +229,31 @@ static void test_multi_sm_priority_across_cycles(void)
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* SM1 priority holds it low */
 }
 
+/* Pin-span counts clamp to 32 (the SM pin window), so an oversized count can
+ * never shift a 32-bit value out of range. */
+static void test_out_count_clamped_to_32(void)
+{
+    pio_sim_sm_set_out_pins(&pio, 0, 0, 40);
+    TEST_ASSERT_EQUAL_UINT8(32U, pio.sm[0].out_count);
+    pio_sim_sm_set_set_pins(&pio, 0, 0, 33);
+    TEST_ASSERT_EQUAL_UINT8(32U, pio.sm[0].set_count);
+    pio_sim_sm_set_out_pin_count(&pio, 0, 255);
+    TEST_ASSERT_EQUAL_UINT8(32U, pio.sm[0].out_count);
+    pio_sim_sm_set_set_pin_count(&pio, 0, 64);
+    TEST_ASSERT_EQUAL_UINT8(32U, pio.sm[0].set_count);
+    /* And a MOV PINS across the full clamped span executes without tripping
+     * undefined shifts (UBSan-guarded in CI). */
+    pio_sim_sm_set_pindirs(&pio, 0, 0, 32, true);
+    const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 21),
+                             pio_sim_encode_mov(PIO_DST_PINS, PIO_MOV_NONE, PIO_SRC_X)};
+    load_prog(prog, 2);
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 0));
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 1));
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 2));
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 31));
+}
+
 /* True high-impedance: a PIO output released to input (no pull) floats and reads 0,
  * not the value it last drove. */
 static void test_pin_floats_when_released(void)
@@ -1540,6 +1565,7 @@ int main(void)
     RUN_TEST(test_out_inline_enable_gates_write);
     RUN_TEST(test_multi_sm_pin_priority_and_override);
     RUN_TEST(test_multi_sm_priority_across_cycles);
+    RUN_TEST(test_out_count_clamped_to_32);
     RUN_TEST(test_pin_floats_when_released);
     RUN_TEST(test_host_release_pin);
     RUN_TEST(test_out_exec_injects_instruction);
