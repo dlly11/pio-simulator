@@ -650,74 +650,14 @@ void pio_sim_group_run(pio_sim_group_t *g, uint64_t n);
  * blocks — the multi-PIO analogue of an in-block synchronised start. */
 void pio_sim_group_enable_sm_mask_sync(pio_sim_group_t *g, const uint8_t *masks);
 
-/* ── DMA pacing ────────────────────────────────────────────────────────────────
- * A lightweight model of a DMA channel servicing a state machine's FIFO, paced
- * by the PIO's data-request (DREQ) signals: a TX DREQ is asserted whenever the
- * TX FIFO has room, an RX DREQ whenever the RX FIFO has data. Each step moves at
- * most one element when the relevant DREQ is asserted, as a real DMA channel
- * does. pio_sim_dma_init is the simple word-at-a-time form; pio_sim_dma_init_ex
- * adds 8/16/32-bit transfer sizes, fixed-address mode, an element ring, and
- * chaining to a next channel. It is still not a full DMA controller (no
- * interrupts, no address generators beyond increment/ring). */
+/* ── DMA data requests ─────────────────────────────────────────────────────────
+ * The PIO-side DREQ levels. The full DMA controller model (channels, chaining,
+ * IRQs, sniffer, pacing timers) lives in pio_dma.h. */
 
 /** TX DREQ: true when the SM's TX FIFO can accept another word. */
 bool pio_sim_dreq_tx(const pio_sim_t *pio, uint8_t sm);
 /** RX DREQ: true when the SM's RX FIFO holds a word to read. */
 bool pio_sim_dreq_rx(const pio_sim_t *pio, uint8_t sm);
-
-typedef enum {
-    PIO_DMA_TO_SM = 0,   /* host buffer -> TX FIFO (paced by TX DREQ)  */
-    PIO_DMA_FROM_SM = 1, /* RX FIFO -> host buffer (paced by RX DREQ)  */
-} pio_dma_dir_t;
-
-typedef enum {
-    PIO_DMA_SIZE_8 = 0,  /* byte transfers     */
-    PIO_DMA_SIZE_16 = 1, /* halfword transfers */
-    PIO_DMA_SIZE_32 = 2, /* word transfers     */
-} pio_dma_size_t;
-
-typedef struct pio_sim_dma {
-    pio_sim_t *pio;
-    uint8_t sm;
-    pio_dma_dir_t dir;
-    void *buf; /* source (TO_SM) or destination (FROM_SM) element array */
-    uint32_t count;
-    uint32_t pos;              /* transfers completed */
-    pio_dma_size_t size;       /* element size (default word)              */
-    bool incr;                 /* advance the buffer pointer (else fixed)  */
-    uint32_t ring;             /* wrap the element index modulo `ring` (0: no wrap) */
-    struct pio_sim_dma *chain; /* started when this channel completes; NULL: none */
-} pio_sim_dma_t;
-
-/** Set up a simple channel: `count` 32-bit words between `buf` and SM `sm`'s
- * FIFO, incrementing, no ring, no chain. `buf` is only read in PIO_DMA_TO_SM
- * mode (non-const because the one field serves both directions). */
-void pio_sim_dma_init(pio_sim_dma_t *dma, pio_sim_t *pio, uint8_t sm, pio_dma_dir_t dir,
-                      uint32_t *buf, uint32_t count);
-
-/** Full configuration: element `size`, address increment on/off, an element-wise
- * ring wrap (0 = none), and an optional `chain` channel started on completion. */
-void pio_sim_dma_init_ex(pio_sim_dma_t *dma, pio_sim_t *pio, uint8_t sm, pio_dma_dir_t dir,
-                         void *buf, uint32_t count, pio_dma_size_t size, bool incr, uint32_t ring,
-                         pio_sim_dma_t *chain);
-
-/** True once all `count` transfers have completed. */
-bool pio_sim_dma_done(const pio_sim_dma_t *dma);
-
-/** Move one element if the channel's DREQ is asserted and it is not done. Returns
- * true if an element moved. Call once per system tick. */
-bool pio_sim_dma_step(pio_sim_dma_t *dma);
-
-/** Step several channels once each (for multiple DMAs around one tick loop). */
-void pio_sim_dma_step_many(pio_sim_dma_t *const *chans, uint8_t n);
-
-/** Convenience: tick `dma->pio` while servicing the channel (and any chained
- * channels) until done or `max_ticks` elapse. Returns the number of ticks run.
- * Limitation: after a chain transition only the *current* channel's PIO block
- * is ticked, so a chain crossing PIO blocks starves the earlier block. For
- * several independent channels, cross-PIO chains, or a multi-PIO group, call
- * pio_sim_dma_step yourself around your own tick loop instead. */
-uint64_t pio_sim_dma_run(pio_sim_dma_t *dma, uint64_t max_ticks);
 
 /* ── Instruction encoding helpers (match pico-sdk pio_encode_*) ────────────── */
 
