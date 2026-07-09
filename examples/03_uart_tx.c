@@ -70,7 +70,10 @@ int main(void)
     pio_sim_sm_set_enabled(&pio, 0, true);
 
     const uint8_t byte = 0x4B; /* 'K' */
-    pio_sim_sm_put(&pio, 0, byte);
+    if (!pio_sim_sm_put(&pio, 0, byte)) {
+        (void)fprintf(stderr, "TX FIFO unexpectedly full\n");
+        return 1;
+    }
     printf("sending 0x%02X ('%c') at bit period %d ticks (clkdiv %d)\n", byte, byte, BIT_TICKS,
            CLKDIV);
 

@@ -58,9 +58,14 @@ int main(void)
 {
     pio_program_t prod;
     pio_program_t cons;
-    if (!pio_asm_assemble(PRODUCER_SRC, NULL, &prod) ||
-        !pio_asm_assemble(CONSUMER_SRC, NULL, &cons)) {
-        (void)fprintf(stderr, "assemble failed\n");
+    if (!pio_asm_assemble(PRODUCER_SRC, NULL, &prod)) {
+        (void)fprintf(stderr, "producer assemble failed (line %d): %s\n", prod.error_line,
+                      prod.error);
+        return 1;
+    }
+    if (!pio_asm_assemble(CONSUMER_SRC, NULL, &cons)) {
+        (void)fprintf(stderr, "consumer assemble failed (line %d): %s\n", cons.error_line,
+                      cons.error);
         return 1;
     }
 
@@ -77,7 +82,10 @@ int main(void)
     sm_config_set_out_shift(&pc, false, true, 8);
     sm_config_set_clkdiv(&pc, (float)PRODUCER_CLKDIV);
     pio_sim_sm_init(p0, 0, 0, &pc);
-    (void)pio_asm_load_program(p0, 0, 0, &prod);
+    if (!pio_asm_load_program(p0, 0, 0, &prod)) {
+        (void)fprintf(stderr, "producer load failed\n");
+        return 1;
+    }
     pio_asm_apply_program_config(p0, 0, &prod);
     pio_sim_sm_set_consecutive_pindirs(p0, 0, DATA_PIN, 1, true);
     pio_sim_sm_set_consecutive_pindirs(p0, 0, CLK_PIN, 1, true);
@@ -88,7 +96,10 @@ int main(void)
     sm_config_set_in_pins(&cc, DATA_PIN);
     sm_config_set_in_shift(&cc, false, true, 8);
     pio_sim_sm_init(p1, 0, 0, &cc);
-    (void)pio_asm_load_program(p1, 0, 0, &cons);
+    if (!pio_asm_load_program(p1, 0, 0, &cons)) {
+        (void)fprintf(stderr, "consumer load failed\n");
+        return 1;
+    }
     pio_asm_apply_program_config(p1, 0, &cons);
 
     unsigned long prod_insns = 0;
