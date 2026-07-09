@@ -2,3 +2,11 @@
 /build-*/
 *.o
 *.a
+
+# libFuzzer artifacts (a crash reproducer / discovered inputs land in the CWD)
+crash-*
+leak-*
+timeout-*
+oom-*
+*.profraw
+*.profdata

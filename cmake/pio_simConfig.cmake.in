@@ -1,0 +1,6 @@
+@PACKAGE_INIT@
+
+# pio_sim has no external dependencies; just pull in the exported target.
+include("${CMAKE_CURRENT_LIST_DIR}/pio_simTargets.cmake")
+
+check_required_components(pio_sim)

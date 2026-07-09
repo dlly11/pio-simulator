@@ -354,6 +354,38 @@ static void test_delay_and_required_sideset(void)
     TEST_ASSERT_EQUAL_HEX16((uint16_t)(nop | (0x11U << 8)), p.insns[1]);
 }
 
+/* A delay bracket may hold a spaced expression ("[T3 - 1]"), which tokenizes
+ * into several tokens — pioasm accepts it, so we must too (the ws2812 corpus
+ * program uses exactly this). All spacings encode identically. */
+static void test_spaced_delay_expression(void)
+{
+    const char *src = ".program d\n"
+                      ".define T 4\n"
+                      "    nop [T - 1]\n"   /* spaced: tokens "[T","-","1]" */
+                      "    nop [ T - 1 ]\n" /* brackets split off too        */
+                      "    nop [T-1]\n";    /* glued (already worked)        */
+    pio_program_t p;
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src, NULL, &p), p.error);
+    uint16_t nop_d3 = (uint16_t)(pio_sim_encode_nop() | (3U << 8)); /* delay 3 */
+    TEST_ASSERT_EQUAL_HEX16(nop_d3, p.insns[0]);
+    TEST_ASSERT_EQUAL_HEX16(nop_d3, p.insns[1]);
+    TEST_ASSERT_EQUAL_HEX16(nop_d3, p.insns[2]);
+}
+
+/* A shift by a negative or out-of-range count is a malformed expression: it
+ * must be rejected, not evaluated with undefined behaviour (found by fuzzing).
+ * The sanitizer CI build turns any residual UB here into a failure. */
+static void test_shift_expression_out_of_range_rejected(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program p\n.define A 1 << -30\n set x, A\n", NULL, &p));
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program p\n set x, (1 << 70)\n", NULL, &p));
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program p\n set x, (4 >> -1)\n", NULL, &p));
+    /* An in-range shift still works. */
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program p\n.define A 1 << 4\n set x, A\n", NULL, &p));
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 16), p.insns[0]);
+}
+
 /* An optional side-set sets the enable bit only on instructions that name one. */
 static void test_optional_sideset(void)
 {
@@ -789,6 +821,8 @@ int main(void)
     RUN_TEST(test_push_pull_qualifiers);
     RUN_TEST(test_mov_ops_and_set);
     RUN_TEST(test_delay_and_required_sideset);
+    RUN_TEST(test_spaced_delay_expression);
+    RUN_TEST(test_shift_expression_out_of_range_rejected);
     RUN_TEST(test_optional_sideset);
     RUN_TEST(test_public_labels_and_verbatim);
     RUN_TEST(test_hex_comments_and_case);

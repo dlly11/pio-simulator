@@ -1,0 +1,11 @@
+; Every jmp condition. Targets are labels (portable across assemblers).
+.program jmpcov
+target:
+    jmp target
+    jmp !x target
+    jmp x-- target
+    jmp !y target
+    jmp y-- target
+    jmp x!=y target
+    jmp pin target
+    jmp !osre target

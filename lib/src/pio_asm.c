@@ -321,6 +321,20 @@ static int64_t expr_add(expr_t *e)
     return v;
 }
 
+/* Shift `v` by `by`, computed in the unsigned domain so a negative value or a
+ * shift wider than the type is defined rather than UB. A shift count outside
+ * [0,63] is a malformed expression (no real program shifts that far) — flag it
+ * and yield 0. */
+static int64_t expr_do_shift(expr_t *e, int64_t v, int64_t by, bool left)
+{
+    if ((by < 0) || (by > 63)) {
+        e->ok = false;
+        return 0;
+    }
+    uint64_t u = (uint64_t)v;
+    return (int64_t)(left ? (u << by) : (u >> by));
+}
+
 static int64_t expr_shift(expr_t *e) /* << >> — loosest binary */
 {
     int64_t v = expr_add(e);
@@ -328,10 +342,10 @@ static int64_t expr_shift(expr_t *e) /* << >> — loosest binary */
         expr_skip_ws(e);
         if ((e->p[0] == '<') && (e->p[1] == '<')) {
             e->p += 2;
-            v = v << expr_add(e);
+            v = expr_do_shift(e, v, expr_add(e), true);
         } else if ((e->p[0] == '>') && (e->p[1] == '>')) {
             e->p += 2;
-            v = v >> expr_add(e);
+            v = expr_do_shift(e, v, expr_add(e), false);
         } else {
             break;
         }
@@ -555,20 +569,43 @@ static bool extract_side_delay(asm_ctx_t *ctx, char *tok[], uint8_t *n, uint32_t
     bool changed = true;
     while (changed && (*n > 0U)) {
         changed = false;
-        /* delay form "[k]" as a single token */
+        /* delay form "[<expr>]" — a single token "[k]", or several when the
+         * bracketed expression is spaced ("[T3 - 1]" → tokens "[T3","-","1]",
+         * which pioasm also accepts). Detect the closing ']', scan back to the
+         * opening '[', join and evaluate the inner expression. */
         char *last = tok[*n - 1U];
         size_t len = strlen(last);
-        if ((len >= 2U) && ((last[0] == '[') && (last[len - 1U] == ']'))) {
-            last[len - 1U] = '\0';
-            uint32_t d;
-            if (!resolve_uint(ctx, &last[1], &d)) {
-                pa_set_error(ctx, "bad delay value");
-                return false;
+        if ((len >= 1U) && (last[len - 1U] == ']')) {
+            /* A delay bracket opens a fresh token ("[5]", or "[T3" of a spaced
+             * "[T3 - 1]"). Scan back for that opener; if none exists the ']'
+             * belongs to a glued operand like the rxfifo index "rxfifo[0]",
+             * which is not a delay — leave it for the instruction parser. */
+            uint8_t si = *n;
+            bool found = false;
+            while (si > 0U) {
+                si--;
+                if (tok[si][0] == '[') {
+                    found = true;
+                    break;
+                }
             }
-            *delay = d;
-            (*n)--;
-            changed = true;
-            continue;
+            if (found) {
+                char buf[MAX_LINE];
+                if (!join_tokens(tok, si, *n, buf, sizeof(buf))) {
+                    pa_set_error(ctx, "bad delay value");
+                    return false;
+                }
+                buf[strlen(buf) - 1U] = '\0'; /* drop trailing ']' */
+                uint32_t d;
+                if (!resolve_uint(ctx, &buf[1], &d)) { /* skip leading '[' */
+                    pa_set_error(ctx, "bad delay value");
+                    return false;
+                }
+                *delay = d;
+                *n = si;
+                changed = true;
+                continue;
+            }
         }
         /* side form "side <n>" as two tokens */
         if ((*n >= 2U) && ieq(tok[*n - 2U], "side")) {
