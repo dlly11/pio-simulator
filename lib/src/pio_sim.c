@@ -437,6 +437,7 @@ void pio_sim_sm_clear_status_value(pio_sim_t *pio, uint8_t sm)
  * (changing the join reshapes the storage, as on hardware). */
 static void apply_fifo_join(pio_sm_t *s, pio_fifo_join_t join)
 {
+    uint8_t old_join = s->fifo_join;
     s->fifo_join = (uint8_t)join;
     switch (join) {
     case PIO_FIFO_JOIN_TX:
@@ -468,8 +469,15 @@ static void apply_fifo_join(pio_sm_t *s, pio_fifo_join_t join)
         s->rx.cap = PIO_SIM_FIFO_DEPTH;
         break;
     }
-    fifo_clear(&s->tx);
-    fifo_clear(&s->rx);
+    /* Silicon clears both FIFOs only when the FJOIN field actually changes (a
+     * side effect of rewriting SHIFTCTRL); an unchanged join leaves FIFO
+     * contents intact. This is what pio_sm_set_config does — the explicit
+     * clear-on-init lives in pio_sim_sm_init, mirroring pio_sm_init's own
+     * pio_sm_clear_fifos call. */
+    if (s->fifo_join != old_join) {
+        fifo_clear(&s->tx);
+        fifo_clear(&s->rx);
+    }
 }
 
 void pio_sim_sm_set_config(pio_sim_t *pio, uint8_t sm, const pio_sm_config *c)
@@ -510,8 +518,11 @@ void pio_sim_sm_init(pio_sim_t *pio, uint8_t sm, uint8_t initial_pc, const pio_s
     pio_sim_sm_set_config(pio, sm, c);
     pio_sm_t *s = &pio->sm[SM_IDX(sm)];
     /* Reset the execution state (scratch, shift regs, delay, stall), as
-     * pio_sm_init does, then point the PC at initial_pc. FIFOs were already
-     * cleared by the join reshape in set_config. */
+     * pio_sm_init does, then point the PC at initial_pc. Clear the FIFOs
+     * explicitly (pio_sm_init calls pio_sm_clear_fifos) — set_config only
+     * clears them on a join change, so init must do it unconditionally. */
+    fifo_clear(&s->tx);
+    fifo_clear(&s->rx);
     s->x = 0;
     s->y = 0;
     s->osr = 0;

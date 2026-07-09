@@ -494,7 +494,10 @@ void sm_config_set_out_special(pio_sm_config *c, bool sticky, bool has_enable_pi
 /** Apply `c` to `sm`, reset it, and set its PC to `initial_pc` (SDK
  * pio_sm_init). */
 void pio_sim_sm_init(pio_sim_t *pio, uint8_t sm, uint8_t initial_pc, const pio_sm_config *c);
-/** Apply `c` to `sm` without resetting (SDK pio_sm_set_config). */
+/** Apply `c` to `sm` without resetting its execution state (SDK
+ * pio_sm_set_config). Like the hardware, the FIFOs are cleared only when the
+ * FIFO-join configuration actually changes; an unchanged join preserves any
+ * queued words. (pio_sim_sm_init clears them unconditionally.) */
 void pio_sim_sm_set_config(pio_sim_t *pio, uint8_t sm, const pio_sm_config *c);
 
 /** Register the external device callback (NULL to clear). */
@@ -565,9 +568,10 @@ bool pio_sim_sm_is_rx_fifo_empty(const pio_sim_t *pio, uint8_t sm);
  * FDEBUG flag on a full-FIFO write (observable via pio_sim_sm_get_fdebug). */
 bool pio_sim_sm_put(pio_sim_t *pio, uint8_t sm, uint32_t word);
 
-/** Get a word from the RX FIFO (SDK pio_sm_get). Sim extension: returns false
- * via the out-param instead of blocking when empty, and sets the RXUNDER
- * FDEBUG flag on an empty-FIFO read, matching the hardware. */
+/** Get a word from the RX FIFO (SDK pio_sm_get). On success writes the word
+ * through `word` and returns true. Sim extension: returns false instead of
+ * blocking when empty (leaving `word` untouched), and sets the RXUNDER FDEBUG
+ * flag on an empty-FIFO read, matching the hardware. */
 bool pio_sim_sm_get(pio_sim_t *pio, uint8_t sm, uint32_t *word);
 
 /** Empty both FIFOs of `sm` (mirrors pio_sm_clear_fifos); keeps the join config. */

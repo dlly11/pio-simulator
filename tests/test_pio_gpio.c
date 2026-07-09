@@ -136,6 +136,12 @@ static void test_functional_pad_fields_read_back(void)
     TEST_ASSERT_TRUE(up);
     TEST_ASSERT_FALSE(down);
     pio_sim_pad_get_pulls(&pio, 5, NULL, NULL); /* NULL out-params tolerated */
+
+    /* FUNCSEL read-back accessor. */
+    pio_sim_gpio_set_function(&pio, 5, PIO_GPIO_FUNC_PIO0);
+    TEST_ASSERT_EQUAL_INT(PIO_GPIO_FUNC_PIO0, pio_sim_gpio_get_function(&pio, 5));
+    pio_sim_gpio_set_function(&pio, 5, PIO_GPIO_FUNC_NULL);
+    TEST_ASSERT_EQUAL_INT(PIO_GPIO_FUNC_NULL, pio_sim_gpio_get_function(&pio, 5));
 }
 
 static void test_pads_reset_hw_matches_datasheet(void)
