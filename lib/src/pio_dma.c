@@ -55,18 +55,58 @@ void pio_dma_init(pio_dma_t *d, pio_sim_t *const *pios, uint8_t pio_count)
     }
     d->pio_count = pio_count;
     for (uint8_t c = 0; c < PIO_SIM_DMA_NUM_CHANNELS; c++) {
-        pio_dma_channel_get_default_config(&d->ch[c].ctrl, c);
+        d->ch[c].ctrl = pio_dma_channel_get_default_config(c);
     }
 }
 
-void pio_dma_channel_get_default_config(pio_dma_channel_config_t *c, uint8_t ch)
+pio_dma_channel_config_t pio_dma_channel_get_default_config(uint8_t ch)
 {
-    (void)memset(c, 0, sizeof(*c));
-    c->data_size = PIO_DMA_SIZE_32;
-    c->incr_read = true;
-    c->incr_write = false;
-    c->chain_to = CH_IDX(ch); /* self: no chain */
-    c->treq_sel = PIO_DMA_TREQ_FORCE;
+    pio_dma_channel_config_t c;
+    (void)memset(&c, 0, sizeof(c));
+    c.data_size = DMA_SIZE_32;
+    c.incr_read = true;
+    c.incr_write = false;
+    c.chain_to = CH_IDX(ch); /* self: no chain */
+    c.treq_sel = PIO_DMA_TREQ_FORCE;
+    return c;
+}
+
+/* ── SDK-named config mutators ─────────────────────────────────────────────── */
+
+void channel_config_set_read_increment(pio_dma_channel_config_t *c, bool incr)
+{
+    c->incr_read = incr;
+}
+void channel_config_set_write_increment(pio_dma_channel_config_t *c, bool incr)
+{
+    c->incr_write = incr;
+}
+void channel_config_set_dreq(pio_dma_channel_config_t *c, uint8_t dreq) { c->treq_sel = dreq; }
+void channel_config_set_chain_to(pio_dma_channel_config_t *c, uint8_t chain_to)
+{
+    c->chain_to = chain_to;
+}
+void channel_config_set_transfer_data_size(pio_dma_channel_config_t *c, pio_dma_size_t size)
+{
+    c->data_size = size;
+}
+void channel_config_set_ring(pio_dma_channel_config_t *c, bool write, uint8_t size_bits)
+{
+    c->ring_sel = write;
+    c->ring_size = size_bits;
+}
+void channel_config_set_bswap(pio_dma_channel_config_t *c, bool bswap) { c->bswap = bswap; }
+void channel_config_set_irq_quiet(pio_dma_channel_config_t *c, bool irq_quiet)
+{
+    c->irq_quiet = irq_quiet;
+}
+void channel_config_set_high_priority(pio_dma_channel_config_t *c, bool high_priority)
+{
+    c->high_priority = high_priority;
+}
+void channel_config_set_sniff_enable(pio_dma_channel_config_t *c, bool sniff_enable)
+{
+    c->sniff_en = sniff_enable;
 }
 
 void pio_dma_channel_configure(pio_dma_t *d, uint8_t ch, const pio_dma_channel_config_t *c,
@@ -140,24 +180,25 @@ void pio_dma_channel_set_callback(pio_dma_t *d, uint8_t ch, pio_dma_callback_t f
 
 /* ── Pacing timers ─────────────────────────────────────────────────────────── */
 
-void pio_dma_timer_set(pio_dma_t *d, uint8_t t, uint16_t x, uint16_t y)
+void pio_dma_timer_set_fraction(pio_dma_t *d, uint8_t timer, uint16_t numerator,
+                                uint16_t denominator)
 {
-    t = (uint8_t)(t % 4U);
-    d->timer[t].x = x;
-    d->timer[t].y = y;
-    d->timer[t].accum = 0;
-    d->timer[t].credit = false;
+    timer = (uint8_t)(timer % PIO_SIM_DMA_NUM_TIMERS);
+    d->timer[timer].num = numerator;
+    d->timer[timer].den = denominator;
+    d->timer[timer].accum = 0;
+    d->timer[timer].credit = false;
 }
 
 static void dma_timers_tick(pio_dma_t *d)
 {
-    for (uint8_t t = 0; t < 4U; t++) {
-        if (d->timer[t].y == 0U) {
+    for (uint8_t t = 0; t < PIO_SIM_DMA_NUM_TIMERS; t++) {
+        if (d->timer[t].den == 0U) {
             continue;
         }
-        d->timer[t].accum += d->timer[t].x;
-        if (d->timer[t].accum >= d->timer[t].y) {
-            d->timer[t].accum -= d->timer[t].y;
+        d->timer[t].accum += d->timer[t].num;
+        if (d->timer[t].accum >= d->timer[t].den) {
+            d->timer[t].accum -= d->timer[t].den;
             d->timer[t].credit = true; /* level request; not accumulated */
         }
     }
@@ -165,21 +206,35 @@ static void dma_timers_tick(pio_dma_t *d)
 
 /* ── Sniffer ───────────────────────────────────────────────────────────────── */
 
-void pio_dma_sniffer_enable(pio_dma_t *d, uint8_t ch, pio_dma_sniff_calc_t calc, bool out_rev,
-                            bool out_inv)
+void pio_dma_sniffer_enable(pio_dma_t *d, uint8_t ch, pio_dma_sniff_calc_t mode,
+                            bool force_channel_enable)
 {
     d->sniff.en = true;
     d->sniff.chan = CH_IDX(ch);
-    d->sniff.calc = (uint8_t)calc;
-    d->sniff.out_rev = out_rev;
-    d->sniff.out_inv = out_inv;
+    d->sniff.calc = (uint8_t)mode;
+    if (force_channel_enable) {
+        d->ch[CH_IDX(ch)].ctrl.sniff_en = true;
+    }
 }
 
 void pio_dma_sniffer_disable(pio_dma_t *d) { d->sniff.en = false; }
 
-void pio_dma_sniffer_set_data(pio_dma_t *d, uint32_t seed) { d->sniff.data = seed; }
+void pio_dma_sniffer_set_output_invert_enabled(pio_dma_t *d, bool invert)
+{
+    d->sniff.out_inv = invert;
+}
 
-uint32_t pio_dma_sniffer_get_data(const pio_dma_t *d)
+void pio_dma_sniffer_set_output_reverse_enabled(pio_dma_t *d, bool reverse)
+{
+    d->sniff.out_rev = reverse;
+}
+
+void pio_dma_sniffer_set_data_accumulator(pio_dma_t *d, uint32_t seed_value)
+{
+    d->sniff.data = seed_value;
+}
+
+uint32_t pio_dma_sniffer_get_data_accumulator(const pio_dma_t *d)
 {
     uint32_t v = d->sniff.data;
     if (d->sniff.out_rev) {
@@ -408,15 +463,32 @@ bool pio_dma_tick(pio_dma_t *d)
     return false;
 }
 
-/* ── Interrupts ────────────────────────────────────────────────────────────── */
+/* ── Interrupts (SDK dma_irqn_*) ───────────────────────────────────────────── */
 
-void pio_dma_set_irq_enabled(pio_dma_t *d, uint8_t line, uint32_t mask, bool enabled)
+void pio_dma_irqn_set_channel_mask_enabled(pio_dma_t *d, uint8_t irq_index, uint32_t channel_mask,
+                                           bool enabled)
 {
     if (enabled) {
-        d->inte[LINE_IDX(line)] |= mask;
+        d->inte[LINE_IDX(irq_index)] |= channel_mask;
     } else {
-        d->inte[LINE_IDX(line)] &= ~mask;
+        d->inte[LINE_IDX(irq_index)] &= ~channel_mask;
     }
+}
+
+void pio_dma_irqn_set_channel_enabled(pio_dma_t *d, uint8_t irq_index, uint8_t ch, bool enabled)
+{
+    pio_dma_irqn_set_channel_mask_enabled(d, irq_index, (uint32_t)1U << CH_IDX(ch), enabled);
+}
+
+bool pio_dma_irqn_get_channel_status(const pio_dma_t *d, uint8_t irq_index, uint8_t ch)
+{
+    return (pio_dma_get_ints(d, irq_index) & ((uint32_t)1U << CH_IDX(ch))) != 0U;
+}
+
+void pio_dma_irqn_acknowledge_channel(pio_dma_t *d, uint8_t irq_index, uint8_t ch)
+{
+    (void)irq_index; /* INTR is shared across lines; clearing it acks both */
+    d->intr &= ~((uint32_t)1U << CH_IDX(ch));
 }
 
 uint32_t pio_dma_get_intr(const pio_dma_t *d) { return d->intr; }
@@ -426,13 +498,15 @@ uint32_t pio_dma_get_ints(const pio_dma_t *d, uint8_t line)
     return (d->intr & d->inte[LINE_IDX(line)]) | d->intf[LINE_IDX(line)];
 }
 
-void pio_dma_irq_force(pio_dma_t *d, uint8_t line, uint32_t mask, bool on)
+uint32_t pio_dma_get_inte(const pio_dma_t *d, uint8_t line) { return d->inte[LINE_IDX(line)]; }
+uint32_t pio_dma_get_intf(const pio_dma_t *d, uint8_t line) { return d->intf[LINE_IDX(line)]; }
+
+void pio_dma_irqn_force_channel(pio_dma_t *d, uint8_t irq_index, uint8_t ch, bool on)
 {
+    uint32_t bit = (uint32_t)1U << CH_IDX(ch);
     if (on) {
-        d->intf[LINE_IDX(line)] |= mask;
+        d->intf[LINE_IDX(irq_index)] |= bit;
     } else {
-        d->intf[LINE_IDX(line)] &= ~mask;
+        d->intf[LINE_IDX(irq_index)] &= ~bit;
     }
 }
-
-void pio_dma_acknowledge_irq(pio_dma_t *d, uint32_t mask) { d->intr &= ~mask; }

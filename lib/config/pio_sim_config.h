@@ -64,6 +64,7 @@
 #define PIO_SIM_DMA_NUM_CHANNELS 12U
 #define PIO_SIM_DMA_NUM_IRQS 2U
 #endif
+#define PIO_SIM_DMA_NUM_TIMERS 4U /* four fractional pacing timers on both parts */
 
 /* clk_sys fractional divider width: RP2040 CLK_SYS_DIV is 24.8, RP2350 is 16.16
  * (RP2040 datasheet §2.15.7 / RP2350 §8.1.6). */

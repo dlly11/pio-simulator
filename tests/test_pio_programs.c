@@ -208,9 +208,8 @@ static void test_chip_dma_feeds_ws2812(void)
     pio_sim_sm_set_enabled(p0, 0, true);
 
     static uint32_t pixel[1] = {0x80U << 24}; /* MSB-first 0b10000000 → 1,0,0,0,0,0,0,0 */
-    pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.treq_sel = PIO_DMA_DREQ_PIO_TX(0, 0);
+    pio_dma_channel_config_t c = pio_dma_channel_get_default_config(0);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&chip.dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(pixel), 1,
                               true);
 
