@@ -102,7 +102,8 @@ void channel_config_set_dreq(dma_channel_config *c, uint8_t dreq);
 void channel_config_set_chain_to(dma_channel_config *c, uint8_t chain_to);
 void channel_config_set_transfer_data_size(dma_channel_config *c, pio_dma_size_t size);
 /** Ring wrap: `write` selects the address (false = read, true = write) and
- * `size_bits` the 2^size_bits-byte window (0 = none, hardware range 0..15). */
+ * `size_bits` the 2^size_bits-byte window (0 = none). The hardware RING_SIZE
+ * field is 4 bits, so `size_bits` is clamped to 0..15. */
 void channel_config_set_ring(dma_channel_config *c, bool write, uint8_t size_bits);
 void channel_config_set_bswap(dma_channel_config *c, bool bswap);
 void channel_config_set_irq_quiet(dma_channel_config *c, bool irq_quiet);
