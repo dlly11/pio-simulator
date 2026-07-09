@@ -277,12 +277,14 @@ static bool dma_endpoints_ready(const pio_dma_t *d, const pio_dma_channel_t *cha
     const pio_dma_addr_t *r = &chan->read_addr;
     const pio_dma_addr_t *w = &chan->write_addr;
     if (r->kind == PIO_DMA_ADDR_PIO_RXF) {
-        if ((r->pio_index >= d->pio_count) || !pio_sim_dreq_rx(d->pio[r->pio_index], r->sm)) {
+        if ((r->pio_index >= d->pio_count) || (d->pio[r->pio_index] == NULL) ||
+            !pio_sim_dreq_rx(d->pio[r->pio_index], r->sm)) {
             return false;
         }
     }
     if (w->kind == PIO_DMA_ADDR_PIO_TXF) {
-        if ((w->pio_index >= d->pio_count) || !pio_sim_dreq_tx(d->pio[w->pio_index], w->sm)) {
+        if ((w->pio_index >= d->pio_count) || (d->pio[w->pio_index] == NULL) ||
+            !pio_sim_dreq_tx(d->pio[w->pio_index], w->sm)) {
             return false;
         }
     }
@@ -303,7 +305,10 @@ static void dma_advance(pio_dma_addr_t *a, bool incr, uint8_t ring_size, bool ri
     if ((a->kind != PIO_DMA_ADDR_MEM) || !incr) {
         return;
     }
-    if (ring_applies && (ring_size != 0U)) {
+    /* Hardware RING_SIZE is a 4-bit field (0..15); guard the shift so a bogus
+     * value can't invoke UB (shift >= the pointer width). Out-of-range means
+     * "no wrap" rather than crashing. */
+    if (ring_applies && (ring_size != 0U) && (ring_size < (uint8_t)(sizeof(uintptr_t) * 8U))) {
         /* Address-aligned wrap, expressed as a signed pointer adjustment so
          * there is no integer-to-pointer cast: move the cursor by the delta of
          * its low bits within the window (negative when it wraps to the base). */

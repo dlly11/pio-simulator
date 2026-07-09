@@ -103,8 +103,10 @@ uint64_t pio_clk_sys_hz(const pio_clk_tree_t *t)
     return (num + (den / 2U)) / den;
 }
 
-/* ticks * scale / hz without overflow: hz < 2^32 and scale <= 1e9, so the
- * remainder product (ticks % hz) * scale stays below 2^63. */
+/* ticks * scale / hz, rounded, avoiding overflow in the remainder term:
+ * (ticks % hz) * scale stays below 2^63 (hz < 2^32, scale <= 1e9). The whole
+ * term (ticks / hz) * scale would only overflow past ~10^10 seconds of ticks,
+ * far beyond any simulation. hz == 0 (an invalid clock tree) returns 0. */
 static uint64_t muldiv_round(uint64_t ticks, uint64_t scale, uint64_t hz)
 {
     if (hz == 0U) {
@@ -115,8 +117,10 @@ static uint64_t muldiv_round(uint64_t ticks, uint64_t scale, uint64_t hz)
     return whole + ((rem + (hz / 2U)) / hz);
 }
 
-/* ceil(t * hz / scale) without overflow: (t % scale) * hz needs t%scale < 1e9
- * and hz <= 1.6e9 — product < 1.6e18 < 2^63. */
+/* ceil(time * hz / scale), avoiding overflow in the remainder term:
+ * (time % scale) * hz < 1e9 * 1.6e9 = 1.6e18 < 2^63. The whole term
+ * (time / scale) * hz would only overflow past ~10^10 seconds. A 0 hz
+ * (invalid tree) yields 0 — see the sentinel note on the public wrappers. */
 static uint64_t muldiv_ceil(uint64_t time, uint64_t hz, uint64_t scale)
 {
     uint64_t whole = (time / scale) * hz;
