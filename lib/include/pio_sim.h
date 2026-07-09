@@ -368,7 +368,9 @@ uint16_t pio_sim_sm_get_instr(const pio_sim_t *pio, uint8_t sm);
 typedef enum {
     PIO_STATUS_TX_LEVEL = 0, /* all-ones while TX FIFO level < N            */
     PIO_STATUS_RX_LEVEL = 1, /* all-ones while RX FIFO level < N            */
-    PIO_STATUS_IRQ_SET = 2,  /* RP2350: all-ones while IRQ flag N is set    */
+    /* RP2350: all-ones while IRQ flag N is set. On RP2040 (no IRQ status
+     * source) this selector falls through to PIO_STATUS_TX_LEVEL behaviour. */
+    PIO_STATUS_IRQ_SET = 2,
 #if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
     /* RP2350 selects the IRQ flag's PIO block via EXECCTRL STATUS_N[4:3]
      * (0 = this PIO, 1 = prev, 2 = next); modelled as distinct selectors here.
@@ -534,17 +536,23 @@ void pio_sim_set_input_sync_bypass(pio_sim_t *pio, uint64_t mask);
 
 /* ── FIFO access (host side) — SDK pio_sm_* names ──────────────────────────── */
 
+/** True if `sm`'s TX FIFO is full (mirrors pio_sm_is_tx_fifo_full). */
 bool pio_sim_sm_is_tx_fifo_full(const pio_sim_t *pio, uint8_t sm);
+/** True if `sm`'s TX FIFO is empty (mirrors pio_sm_is_tx_fifo_empty). */
 bool pio_sim_sm_is_tx_fifo_empty(const pio_sim_t *pio, uint8_t sm);
+/** True if `sm`'s RX FIFO is full (mirrors pio_sm_is_rx_fifo_full). */
 bool pio_sim_sm_is_rx_fifo_full(const pio_sim_t *pio, uint8_t sm);
+/** True if `sm`'s RX FIFO is empty (mirrors pio_sm_is_rx_fifo_empty). */
 bool pio_sim_sm_is_rx_fifo_empty(const pio_sim_t *pio, uint8_t sm);
 
 /** Put a word into the TX FIFO (SDK pio_sm_put). Sim extension: returns false
- * if full instead of blocking/overflowing — non-blocking for host tests. */
+ * instead of blocking when full, and — like the hardware — sets the TXOVER
+ * FDEBUG flag on a full-FIFO write (observable via pio_sim_get_fdebug). */
 bool pio_sim_sm_put(pio_sim_t *pio, uint8_t sm, uint32_t word);
 
 /** Get a word from the RX FIFO (SDK pio_sm_get). Sim extension: returns false
- * if empty via the out-param instead of blocking. */
+ * via the out-param instead of blocking when empty, and sets the RXUNDER
+ * FDEBUG flag on an empty-FIFO read, matching the hardware. */
 bool pio_sim_sm_get(pio_sim_t *pio, uint8_t sm, uint32_t *word);
 
 /** Empty both FIFOs of `sm` (mirrors pio_sm_clear_fifos); keeps the join config. */

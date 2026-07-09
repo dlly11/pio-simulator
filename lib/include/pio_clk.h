@@ -13,8 +13,8 @@
  * 16.16 on RP2350. All arithmetic is 64-bit integer — no floating point.
  */
 
-#ifndef PIO_CLOCK_H
-#define PIO_CLOCK_H
+#ifndef PIO_CLK_H
+#define PIO_CLK_H
 
 #include "pio_sim_config.h"
 
@@ -75,4 +75,4 @@ uint64_t pio_clk_ticks_to_us(const pio_clk_tree_t *t, uint64_t ticks);
 uint64_t pio_clk_ns_to_ticks(const pio_clk_tree_t *t, uint64_t ns);
 uint64_t pio_clk_us_to_ticks(const pio_clk_tree_t *t, uint64_t us);
 
-#endif /* PIO_CLOCK_H */
+#endif /* PIO_CLK_H */
