@@ -4,7 +4,7 @@
  * behavioural contract and the documented simplifications.
  *
  * A pure client of the simulator's public FIFO API: FIFO endpoints move data
- * through pio_sim_tx_push / pio_sim_rx_pop, so the engine composes with any
+ * through pio_sim_sm_put / pio_sim_sm_get, so the engine composes with any
  * mixture of standalone blocks and shared-pad groups.
  */
 
@@ -16,8 +16,14 @@
 #include <string.h>
 
 /* PIO-side DREQ levels (kept in pio_sim.h for standalone use). */
-bool pio_sim_dreq_tx(const pio_sim_t *pio, uint8_t sm) { return !pio_sim_tx_full(pio, sm); }
-bool pio_sim_dreq_rx(const pio_sim_t *pio, uint8_t sm) { return !pio_sim_rx_empty(pio, sm); }
+bool pio_sim_dreq_tx(const pio_sim_t *pio, uint8_t sm)
+{
+    return !pio_sim_sm_is_tx_fifo_full(pio, sm);
+}
+bool pio_sim_dreq_rx(const pio_sim_t *pio, uint8_t sm)
+{
+    return !pio_sim_sm_is_rx_fifo_empty(pio, sm);
+}
 
 #define CH_IDX(ch) ((uint8_t)((ch) % PIO_SIM_DMA_NUM_CHANNELS))
 #define LINE_IDX(l) ((uint8_t)((l) % PIO_SIM_DMA_NUM_IRQS))
@@ -398,7 +404,7 @@ static void dma_transfer_one(pio_dma_t *d, uint8_t c)
     if (chan->read_addr.kind == PIO_DMA_ADDR_MEM) {
         (void)memcpy(&v, chan->read_addr.mem, bytes); /* low bytes, host-endian */
     } else {
-        (void)pio_sim_rx_pop(d->pio[chan->read_addr.pio_index], chan->read_addr.sm, &v);
+        (void)pio_sim_sm_get(d->pio[chan->read_addr.pio_index], chan->read_addr.sm, &v);
     }
 
     if (chan->ctrl.bswap) {
@@ -412,7 +418,7 @@ static void dma_transfer_one(pio_dma_t *d, uint8_t c)
     if (chan->write_addr.kind == PIO_DMA_ADDR_MEM) {
         (void)memcpy(chan->write_addr.mem, &v, bytes);
     } else {
-        (void)pio_sim_tx_push(d->pio[chan->write_addr.pio_index], chan->write_addr.sm, v);
+        (void)pio_sim_sm_put(d->pio[chan->write_addr.pio_index], chan->write_addr.sm, v);
     }
 
     dma_advance(&chan->read_addr, chan->ctrl.incr_read, chan->ctrl.ring_size, !chan->ctrl.ring_sel,

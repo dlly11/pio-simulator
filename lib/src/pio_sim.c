@@ -248,7 +248,7 @@ void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled)
         }
     }
     if (enabled) {
-        pio_sim_clkdiv_restart(pio, sm_mask); /* phase-align the started SMs */
+        pio_sim_clkdiv_restart_sm_mask(pio, sm_mask); /* phase-align the started SMs */
     }
 }
 
@@ -366,7 +366,7 @@ void sm_config_set_out_special(pio_sm_config *c, bool sticky, bool has_enable_pi
     c->out_en_sel = (uint8_t)(enable_bit_index & 0x1FU);
 }
 
-void pio_sim_clkdiv_restart(pio_sim_t *pio, uint8_t sm_mask)
+void pio_sim_clkdiv_restart_sm_mask(pio_sim_t *pio, uint8_t sm_mask)
 {
     for (uint8_t i = 0; i < PIO_SIM_NUM_SM; i++) {
         if ((sm_mask & (uint8_t)(1U << i)) != 0U) {
@@ -374,6 +374,8 @@ void pio_sim_clkdiv_restart(pio_sim_t *pio, uint8_t sm_mask)
         }
     }
 }
+
+void pio_sim_sm_clkdiv_restart(pio_sim_t *pio, uint8_t sm) { pio->sm[SM_IDX(sm)].clk_accum = 0; }
 
 void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc) { pio->sm[SM_IDX(sm)].pc = pc; }
 
@@ -568,24 +570,24 @@ void pio_sim_set_input_sync_bypass(pio_sim_t *pio, uint64_t mask) { pio->pads->s
 
 /* ── FIFO access ───────────────────────────────────────────────────────────── */
 
-bool pio_sim_tx_full(const pio_sim_t *pio, uint8_t sm)
+bool pio_sim_sm_is_tx_fifo_full(const pio_sim_t *pio, uint8_t sm)
 {
     return pio->sm[SM_IDX(sm)].tx.count >= pio->sm[SM_IDX(sm)].tx.cap;
 }
-bool pio_sim_tx_empty(const pio_sim_t *pio, uint8_t sm)
+bool pio_sim_sm_is_tx_fifo_empty(const pio_sim_t *pio, uint8_t sm)
 {
     return pio->sm[SM_IDX(sm)].tx.count == 0U;
 }
-bool pio_sim_rx_full(const pio_sim_t *pio, uint8_t sm)
+bool pio_sim_sm_is_rx_fifo_full(const pio_sim_t *pio, uint8_t sm)
 {
     return pio->sm[SM_IDX(sm)].rx.count >= pio->sm[SM_IDX(sm)].rx.cap;
 }
-bool pio_sim_rx_empty(const pio_sim_t *pio, uint8_t sm)
+bool pio_sim_sm_is_rx_fifo_empty(const pio_sim_t *pio, uint8_t sm)
 {
     return pio->sm[SM_IDX(sm)].rx.count == 0U;
 }
 
-bool pio_sim_tx_push(pio_sim_t *pio, uint8_t sm, uint32_t word)
+bool pio_sim_sm_put(pio_sim_t *pio, uint8_t sm, uint32_t word)
 {
     if (!fifo_push(&pio->sm[SM_IDX(sm)].tx, word)) {
         pio->sm[SM_IDX(sm)].fdebug |= PIO_FDEBUG_TXOVER; /* host wrote a full TX FIFO */
@@ -594,7 +596,7 @@ bool pio_sim_tx_push(pio_sim_t *pio, uint8_t sm, uint32_t word)
     return true;
 }
 
-bool pio_sim_rx_pop(pio_sim_t *pio, uint8_t sm, uint32_t *word)
+bool pio_sim_sm_get(pio_sim_t *pio, uint8_t sm, uint32_t *word)
 {
     if (!fifo_pop(&pio->sm[SM_IDX(sm)].rx, word)) {
         pio->sm[SM_IDX(sm)].fdebug |= PIO_FDEBUG_RXUNDER; /* host read an empty RX FIFO */
@@ -621,8 +623,14 @@ void pio_sim_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word
 }
 #endif
 
-uint8_t pio_sim_tx_level(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].tx.count; }
-uint8_t pio_sim_rx_level(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].rx.count; }
+uint8_t pio_sim_sm_get_tx_fifo_level(const pio_sim_t *pio, uint8_t sm)
+{
+    return pio->sm[SM_IDX(sm)].tx.count;
+}
+uint8_t pio_sim_sm_get_rx_fifo_level(const pio_sim_t *pio, uint8_t sm)
+{
+    return pio->sm[SM_IDX(sm)].rx.count;
+}
 
 uint8_t pio_sim_get_fdebug(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].fdebug; }
 
@@ -756,10 +764,10 @@ uint32_t pio_sim_get_irq_raw(const pio_sim_t *pio)
 {
     uint32_t intr = 0;
     for (uint8_t sm = 0; sm < PIO_SIM_NUM_SM; sm++) {
-        if (!pio_sim_rx_empty(pio, sm)) {
+        if (!pio_sim_sm_is_rx_fifo_empty(pio, sm)) {
             intr |= PIO_INTR_SM_RXNEMPTY(sm);
         }
-        if (!pio_sim_tx_full(pio, sm)) {
+        if (!pio_sim_sm_is_tx_fifo_full(pio, sm)) {
             intr |= PIO_INTR_SM_TXNFULL(sm);
         }
     }
@@ -776,9 +784,19 @@ uint32_t pio_sim_get_irq_raw(const pio_sim_t *pio)
     return intr;
 }
 
-void pio_sim_set_irq_enable(pio_sim_t *pio, uint8_t line, uint32_t mask)
+void pio_sim_set_irqn_source_mask_enabled(pio_sim_t *pio, uint8_t line, uint32_t source_mask,
+                                          bool enabled)
 {
-    pio->irq_inte[line & 1U] = mask;
+    if (enabled) {
+        pio->irq_inte[line & 1U] |= source_mask;
+    } else {
+        pio->irq_inte[line & 1U] &= ~source_mask;
+    }
+}
+
+void pio_sim_set_irqn_source_enabled(pio_sim_t *pio, uint8_t line, uint32_t source, bool enabled)
+{
+    pio_sim_set_irqn_source_mask_enabled(pio, line, source, enabled);
 }
 
 uint32_t pio_sim_get_irq_enable(const pio_sim_t *pio, uint8_t line)
@@ -786,9 +804,13 @@ uint32_t pio_sim_get_irq_enable(const pio_sim_t *pio, uint8_t line)
     return pio->irq_inte[line & 1U];
 }
 
-void pio_sim_set_irq_force(pio_sim_t *pio, uint8_t line, uint32_t mask)
+void pio_sim_set_irq_force(pio_sim_t *pio, uint8_t line, uint32_t mask, bool on)
 {
-    pio->irq_intf[line & 1U] = mask;
+    if (on) {
+        pio->irq_intf[line & 1U] |= mask;
+    } else {
+        pio->irq_intf[line & 1U] &= ~mask;
+    }
 }
 
 uint32_t pio_sim_get_irq_force(const pio_sim_t *pio, uint8_t line)
@@ -1095,7 +1117,7 @@ static bool exec_in(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
      * and shift the same source bits into the ISR a second time. */
     bool will_autopush =
         sm->autopush && (((uint32_t)sm->isr_count + (uint32_t)count) >= sm->push_thresh);
-    if (will_autopush && pio_sim_rx_full(pio, sm_idx)) {
+    if (will_autopush && pio_sim_sm_is_rx_fifo_full(pio, sm_idx)) {
         sm->fdebug |= PIO_FDEBUG_RXSTALL; /* autopush blocked by a full RX FIFO */
         return true;
     }
@@ -1206,7 +1228,7 @@ static bool exec_pushpull(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
         if (cond && (sm->isr_count < sm->push_thresh)) {
             return false; /* iffull but not full enough → nop */
         }
-        if (pio_sim_rx_full(pio, sm_idx)) {
+        if (pio_sim_sm_is_rx_fifo_full(pio, sm_idx)) {
             sm->fdebug |= PIO_FDEBUG_RXSTALL; /* PUSH blocked/dropped on full RX */
             if (block) {
                 return true;
@@ -1229,7 +1251,7 @@ static bool exec_pushpull(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
     if (sm->autopull && (sm->osr_count < sm->pull_thresh)) {
         return false;
     }
-    if (pio_sim_tx_empty(pio, sm_idx)) {
+    if (pio_sim_sm_is_tx_fifo_empty(pio, sm_idx)) {
         sm->fdebug |= PIO_FDEBUG_TXSTALL; /* PULL blocked/substituted on empty TX */
         if (block) {
             return true;
@@ -1590,7 +1612,7 @@ void pio_sim_run(pio_sim_t *pio, uint64_t n)
 uint64_t pio_sim_run_until_rx(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks)
 {
     uint64_t t = 0;
-    while ((t < max_ticks) && pio_sim_rx_empty(pio, sm)) {
+    while ((t < max_ticks) && pio_sim_sm_is_rx_fifo_empty(pio, sm)) {
         pio_sim_tick(pio);
         t++;
     }
@@ -1603,7 +1625,7 @@ uint64_t pio_sim_run_until_tx_empty(pio_sim_t *pio, uint8_t sm, uint64_t max_tic
     /* FIFO-empty only: the SM may still hold (and be shifting) a word it
      * already pulled into the OSR — use pio_sim_run_until_tx_drained to wait
      * for that word too. */
-    while ((t < max_ticks) && !pio_sim_tx_empty(pio, sm)) {
+    while ((t < max_ticks) && !pio_sim_sm_is_tx_fifo_empty(pio, sm)) {
         pio_sim_tick(pio);
         t++;
     }

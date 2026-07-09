@@ -112,8 +112,8 @@ static void test_swd_write_clocks_out_lsb_first(void)
     config_swd_write(&p);
 
     /* Shift out 4 bits 0b1010 (LSB first → 0,1,0,1). TX protocol: count-1, data. */
-    pio_sim_tx_push(&pio, 0, 3U);   /* bit_count - 1 */
-    pio_sim_tx_push(&pio, 0, 0x0A); /* data */
+    pio_sim_sm_put(&pio, 0, 3U);   /* bit_count - 1 */
+    pio_sim_sm_put(&pio, 0, 0x0A); /* data */
 
     /* Sample SWDIO on each rising SWCLK edge (the jmp side 1 cycle), as the
      * target would. Expected sequence LSB-first: 0,1,0,1. */
@@ -153,12 +153,12 @@ static void test_swd_read_captures_bits(void)
     /* Hold SWDIO high; capture 3 bits → ISR collects 0b111, pushed right-shifted
      * so bit 0 lands at position (32 - 3). */
     pio_sim_set_pin(&pio, PIN_SWDIO, true);
-    pio_sim_tx_push(&pio, 0, 2U); /* 3 bits, count-1 */
+    pio_sim_sm_put(&pio, 0, 2U); /* 3 bits, count-1 */
 
     pio_sim_run_until_rx(&pio, 0, 200);
-    TEST_ASSERT_FALSE(pio_sim_rx_empty(&pio, 0));
+    TEST_ASSERT_FALSE(pio_sim_sm_is_rx_fifo_empty(&pio, 0));
     uint32_t w = 0;
-    TEST_ASSERT_TRUE(pio_sim_rx_pop(&pio, 0, &w));
+    TEST_ASSERT_TRUE(pio_sim_sm_get(&pio, 0, &w));
     TEST_ASSERT_EQUAL_HEX32(0x7U << 29, w); /* 3 ones, right-shifted into MSBs */
 }
 

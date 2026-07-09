@@ -93,7 +93,7 @@ static void test_tx_dreq_pacing_respects_fifo_depth(void)
     tick_all(20);
     TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 0));
     TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_transfer_count(&dma, 0));
-    TEST_ASSERT_TRUE(pio_sim_tx_full(&pio, 0));
+    TEST_ASSERT_TRUE(pio_sim_sm_is_tx_fifo_full(&pio, 0));
 }
 
 static void test_size8_and_bswap(void)

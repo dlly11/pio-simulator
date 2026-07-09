@@ -80,7 +80,7 @@ static void test_ws2812_bit_timing_waveform(void)
     pio_sim_sm_set_consecutive_pindirs(&pio, 0, pin, 1, true);
     pio_sim_sm_set_enabled(&pio, 0, true);
 
-    pio_sim_tx_push(&pio, 0, 0xA0U << 24); /* MSB-aligned 0b10100000 → bits 1,0,1,0,0,0,0,0 */
+    pio_sim_sm_put(&pio, 0, 0xA0U << 24); /* MSB-aligned 0b10100000 → bits 1,0,1,0,0,0,0,0 */
 
     uint8_t w[120];
     sample_pin(&pio, pin, w, 120);
@@ -125,7 +125,7 @@ static void test_uart_tx_frame_decodes(void)
     pio_sim_sm_set_enabled(&pio, 0, true);
 
     const uint8_t byte = 0x4B; /* 'K' */
-    pio_sim_tx_push(&pio, 0, byte);
+    pio_sim_sm_put(&pio, 0, byte);
 
     /* Frame layout, 8 cycles per bit: [pull idle-high][set start-low][8 data
      * bits LSB-first]. Sample each bit window at its centre (cycle 8*k+4). */
@@ -161,7 +161,7 @@ static void test_spi_tx_shifts_msb_first(void)
     pio_sim_sm_set_enabled(&pio, 0, true);
 
     const uint8_t byte = 0xB3; /* 1011 0011 */
-    pio_sim_tx_push(&pio, 0, (uint32_t)byte << 24);
+    pio_sim_sm_put(&pio, 0, (uint32_t)byte << 24);
 
     uint8_t data[64];
     uint8_t clk[64];

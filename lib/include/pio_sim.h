@@ -335,7 +335,9 @@ void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled);
  * run in lockstep; use this to re-align SMs that were started at different
  * ticks (e.g. the etm_4bit_lo/hi pair or the cross-SM JTAG programs).
  */
-void pio_sim_clkdiv_restart(pio_sim_t *pio, uint8_t sm_mask);
+void pio_sim_clkdiv_restart_sm_mask(pio_sim_t *pio, uint8_t sm_mask);
+/** Per-SM clock-divider restart (SDK pio_sm_clkdiv_restart). */
+void pio_sim_sm_clkdiv_restart(pio_sim_t *pio, uint8_t sm);
 /** Set the program counter directly. Does not restart the SM or clear a
  * latched stall/pending exec — use pio_sim_sm_restart for a full reset. */
 void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc);
@@ -530,18 +532,20 @@ void pio_sim_set_pull_level(pio_sim_t *pio, uint64_t mask, bool level);
  * synchroniser, so a state machine samples their live level immediately. */
 void pio_sim_set_input_sync_bypass(pio_sim_t *pio, uint64_t mask);
 
-/* ── FIFO access (host side) ───────────────────────────────────────────────── */
+/* ── FIFO access (host side) — SDK pio_sm_* names ──────────────────────────── */
 
-bool pio_sim_tx_full(const pio_sim_t *pio, uint8_t sm);
-bool pio_sim_tx_empty(const pio_sim_t *pio, uint8_t sm);
-bool pio_sim_rx_full(const pio_sim_t *pio, uint8_t sm);
-bool pio_sim_rx_empty(const pio_sim_t *pio, uint8_t sm);
+bool pio_sim_sm_is_tx_fifo_full(const pio_sim_t *pio, uint8_t sm);
+bool pio_sim_sm_is_tx_fifo_empty(const pio_sim_t *pio, uint8_t sm);
+bool pio_sim_sm_is_rx_fifo_full(const pio_sim_t *pio, uint8_t sm);
+bool pio_sim_sm_is_rx_fifo_empty(const pio_sim_t *pio, uint8_t sm);
 
-/** Push a word into the TX FIFO. Returns false if full. */
-bool pio_sim_tx_push(pio_sim_t *pio, uint8_t sm, uint32_t word);
+/** Put a word into the TX FIFO (SDK pio_sm_put). Sim extension: returns false
+ * if full instead of blocking/overflowing — non-blocking for host tests. */
+bool pio_sim_sm_put(pio_sim_t *pio, uint8_t sm, uint32_t word);
 
-/** Pop a word from the RX FIFO. Returns false if empty. */
-bool pio_sim_rx_pop(pio_sim_t *pio, uint8_t sm, uint32_t *word);
+/** Get a word from the RX FIFO (SDK pio_sm_get). Sim extension: returns false
+ * if empty via the out-param instead of blocking. */
+bool pio_sim_sm_get(pio_sim_t *pio, uint8_t sm, uint32_t *word);
 
 /** Empty both FIFOs of `sm` (mirrors pio_sm_clear_fifos); keeps the join config. */
 void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm);
@@ -551,15 +555,15 @@ void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm);
  * entries are addressed by index (0..3), not popped as a FIFO. In PUT mode the SM
  * writes via `mov rxfifo[], isr` and the host reads with pio_sim_rxfifo_get; in
  * GET mode the host writes with pio_sim_rxfifo_put and the SM reads via
- * `mov osr, rxfifo[]`. These — not pio_sim_rx_pop/tx_push — are the host access
+ * `mov osr, rxfifo[]`. These — not pio_sim_sm_get/put — are the host access
  * path for those modes. `index` is masked to the 4-entry file (index & 3). */
 uint32_t pio_sim_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index);
 void pio_sim_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word);
 #endif
 
-/* Current FIFO occupancy (FSTAT levels), 0..cap. */
-uint8_t pio_sim_tx_level(const pio_sim_t *pio, uint8_t sm);
-uint8_t pio_sim_rx_level(const pio_sim_t *pio, uint8_t sm);
+/* Current FIFO occupancy (SDK pio_sm_get_*_fifo_level), 0..cap. */
+uint8_t pio_sim_sm_get_tx_fifo_level(const pio_sim_t *pio, uint8_t sm);
+uint8_t pio_sim_sm_get_rx_fifo_level(const pio_sim_t *pio, uint8_t sm);
 
 /* Sticky FIFO-debug flags (FDEBUG), set on the event and cleared by the host. */
 #define PIO_FDEBUG_TXSTALL 0x1U /* SM stalled pulling from an empty TX FIFO    */
@@ -604,12 +608,18 @@ void pio_sim_irq_clear(pio_sim_t *pio, uint8_t irq);
 
 /** Raw interrupt source word (INTR), independent of the enable/force masks. */
 uint32_t pio_sim_get_irq_raw(const pio_sim_t *pio);
-/** Set the enable mask (INTE) for system line `line` (0 or 1). */
-void pio_sim_set_irq_enable(pio_sim_t *pio, uint8_t line, uint32_t mask);
+/** Enable/disable the sources in `source_mask` on system line `line` (INTE),
+ * toggling with `enabled` — matching the SDK's pio_set_irqn_source_mask_enabled
+ * rather than replacing the whole register. */
+void pio_sim_set_irqn_source_mask_enabled(pio_sim_t *pio, uint8_t line, uint32_t source_mask,
+                                          bool enabled);
+/** Enable/disable a single source bit on `line` (SDK pio_set_irqn_source_enabled). */
+void pio_sim_set_irqn_source_enabled(pio_sim_t *pio, uint8_t line, uint32_t source, bool enabled);
 /** Read back the enable mask (INTE) for system line `line` (0 or 1). */
 uint32_t pio_sim_get_irq_enable(const pio_sim_t *pio, uint8_t line);
-/** Set the force mask (INTF) for system line `line` (0 or 1). */
-void pio_sim_set_irq_force(pio_sim_t *pio, uint8_t line, uint32_t mask);
+/** Force the sources in `mask` on line `line` (INTF), toggling with `on`. Sim
+ * extension: the SDK exposes no PIO IRQ-force helper. */
+void pio_sim_set_irq_force(pio_sim_t *pio, uint8_t line, uint32_t mask, bool on);
 /** Read back the force mask (INTF) for system line `line` (0 or 1). */
 uint32_t pio_sim_get_irq_force(const pio_sim_t *pio, uint8_t line);
 /** Masked interrupt status (INTS) for `line`: (INTR & INTE) | INTF. */
