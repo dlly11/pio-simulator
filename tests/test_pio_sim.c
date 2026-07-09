@@ -210,7 +210,7 @@ static void test_trace_hook_fires_on_commit_only(void)
     trace_count = 0;
     pio_sim_set_trace(&pio, trace_record, NULL);
 
-    pio_sim_run(&pio, 5); /* set x; set y [1]; delay; pull stalls twice */
+    pio_sim_run(&pio, 5);                     /* set x; set y [1]; delay; pull stalls twice */
     TEST_ASSERT_EQUAL_UINT8(2U, trace_count); /* stall + delay cycles: no trace */
     TEST_ASSERT_EQUAL_UINT8(0U, trace_pcs[0]);
     TEST_ASSERT_EQUAL_HEX16(prog[0], trace_insns[0]);
@@ -252,8 +252,8 @@ static void test_run_until_tx_drained_waits_for_osr(void)
     TEST_ASSERT_TRUE(t_empty < 40U); /* FIFO empty well before 64 bits are out */
 
     uint64_t t_drained = pio_sim_run_until_tx_drained(&pio, 0, 1000);
-    TEST_ASSERT_TRUE(t_drained < 1000U);                    /* did stall, not time out */
-    TEST_ASSERT_TRUE((t_empty + t_drained) >= 64U);         /* all 64 bits shifted */
+    TEST_ASSERT_TRUE(t_drained < 1000U);            /* did stall, not time out */
+    TEST_ASSERT_TRUE((t_empty + t_drained) >= 64U); /* all 64 bits shifted */
     TEST_ASSERT_EQUAL_UINT8(32U, pio_sim_sm_get_osr_count(&pio, 0));
 }
 

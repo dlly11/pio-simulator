@@ -353,8 +353,8 @@ static void dma_transfer_one(pio_dma_t *d, uint8_t c)
 
     dma_advance(&chan->read_addr, chan->ctrl.incr_read, chan->ctrl.ring_size, !chan->ctrl.ring_sel,
                 bytes);
-    dma_advance(&chan->write_addr, chan->ctrl.incr_write, chan->ctrl.ring_size,
-                chan->ctrl.ring_sel, bytes);
+    dma_advance(&chan->write_addr, chan->ctrl.incr_write, chan->ctrl.ring_size, chan->ctrl.ring_sel,
+                bytes);
 
     /* Consume a timer credit if that is what paced us. */
     uint8_t treq = chan->ctrl.treq_sel;

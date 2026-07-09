@@ -26,7 +26,7 @@ typedef struct {
     uint16_t pll_refdiv; /* reference divider, 1..63                      */
     uint16_t pll_fbdiv;  /* feedback divider, 16..320                     */
     uint8_t pll_postdiv1;
-    uint8_t pll_postdiv2; /* post dividers, 1..7 each                     */
+    uint8_t pll_postdiv2;     /* post dividers, 1..7 each                     */
     uint32_t clksys_div_int;  /* clk_sys integer divider (>= 1)           */
     uint32_t clksys_div_frac; /* fractional part: /256ths (RP2040, 8-bit)
                                * or /65536ths (RP2350, 16-bit)            */

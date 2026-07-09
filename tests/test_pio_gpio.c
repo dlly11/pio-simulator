@@ -42,7 +42,7 @@ static void test_ie_zero_sm_reads_zero_but_host_sees_wire(void)
     const uint16_t prog[] = {pio_sim_encode_mov(PIO_DST_X, PIO_MOV_NONE, PIO_SRC_PINS),
                              pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
     load_prog(prog, 2);
-    pio_sim_run(&pio, 4); /* synchroniser settled */
+    pio_sim_run(&pio, 4);                                    /* synchroniser settled */
     TEST_ASSERT_EQUAL_UINT32(0U, pio_sim_sm_get_x(&pio, 0)); /* PIO reads 0  */
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 4));              /* wire is high */
 
@@ -132,7 +132,7 @@ static void test_iso_freezes_output_and_gates_input(void)
     pio_sim_pad_set_iso(&pio, 6, true); /* latch: driven high */
     /* Remove the live drive behind the latch — the pad must stay frozen. */
     pio_sim_gpio_set_function(&pio, 6, PIO_GPIO_FUNC_NULL);
-    pio_sim_run(&pio, 1); /* resolve drops the PIO's routing */
+    pio_sim_run(&pio, 1);                       /* resolve drops the PIO's routing */
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 6)); /* frozen at latched level */
 
     pio_sim_pad_set_iso(&pio, 6, false); /* release: live (no) drive resumes */

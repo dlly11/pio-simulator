@@ -75,21 +75,21 @@ pio_dma_addr_t pio_dma_addr_rxf(uint8_t pio_index, uint8_t sm);
 /* ── Channel configuration (mirrors CHx_CTRL) ──────────────────────────────── */
 
 typedef struct {
-    bool high_priority;        /* arbitration class                          */
-    pio_dma_size_t data_size;  /* element size                               */
-    bool incr_read;            /* advance the read MEM cursor per element    */
-    bool incr_write;           /* advance the write MEM cursor per element   */
-    uint8_t ring_size;         /* 0: none; else wrap 2^ring_size BYTES —     */
-    bool ring_sel;             /*   false: wrap read addr, true: write addr. */
-                               /*   The buffer must be 2^ring_size aligned,  */
-                               /*   as on hardware.                          */
-    uint8_t chain_to;          /* channel triggered on completion (== own    */
-                               /*   channel number: no chain)                */
-    uint8_t treq_sel;          /* DREQ/TREQ number (see the macros above)    */
-    bool bswap;                /* byte-reverse each element                  */
-    bool irq_quiet;            /* raise the completion IRQ only on a null    */
-                               /*   trigger, for control-block chains        */
-    bool sniff_en;             /* feed this channel's data to the sniffer    */
+    bool high_priority;       /* arbitration class                          */
+    pio_dma_size_t data_size; /* element size                               */
+    bool incr_read;           /* advance the read MEM cursor per element    */
+    bool incr_write;          /* advance the write MEM cursor per element   */
+    uint8_t ring_size;        /* 0: none; else wrap 2^ring_size BYTES —     */
+    bool ring_sel;            /*   false: wrap read addr, true: write addr. */
+                              /*   The buffer must be 2^ring_size aligned,  */
+                              /*   as on hardware.                          */
+    uint8_t chain_to;         /* channel triggered on completion (== own    */
+                              /*   channel number: no chain)                */
+    uint8_t treq_sel;         /* DREQ/TREQ number (see the macros above)    */
+    bool bswap;               /* byte-reverse each element                  */
+    bool irq_quiet;           /* raise the completion IRQ only on a null    */
+                              /*   trigger, for control-block chains        */
+    bool sniff_en;            /* feed this channel's data to the sniffer    */
 } pio_dma_channel_config_t;
 
 /* ── Controller ────────────────────────────────────────────────────────────── */
@@ -145,10 +145,10 @@ typedef struct pio_dma {
         uint32_t data; /* SNIFF_DATA register */
     } sniff;
 
-    uint32_t intr;                          /* raw completion flags (W1C)   */
-    uint32_t inte[PIO_SIM_DMA_NUM_IRQS];    /* per-line enable              */
-    uint32_t intf[PIO_SIM_DMA_NUM_IRQS];    /* per-line force               */
-    uint8_t rr_next;                        /* round-robin arbitration seat */
+    uint32_t intr;                       /* raw completion flags (W1C)   */
+    uint32_t inte[PIO_SIM_DMA_NUM_IRQS]; /* per-line enable              */
+    uint32_t intf[PIO_SIM_DMA_NUM_IRQS]; /* per-line force               */
+    uint8_t rr_next;                     /* round-robin arbitration seat */
 } pio_dma_t;
 
 /** Attach the controller to `pio_count` PIO blocks (slot n serves the DREQs

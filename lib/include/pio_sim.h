@@ -195,15 +195,15 @@ typedef struct {
      * pad_ie=0 makes the PIO read the pin as 0 (host pio_sim_get_pin still
      * returns the wire). DRIVE/SLEWFAST/SCHMITT are stored in pad_cfg but do
      * not affect the digital simulation. */
-    uint64_t pad_ie;      /* input enable (reset: all-ones)          */
-    uint64_t pad_od;      /* output disable                          */
-    uint64_t pad_pue;     /* pull-up enable                          */
-    uint64_t pad_pde;     /* pull-down enable                        */
-    uint64_t keep_state;  /* bus-keeper latch: last driven level     */
+    uint64_t pad_ie;     /* input enable (reset: all-ones)          */
+    uint64_t pad_od;     /* output disable                          */
+    uint64_t pad_pue;    /* pull-up enable                          */
+    uint64_t pad_pde;    /* pull-down enable                        */
+    uint64_t keep_state; /* bus-keeper latch: last driven level     */
 #if PIO_SIM_HAS_PAD_ISO
-    uint64_t pad_iso;     /* RP2350 isolation: freezes output, gates input */
-    uint64_t iso_levels;  /* output level latched when ISO was set   */
-    uint64_t iso_oe;      /* output enable latched when ISO was set  */
+    uint64_t pad_iso;    /* RP2350 isolation: freezes output, gates input */
+    uint64_t iso_levels; /* output level latched when ISO was set   */
+    uint64_t iso_oe;     /* output enable latched when ISO was set  */
 #endif
     uint8_t pad_cfg[PIO_SIM_NUM_PINS]; /* stored-only: DRIVE[1:0]|SLEW<<2|SCHMITT<<3 */
 
@@ -217,8 +217,8 @@ typedef struct {
     uint8_t funcsel[PIO_SIM_NUM_PINS];
     uint64_t pio_func_mask[PIO_SIM_NUM_PIO]; /* pins routed to owner slot i (cache) */
     uint64_t periph_sel_mask;                /* pins routed to a non-PIO function   */
-    uint64_t periph_oe;    /* selected peripheral's output enable per pin */
-    uint64_t periph_level; /* selected peripheral's output level per pin  */
+    uint64_t periph_oe;                      /* selected peripheral's output enable per pin */
+    uint64_t periph_level;                   /* selected peripheral's output level per pin  */
     uint64_t outover_inv, outover_low, outover_high; /* OUTOVER per-pin masks */
     uint64_t oeover_inv, oeover_low, oeover_high;    /* OEOVER  per-pin masks */
     uint64_t inover_inv, inover_low, inover_high;    /* INOVER  per-pin masks */

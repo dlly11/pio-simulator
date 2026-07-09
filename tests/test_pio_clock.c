@@ -69,11 +69,11 @@ static void test_fractional_divider_hz(void)
     /* Divide the PLL output by 2.5: frac = half of the frac range. */
     clk.clksys_div_int = 2;
 #if PIO_SIM_PIO_VERSION >= 1
-    clk.clksys_div_frac = 0x8000U;                                /* 2.5 in 16.16 */
-    TEST_ASSERT_EQUAL_UINT64(60000000ULL, pio_clk_sys_hz(&clk));  /* 150 / 2.5 */
+    clk.clksys_div_frac = 0x8000U;                               /* 2.5 in 16.16 */
+    TEST_ASSERT_EQUAL_UINT64(60000000ULL, pio_clk_sys_hz(&clk)); /* 150 / 2.5 */
 #else
-    clk.clksys_div_frac = 0x80U;                                  /* 2.5 in 24.8 */
-    TEST_ASSERT_EQUAL_UINT64(50000000ULL, pio_clk_sys_hz(&clk));  /* 125 / 2.5 */
+    clk.clksys_div_frac = 0x80U;                                 /* 2.5 in 24.8 */
+    TEST_ASSERT_EQUAL_UINT64(50000000ULL, pio_clk_sys_hz(&clk)); /* 125 / 2.5 */
 #endif
 }
 
@@ -102,13 +102,13 @@ static void test_ticks_to_ns_exact_and_rounded(void)
 static void test_ns_to_ticks_ceils(void)
 {
 #if PIO_SIM_PIO_VERSION >= 1
-    TEST_ASSERT_EQUAL_UINT64(1ULL, pio_clk_ns_to_ticks(&clk, 1));   /* < 1 tick → 1 */
-    TEST_ASSERT_EQUAL_UINT64(2ULL, pio_clk_ns_to_ticks(&clk, 7));   /* 6.67 < 7 → 2 */
-    TEST_ASSERT_EQUAL_UINT64(3ULL, pio_clk_ns_to_ticks(&clk, 20));  /* exact: 3     */
+    TEST_ASSERT_EQUAL_UINT64(1ULL, pio_clk_ns_to_ticks(&clk, 1));  /* < 1 tick → 1 */
+    TEST_ASSERT_EQUAL_UINT64(2ULL, pio_clk_ns_to_ticks(&clk, 7));  /* 6.67 < 7 → 2 */
+    TEST_ASSERT_EQUAL_UINT64(3ULL, pio_clk_ns_to_ticks(&clk, 20)); /* exact: 3     */
 #else
     TEST_ASSERT_EQUAL_UINT64(1ULL, pio_clk_ns_to_ticks(&clk, 1));
-    TEST_ASSERT_EQUAL_UINT64(1ULL, pio_clk_ns_to_ticks(&clk, 8));   /* exact: 1     */
-    TEST_ASSERT_EQUAL_UINT64(2ULL, pio_clk_ns_to_ticks(&clk, 9));   /* ceil         */
+    TEST_ASSERT_EQUAL_UINT64(1ULL, pio_clk_ns_to_ticks(&clk, 8)); /* exact: 1     */
+    TEST_ASSERT_EQUAL_UINT64(2ULL, pio_clk_ns_to_ticks(&clk, 9)); /* ceil         */
 #endif
 }
 

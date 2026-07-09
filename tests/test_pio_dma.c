@@ -109,8 +109,7 @@ static void test_size8_and_bswap(void)
     c.incr_read = false;
     c.incr_write = true;
     c.treq_sel = PIO_DMA_DREQ_PIO_RX(0, 0);
-    pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_mem(out8), pio_dma_addr_rxf(0, 0), 4,
-                              true);
+    pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_mem(out8), pio_dma_addr_rxf(0, 0), 4, true);
     tick_all(100);
     TEST_ASSERT_EQUAL_HEX8(0xAAU, out8[0]);
     TEST_ASSERT_EQUAL_HEX8(0xDDU, out8[3]);
@@ -121,8 +120,7 @@ static void test_size8_and_bswap(void)
     pio_dma_channel_get_default_config(&c, 2);
     c.bswap = true;
     c.incr_write = true;
-    pio_dma_channel_configure(&dma, 2, &c, pio_dma_addr_mem(&dst), pio_dma_addr_mem(&src), 1,
-                              true);
+    pio_dma_channel_configure(&dma, 2, &c, pio_dma_addr_mem(&dst), pio_dma_addr_mem(&src), 1, true);
     (void)pio_dma_tick(&dma);
     TEST_ASSERT_EQUAL_HEX32(0x44332211U, dst);
 }
@@ -351,8 +349,7 @@ static void test_one_transfer_per_tick_and_priority(void)
     pio_dma_channel_config_t c;
     pio_dma_channel_get_default_config(&c, 0);
     c.incr_write = true;
-    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst_a), pio_dma_addr_mem(src), 4,
-                              true);
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst_a), pio_dma_addr_mem(src), 4, true);
     pio_dma_channel_get_default_config(&c, 1);
     c.incr_write = true;
     c.high_priority = true;
@@ -410,8 +407,7 @@ static void test_cross_pio_transfer_in_group(void)
     pio_dma_channel_get_default_config(&c, 1);
     c.incr_read = false;
     c.treq_sel = PIO_DMA_DREQ_PIO_RX(0, 0);
-    pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_txf(1, 0), pio_dma_addr_rxf(0, 0), 2,
-                              true);
+    pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_txf(1, 0), pio_dma_addr_rxf(0, 0), 2, true);
     for (int i = 0; i < 100; i++) {
         pio_sim_tick(&pio);
         pio_sim_tick(&p2);
@@ -447,10 +443,9 @@ static void test_chip_loopback_dma_pin_dma(void)
 
     /* PIO1 SM0: wait for the rising pin, capture it, push once, park. */
     pio_sim_sm_set_in_base(p1, 0, 0);
-    const uint16_t cap_prog[] = {pio_sim_encode_wait(1, PIO_WAIT_PIN, 0),
-                                 pio_sim_encode_in(PIO_SRC_PINS, 1),
-                                 pio_sim_encode_push(false, true),
-                                 pio_sim_encode_jmp(PIO_COND_ALWAYS, 3)};
+    const uint16_t cap_prog[] = {
+        pio_sim_encode_wait(1, PIO_WAIT_PIN, 0), pio_sim_encode_in(PIO_SRC_PINS, 1),
+        pio_sim_encode_push(false, true), pio_sim_encode_jmp(PIO_COND_ALWAYS, 3)};
     pio_sim_load(p1, 0, cap_prog, 4);
     pio_sim_sm_set_wrap(p1, 0, 0, 3);
     pio_sim_sm_set_enabled(p1, 0, true);
@@ -460,13 +455,13 @@ static void test_chip_loopback_dma_pin_dma(void)
     pio_dma_channel_config_t c;
     pio_dma_channel_get_default_config(&c, 0);
     c.treq_sel = PIO_DMA_DREQ_PIO_TX(0, 0);
-    pio_dma_channel_configure(&chip.dma, 0, &c, pio_dma_addr_txf(0, 0),
-                              pio_dma_addr_mem(&word_in), 1, true);
+    pio_dma_channel_configure(&chip.dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(&word_in),
+                              1, true);
     pio_dma_channel_get_default_config(&c, 1);
     c.incr_write = true;
     c.treq_sel = PIO_DMA_DREQ_PIO_RX(1, 0);
-    pio_dma_channel_configure(&chip.dma, 1, &c, pio_dma_addr_mem(&word_out),
-                              pio_dma_addr_rxf(1, 0), 1, true);
+    pio_dma_channel_configure(&chip.dma, 1, &c, pio_dma_addr_mem(&word_out), pio_dma_addr_rxf(1, 0),
+                              1, true);
 
     pio_chip_run(&chip, 40);
     TEST_ASSERT_FALSE(pio_dma_channel_is_busy(&chip.dma, 1));

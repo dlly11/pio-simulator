@@ -188,7 +188,6 @@ static void expr_skip_ws(expr_t *e)
     }
 }
 
-
 static int64_t expr_reverse(expr_t *e); /* lowest-precedence entry, fwd decl */
 
 static int64_t expr_primary(expr_t *e)

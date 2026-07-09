@@ -51,7 +51,6 @@ static bool fifo_pop(pio_fifo_t *f, uint32_t *v)
 
 static uint32_t mask_n(uint8_t n) { return (n >= 32U) ? 0xFFFFFFFFU : (((uint32_t)1U << n) - 1U); }
 
-
 /* Map a state-machine pin "view" index to a physical GPIO. The PIO pin mux is a
  * 32-pin window (indices wrap mod 32); on RP2350 GPIOBASE then offsets the whole
  * window so it can reach GPIO 16-47. Used by every SM-side pin access. */
@@ -825,12 +824,12 @@ static uint32_t read_status(const pio_sim_t *pio, const pio_sm_t *sm)
     case PIO_STATUS_IRQ_SET_PREV:
         /* Unlinked neighbour reads clear, matching irq_target_block's NULL
          * convention for prev/next IRQ instructions. */
-        cond = (pio->irq_prev != NULL) &&
-               pio_sim_irq_get(pio->irq_prev, (uint8_t)(sm->status_n & 7U));
+        cond =
+            (pio->irq_prev != NULL) && pio_sim_irq_get(pio->irq_prev, (uint8_t)(sm->status_n & 7U));
         break;
     case PIO_STATUS_IRQ_SET_NEXT:
-        cond = (pio->irq_next != NULL) &&
-               pio_sim_irq_get(pio->irq_next, (uint8_t)(sm->status_n & 7U));
+        cond =
+            (pio->irq_next != NULL) && pio_sim_irq_get(pio->irq_next, (uint8_t)(sm->status_n & 7U));
         break;
 #endif
 #else
@@ -1721,14 +1720,14 @@ uint16_t pio_sim_encode_irq(bool clear, bool wait, uint8_t index)
 #if PIO_SIM_HAS_RXFIFO_MOV
 uint16_t pio_sim_encode_mov_to_rxfifo(uint8_t index)
 {
-    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_BIT |
-                      PIO_MOV_RXFIFO_IDX | (index & 0x3U));
+    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_BIT | PIO_MOV_RXFIFO_IDX |
+                      (index & 0x3U));
 }
 
 uint16_t pio_sim_encode_mov_from_rxfifo(uint8_t index)
 {
-    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_GET |
-                      PIO_MOV_RXFIFO_BIT | PIO_MOV_RXFIFO_IDX | (index & 0x3U));
+    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_GET | PIO_MOV_RXFIFO_BIT |
+                      PIO_MOV_RXFIFO_IDX | (index & 0x3U));
 }
 
 uint16_t pio_sim_encode_mov_to_rxfifo_y(void)
@@ -1739,8 +1738,7 @@ uint16_t pio_sim_encode_mov_to_rxfifo_y(void)
 
 uint16_t pio_sim_encode_mov_from_rxfifo_y(void)
 {
-    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_GET |
-                      PIO_MOV_RXFIFO_BIT);
+    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_GET | PIO_MOV_RXFIFO_BIT);
 }
 #endif /* PIO_SIM_HAS_RXFIFO_MOV */
 

@@ -93,9 +93,8 @@ uint64_t pio_clk_sys_hz(const pio_clk_tree_t *t)
     if (pio_clk_validate(t) != PIO_CLK_OK) {
         return 0;
     }
-    uint64_t src = t->bypass_pll
-                       ? t->xosc_hz
-                       : (pio_clk_vco_hz(t) / t->pll_postdiv1 / t->pll_postdiv2);
+    uint64_t src =
+        t->bypass_pll ? t->xosc_hz : (pio_clk_vco_hz(t) / t->pll_postdiv1 / t->pll_postdiv2);
     /* Fractional divide, rounded to nearest: src * 2^f / (int<<f | frac).
      * src <= 1.6 GHz and f <= 16, so the numerator fits comfortably in 64
      * bits (< 2^47). */
