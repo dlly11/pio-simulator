@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: MIT
 cmake_minimum_required(VERSION 3.21)
-project(pio_sim LANGUAGES C)
+project(pio_sim VERSION 0.1.0 LANGUAGES C)
+
+include(GNUInstallDirs)
 
 # The library is written to C11 (what the headers and README promise); keep the
 # build floor there so embedders on older toolchains aren't forced past it.
@@ -36,8 +38,11 @@ add_library(pio_sim STATIC lib/src/pio_sim.c lib/src/pio_gpio.c lib/src/pio_cloc
     lib/src/pio_dma.c lib/src/pio_chip.c lib/src/pio_asm.c)
 target_include_directories(pio_sim
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/lib/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/lib/config
+        # BUILD_INTERFACE for in-tree/add_subdirectory use; INSTALL_INTERFACE so
+        # an installed + find_package'd consumer resolves the same headers.
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/lib/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/lib/config>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/lib/src)
 
@@ -61,4 +66,41 @@ option(PIO_SIM_BUILD_TESTS "Build the pio_sim unit tests" ${PROJECT_IS_TOP_LEVEL
 if(PIO_SIM_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+endif()
+
+# ── Install / packaging ──────────────────────────────────────────────────────
+# Lets downstreams `find_package(pio_sim CONFIG)` and link pio_sim::pio_sim,
+# not just add_subdirectory(). The PIO_SIM_PIO_VERSION compile definition is
+# PUBLIC, so a consumer of the installed library gets the same platform value
+# the library was built with. Opt-out for vendored/add_subdirectory embedders.
+option(PIO_SIM_INSTALL "Generate install and packaging rules" ${PROJECT_IS_TOP_LEVEL})
+if(PIO_SIM_INSTALL)
+    include(CMakePackageConfigHelpers)
+
+    install(TARGETS pio_sim EXPORT pio_simTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+    install(DIRECTORY lib/include/ lib/config/
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN "*.h")
+
+    install(EXPORT pio_simTargets
+        FILE pio_simTargets.cmake
+        NAMESPACE pio_sim::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/pio_sim)
+
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/pio_simConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/pio_simConfig.cmake
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/pio_sim)
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/pio_simConfigVersion.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion)
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/pio_simConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/pio_simConfigVersion.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/pio_sim)
 endif()

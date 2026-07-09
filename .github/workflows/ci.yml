@@ -157,10 +157,12 @@ jobs:
           lib/src/pio_clock.c lib/include/pio_clock.h
           lib/src/pio_chip.c lib/include/pio_chip.h
           lib/src/pio_asm.c lib/include/pio_asm.h
+          lib/include/pio.h
           lib/config/pio_sim_config.h
           tests/test_pio_sim.c tests/test_pio_asm.c
           tests/test_pio_gpio.c tests/test_pio_clock.c tests/test_pio_dma.c
           tests/test_pio_programs.c tests/fuzz_pio_asm.c
+          tests/consumer/main.c
           tests/test_pio_asm_vs_pioasm.c
 
   # Fuzz the assembler's untrusted-text entry point under ASan+UBSan for a
@@ -244,3 +246,24 @@ jobs:
         with:
           name: coverage-html
           path: coverage-html
+
+  # Prove the install/packaging works: install pio_sim to a prefix, then build
+  # a standalone consumer that find_package()s it and links pio_sim::pio_sim.
+  install-consumer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+      - name: Install pio_sim to a prefix
+        run: |
+          cmake -B build -G Ninja -DPIO_SIM_PLATFORM=RP2350 \
+            -DPIO_SIM_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX="$PWD/prefix"
+          cmake --build build
+          cmake --install build
+      - name: Build and run the find_package consumer
+        run: |
+          cmake -S tests/consumer -B build-consumer -G Ninja \
+            -DCMAKE_PREFIX_PATH="$PWD/prefix"
+          cmake --build build-consumer
+          ./build-consumer/consumer
