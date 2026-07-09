@@ -1764,6 +1764,12 @@ bool pio_asm_load_program(pio_sim_t *pio, uint8_t sm, uint8_t offset, const pio_
     if (((uint32_t)offset + prog->count) > PIO_SIM_INSN_COUNT) {
         return false;
     }
+    /* Assembler output always satisfies this, but a hand-built pio_program_t
+     * could carry a wrap outside the program; reject it so the wrap window
+     * stays inside the loaded instructions (else the SM never wraps). */
+    if ((prog->wrap_bottom >= prog->count) || (prog->wrap_top >= prog->count)) {
+        return false;
+    }
     pio_sim_load(pio, offset, relocated, prog->count);
     /* Apply the program's structural config (wrap, side-set) directly — the
      * pio_sm_t is a public struct, and doing so avoids reshaping/clearing the

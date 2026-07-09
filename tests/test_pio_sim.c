@@ -1035,6 +1035,18 @@ static void test_sm_exec_ignores_delay(void)
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);
 }
 
+/* pio_sim_sm_exec must mask the sm index like every other entry point: an
+ * out-of-range sm wraps to a valid slot rather than indexing past pio->sm[]
+ * (the ASan/UBSan CI build turns any OOB access here into a failure). */
+static void test_sm_exec_masks_sm_index(void)
+{
+    const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_Y, 1)};
+    load_prog(prog, 1);
+    /* sm 4 masks to sm 0; must affect sm0 and not read/write out of bounds. */
+    pio_sim_sm_exec(&pio, 4, pio_sim_encode_set(PIO_DST_X, 9));
+    TEST_ASSERT_EQUAL_UINT32(9U, pio.sm[0].x);
+}
+
 /* #4: side-set drives its pins every cycle the instruction is presented,
  * including while the instruction is stalled. */
 static void test_sideset_applies_while_stalled(void)
@@ -2023,6 +2035,7 @@ int main(void)
     RUN_TEST(test_sm_get_instr_reads_current);
     RUN_TEST(test_sm_is_stalled);
     RUN_TEST(test_sm_exec_ignores_delay);
+    RUN_TEST(test_sm_exec_masks_sm_index);
     RUN_TEST(test_sideset_applies_while_stalled);
 
     RUN_TEST(test_mov_status_tx_level);

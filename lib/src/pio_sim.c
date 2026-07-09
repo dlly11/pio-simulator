@@ -1766,7 +1766,7 @@ void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn)
     uint8_t next_pc = 0;
     bool set_pc = false;
     uint8_t delay = 0;
-    bool committed = exec_one(pio, sm, insn, &next_pc, &set_pc, &delay);
+    bool committed = exec_one(pio, SM_IDX(sm), insn, &next_pc, &set_pc, &delay);
     (void)delay; /* a forced instruction executes immediately; its delay field
                   * is ignored (side-set still applies). */
     if (committed) {

@@ -278,6 +278,23 @@ static void test_abort_midstream_and_retrigger(void)
     TEST_ASSERT_EQUAL_HEX32(4U, out[3]);
 }
 
+/* An out-of-range transfer size is clamped to 32-bit, so elem_bytes (1<<size)
+ * can never exceed 4 and overrun the transfer word during a memcpy (the
+ * ASan/UBSan CI build turns any overrun/shift-UB here into a failure). */
+static void test_transfer_size_out_of_range_clamped(void)
+{
+    dma_channel_config c = pio_dma_channel_get_default_config(0);
+    channel_config_set_transfer_data_size(&c, (pio_dma_size_t)7);
+    TEST_ASSERT_EQUAL_INT(DMA_SIZE_32, c.data_size);
+
+    /* A mem-to-mem transfer with the (clamped) size must not overrun. */
+    static uint32_t src = 0xDEADBEEFU;
+    static uint32_t dst = 0;
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(&dst), pio_dma_addr_mem(&src), 1, true);
+    (void)pio_dma_tick(&dma);
+    TEST_ASSERT_EQUAL_HEX32(0xDEADBEEFU, dst);
+}
+
 /* The single-channel abort wrapper stops just its channel (SDK
  * dma_channel_abort), leaving others untouched. */
 static void test_single_channel_abort(void)
@@ -561,6 +578,7 @@ int main(void)
     RUN_TEST(test_irq_quiet_defers_to_null_trigger);
     RUN_TEST(test_abort_midstream_and_retrigger);
     RUN_TEST(test_single_channel_abort);
+    RUN_TEST(test_transfer_size_out_of_range_clamped);
     RUN_TEST(test_sniffer_crc32_check_value);
     RUN_TEST(test_sniffer_crc16_ccitt_check_value);
     RUN_TEST(test_sniffer_sum_and_parity);

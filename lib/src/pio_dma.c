@@ -90,6 +90,11 @@ void channel_config_set_chain_to(dma_channel_config *c, uint8_t chain_to)
 }
 void channel_config_set_transfer_data_size(dma_channel_config *c, pio_dma_size_t size)
 {
+    /* Only 8/16/32-bit elements exist; clamp so elem_bytes (1u << size) can never
+     * exceed 4 and overrun the 4-byte transfer word. */
+    if ((unsigned)size > (unsigned)DMA_SIZE_32) {
+        size = DMA_SIZE_32;
+    }
     c->data_size = size;
 }
 void channel_config_set_ring(dma_channel_config *c, bool write, uint8_t size_bits)
@@ -352,6 +357,12 @@ static bool dma_endpoints_ready(const pio_dma_t *d, const pio_dma_channel_t *cha
     }
     /* Reading a TXF or writing an RXF is a configuration error: never ready. */
     if ((r->kind == PIO_DMA_ADDR_PIO_TXF) || (w->kind == PIO_DMA_ADDR_PIO_RXF)) {
+        return false;
+    }
+    /* A NULL memory endpoint (e.g. pio_dma_addr_mem(NULL)) would fault the
+     * transfer's memcpy — treat it as never ready instead. */
+    if (((r->kind == PIO_DMA_ADDR_MEM) && (r->mem == NULL)) ||
+        ((w->kind == PIO_DMA_ADDR_MEM) && (w->mem == NULL))) {
         return false;
     }
     return true;
