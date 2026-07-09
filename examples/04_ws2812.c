@@ -67,7 +67,10 @@ int main(void)
     const uint32_t pixels[] = {0x00FF00U /* green */, 0x1234ABU /* arbitrary */};
     const unsigned npix = (unsigned)(sizeof(pixels) / sizeof(pixels[0]));
     for (unsigned i = 0; i < npix; i++) {
-        pio_sim_sm_put(&pio, 0, pixels[i] << 8);
+        if (!pio_sim_sm_put(&pio, 0, pixels[i] << 8)) {
+            (void)fprintf(stderr, "TX FIFO unexpectedly full\n");
+            return 1;
+        }
     }
     printf("sending %u pixels: 0x%06X 0x%06X\n", npix, pixels[0], pixels[1]);
 
