@@ -131,11 +131,14 @@ jobs:
         run: >
           cmake -B build -G Ninja
           -DPIO_SIM_PLATFORM=${{ matrix.platform }}
+          -DPIO_SIM_BUILD_EXAMPLES=ON
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-      - name: Run clang-tidy on the library
+      - name: Run clang-tidy on the library and examples
         run: >
           clang-tidy-21 -p build lib/src/pio_sim.c lib/src/pio_gpio.c lib/src/pio_clk.c
           lib/src/pio_dma.c lib/src/pio_chip.c lib/src/pio_asm.c
+          examples/01_blink.c examples/02_fifo_echo.c examples/03_uart_tx.c
+          examples/04_ws2812.c examples/05_spi_dma.c examples/06_chip_bus.c
 
   format:
     runs-on: ubuntu-latest
@@ -164,6 +167,8 @@ jobs:
           tests/test_pio_programs.c tests/fuzz_pio_asm.c
           tests/consumer/main.c
           tests/test_pio_asm_vs_pioasm.c
+          examples/01_blink.c examples/02_fifo_echo.c examples/03_uart_tx.c
+          examples/04_ws2812.c examples/05_spi_dma.c examples/06_chip_bus.c
 
   # Fuzz the assembler's untrusted-text entry point under ASan+UBSan for a
   # short smoke each PR. Fails only if libFuzzer finds a crash/UB (which is
@@ -267,3 +272,31 @@ jobs:
             -DCMAKE_PREFIX_PATH="$PWD/prefix"
           cmake --build build-consumer
           ./build-consumer/consumer
+
+  # Build every reference example and run it, on both platforms. Each example
+  # exits non-zero if its built-in sanity check fails, so this proves the
+  # examples stay correct against the live API (not just that they compile).
+  examples:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [RP2350, RP2040]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+      - name: Configure and build the examples
+        run: |
+          cmake -B build -G Ninja -DPIO_SIM_PLATFORM=${{ matrix.platform }} \
+            -DPIO_SIM_BUILD_EXAMPLES=ON -DPIO_SIM_BUILD_TESTS=OFF
+          cmake --build build
+      - name: Run every example
+        run: |
+          for ex in build/examples/*; do
+            [ -f "$ex" ] && [ -x "$ex" ] || continue
+            echo "== $ex =="
+            "$ex"
+          done

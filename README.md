@@ -45,6 +45,8 @@ third_party/   Unity test framework (git submodule)
 tests/         unit tests + unity_config.h; tests/pio/ (.pio corpus for the
                program tests and the pioasm differential); tests/consumer/
                (install smoke test)
+examples/      six standalone reference programs (blink → multi-block bus),
+               built and run in CI; see examples/README.md
 ```
 
 ## Target chip (RP2040 vs RP2350)
@@ -278,3 +280,19 @@ bool pin0 = pio_sim_get_pin(&pio, 0);
 
 See the headers (`pio.h` pulls in all of them) for the full surface, and
 `tests/` for worked examples (instruction-level and assembler round-trips).
+
+## Examples
+
+The [`examples/`](examples/) directory has six standalone, heavily-commented
+programs that build up from a first blink to a full two-block bus driven by DMA
+and timed against the clock tree. Each is a runnable `main()` that prints its
+result and doubles as a smoke test; they are built and run in CI on both
+platforms, so they never drift from the API. Build them with:
+
+```sh
+cmake -B build -DPIO_SIM_BUILD_EXAMPLES=ON && cmake --build build
+./build/examples/01_blink
+```
+
+See [`examples/README.md`](examples/README.md) for the full list and a bare-gcc
+recipe.

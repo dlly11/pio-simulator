@@ -68,6 +68,13 @@ if(PIO_SIM_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
+# Reference example programs (examples/). Off by default so vendored/embedder
+# builds stay lean; CI turns it on to build and run them against the live API.
+option(PIO_SIM_BUILD_EXAMPLES "Build the reference example programs" OFF)
+if(PIO_SIM_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
+
 # ── Install / packaging ──────────────────────────────────────────────────────
 # Lets downstreams `find_package(pio_sim CONFIG)` and link pio_sim::pio_sim,
 # not just add_subdirectory(). The PIO_SIM_PIO_VERSION compile definition is
