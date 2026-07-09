@@ -1,3 +1,0 @@
-; WS281opull ro.
-.program ws281p_taritloop:
-public  x, exprc

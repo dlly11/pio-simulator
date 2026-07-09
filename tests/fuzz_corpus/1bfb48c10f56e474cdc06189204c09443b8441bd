@@ -1,3 +1,0 @@
-;).
-.program jmpcv
-jmp !x t&----------0

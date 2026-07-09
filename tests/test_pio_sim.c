@@ -137,7 +137,7 @@ static void test_out_autopull_background_refill(void)
     pio_sim_run(&pio, 1); /* background refill, then mov x, osr reads the new word */
     TEST_ASSERT_EQUAL_HEX32(0xBBBBBBBBU, pio.sm[0].x);
     TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].osr_count); /* refilled, nothing consumed */
-    TEST_ASSERT_FALSE((pio_sim_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
+    TEST_ASSERT_FALSE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
 }
 
 static void test_out_autopull_streams_word_per_cycle(void)
@@ -155,7 +155,7 @@ static void test_out_autopull_streams_word_per_cycle(void)
     pio_sim_run(&pio, 4); /* 4 OUT cycles consume all 4 words */
     TEST_ASSERT_TRUE(pio_sim_sm_is_tx_fifo_empty(&pio, 0));
     TEST_ASSERT_EQUAL_UINT8(32U, pio.sm[0].osr_count); /* last word fully shifted */
-    TEST_ASSERT_FALSE((pio_sim_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
+    TEST_ASSERT_FALSE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
 }
 
 static void test_out_autopull_empty_then_fed_stalls_one_extra_cycle(void)
@@ -169,7 +169,7 @@ static void test_out_autopull_empty_then_fed_stalls_one_extra_cycle(void)
     load_prog(prog, 2);
     pio_sim_run(&pio, 2); /* OSR empty at reset + TX empty: OUT stalls */
     TEST_ASSERT_TRUE(pio_sim_sm_is_stalled(&pio, 0));
-    TEST_ASSERT_TRUE((pio_sim_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
+    TEST_ASSERT_TRUE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
     pio_sim_sm_put(&pio, 0, 0x12345678U);
     pio_sim_run(&pio, 1); /* refill lands this cycle; the OUT retries and commits */
     TEST_ASSERT_EQUAL_HEX32(0x12345678U, pio.sm[0].x);
@@ -378,7 +378,7 @@ static void test_multi_sm_pin_priority_and_override(void)
     }
     pio_sim_sm_put(&pio, 0, 0xFFFFFFFFU);
     pio_sim_sm_put(&pio, 1, 0x0U);
-    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
+    pio_sim_enable_sm_mask_in_sync(&pio, 0x3U);
     pio_sim_run(&pio, 4);
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 4)); /* SM1 (higher) wins -> low */
 
@@ -399,7 +399,7 @@ static void test_multi_sm_pin_priority_and_override(void)
     }
     pio_sim_sm_put(&pio, 0, 0xFFFFFFFFU);
     pio_sim_sm_put(&pio, 1, 0xFFFFFFFFU);
-    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
+    pio_sim_enable_sm_mask_in_sync(&pio, 0x3U);
     pio_sim_run(&pio, 4);
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 4)); /* SM1 released -> SM0 high shows */
 }
@@ -434,7 +434,7 @@ static void test_pin_priority_same_cycle_higher_sm_wins(void)
     init_pin5_sm(1, 0, 0, 0, false);
     init_pin5_sm(0, 10, 10, 10, false);
     set_pin5_dirs_both();
-    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
+    pio_sim_enable_sm_mask_in_sync(&pio, 0x3U);
     pio_sim_run(&pio, 1);                        /* both write pin 5 this cycle */
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* SM1 (higher) wins -> low */
 }
@@ -455,7 +455,7 @@ static void test_pin_no_sticky_last_writer_wins(void)
     init_pin5_sm(1, 0, 1, 1, false);
     init_pin5_sm(0, 10, 12, 12, false);
     set_pin5_dirs_both();
-    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
+    pio_sim_enable_sm_mask_in_sync(&pio, 0x3U);
     pio_sim_run(&pio, 1);
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* cycle 1: SM1's low landed */
     pio_sim_run(&pio, 2);
@@ -475,7 +475,7 @@ static void test_out_sticky_retains_priority_each_cycle(void)
     init_pin5_sm(1, 0, 1, 1, true); /* SM1 sticky */
     init_pin5_sm(0, 10, 12, 12, false);
     set_pin5_dirs_both();
-    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
+    pio_sim_enable_sm_mask_in_sync(&pio, 0x3U);
     pio_sim_run(&pio, 3); /* SM0's high on cycle 2 collides with SM1's sticky low */
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* sticky SM1 still wins */
 }
@@ -797,7 +797,7 @@ static void test_delay_holds_pc(void)
 static void test_clkdiv_slows_execution(void)
 {
     const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 1)};
-    sm_config_set_clkdiv_int_frac8(&cfg, 4, 0); /* one SM cycle every 4 ticks */
+    sm_config_set_clkdiv_int_frac(&cfg, 4, 0); /* one SM cycle every 4 ticks */
     load_prog(prog, 1);
     pio_sim_run(&pio, 3);
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].x); /* not yet */
@@ -813,7 +813,7 @@ static void test_clkdiv_fractional_cadence(void)
         pio_sim_encode_nop(), pio_sim_encode_nop(), pio_sim_encode_nop(),
         pio_sim_encode_nop(), pio_sim_encode_nop(), pio_sim_encode_nop(),
     };
-    sm_config_set_clkdiv_int_frac8(&cfg, 2, 128); /* 2.5 */
+    sm_config_set_clkdiv_int_frac(&cfg, 2, 128); /* 2.5 */
     load_prog(prog, 6);
     pio_sim_run(&pio, 5);
     TEST_ASSERT_EQUAL_UINT8(2U, pio_sim_sm_get_pc(&pio, 0));
@@ -826,7 +826,7 @@ static void test_clkdiv_fractional_cadence(void)
 static void test_clkdiv_int0_frac_is_65536(void)
 {
     const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 1)};
-    sm_config_set_clkdiv_int_frac8(&cfg, 0, 128); /* 65536.5 */
+    sm_config_set_clkdiv_int_frac(&cfg, 0, 128); /* 65536.5 */
     load_prog(prog, 1);
     pio_sim_run(&pio, 65536);
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].x); /* not yet: divider is 65536.5 */
@@ -993,21 +993,21 @@ static void test_sm_is_enabled_reads_back(void)
     TEST_ASSERT_FALSE(pio_sim_sm_is_enabled(&pio, 0)); /* default after init */
     pio_sim_sm_set_enabled(&pio, 0, true);
     TEST_ASSERT_TRUE(pio_sim_sm_is_enabled(&pio, 0));
-    pio_sim_set_sm_mask_enabled(&pio, 0x4U, true); /* enable SM2 via the mask form */
+    pio_sim_enable_sm_mask_in_sync(&pio, 0x4U); /* enable SM2 via the mask form */
     TEST_ASSERT_TRUE(pio_sim_sm_is_enabled(&pio, 2));
     TEST_ASSERT_FALSE(pio_sim_sm_is_enabled(&pio, 1));
 }
 
-/* pio_sim_sm_get_instr returns the word at the PC, or a pending injected one. */
+/* pio_sim_sm_get_instruction returns the word at the PC, or a pending injected one. */
 static void test_sm_get_instr_reads_current(void)
 {
     const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 5), pio_sim_encode_nop()};
     load_prog(prog, 2);
-    TEST_ASSERT_EQUAL_HEX16(prog[0], pio_sim_sm_get_instr(&pio, 0)); /* at pc 0 */
+    TEST_ASSERT_EQUAL_HEX16(prog[0], pio_sim_sm_get_instruction(&pio, 0)); /* at pc 0 */
     pio_sim_run(&pio, 1);
-    TEST_ASSERT_EQUAL_HEX16(prog[1], pio_sim_sm_get_instr(&pio, 0)); /* advanced to pc 1 */
-    pio_sim_sm_exec(&pio, 0, pio_sim_encode_pull(false, true));      /* TX empty: latches pending */
-    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_pull(false, true), pio_sim_sm_get_instr(&pio, 0));
+    TEST_ASSERT_EQUAL_HEX16(prog[1], pio_sim_sm_get_instruction(&pio, 0)); /* advanced to pc 1 */
+    pio_sim_sm_exec(&pio, 0, pio_sim_encode_pull(false, true)); /* TX empty: latches pending */
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_pull(false, true), pio_sim_sm_get_instruction(&pio, 0));
 }
 
 /* pio_sim_sm_is_stalled reflects a blocking instruction that cannot make progress. */
@@ -1033,6 +1033,18 @@ static void test_sm_exec_ignores_delay(void)
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].x); /* executed immediately */
     pio_sim_run(&pio, 1);                      /* no delay armed → set y runs now */
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);
+}
+
+/* pio_sim_sm_exec must mask the sm index like every other entry point: an
+ * out-of-range sm wraps to a valid slot rather than indexing past pio->sm[]
+ * (the ASan/UBSan CI build turns any OOB access here into a failure). */
+static void test_sm_exec_masks_sm_index(void)
+{
+    const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_Y, 1)};
+    load_prog(prog, 1);
+    /* sm 4 masks to sm 0; must affect sm0 and not read/write out of bounds. */
+    pio_sim_sm_exec(&pio, 4, pio_sim_encode_set(PIO_DST_X, 9));
+    TEST_ASSERT_EQUAL_UINT32(9U, pio.sm[0].x);
 }
 
 /* #4: side-set drives its pins every cycle the instruction is presented,
@@ -1104,6 +1116,13 @@ static void test_mov_status_override(void)
     pio_sim_sm_set_status_value(&pio, 0, 0xA5A5A5A5U); /* runtime override, after init */
     pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5U, pio.sm[0].x);
+
+    /* Clearing the override restores the normal FIFO-derived status. With
+     * mov_status default (TX_LEVEL < 0), status reads all-zero. */
+    pio_sim_sm_clear_status_value(&pio, 0);
+    pio_sim_sm_set_pc(&pio, 0, 0);
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_HEX32(0U, pio.sm[0].x);
 }
 
 /* ── #6: SM-relative IRQ indexing ──────────────────────────────────────────── */
@@ -1171,11 +1190,11 @@ static void test_clkdiv_restart_realigns_sms(void)
     pio_sim_load(&pio, 0, prog, 1);
     pio_sm_config c = pio_get_default_sm_config();
     sm_config_set_wrap(&c, 0, 0);
-    sm_config_set_clkdiv_int_frac8(&c, 4, 0); /* one SM cycle every 4 ticks */
+    sm_config_set_clkdiv_int_frac(&c, 4, 0); /* one SM cycle every 4 ticks */
     for (uint8_t s = 0; s < 2U; s++) {
         pio_sim_sm_init(&pio, s, 0, &c);
     }
-    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true); /* enable both, dividers aligned */
+    pio_sim_enable_sm_mask_in_sync(&pio, 0x3U); /* enable both, dividers aligned */
     pio_sim_run(&pio, 2);
     TEST_ASSERT_EQUAL_UINT32(pio.sm[0].clk_accum, pio.sm[1].clk_accum); /* lockstep */
 
@@ -1202,7 +1221,7 @@ static void test_clkdiv_freeruns_while_disabled(void)
     const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 1)};
     pio_sim_load(&pio, 0, prog, 1);
     sm_config_set_wrap(&cfg, 0, 0);
-    sm_config_set_clkdiv_int_frac8(&cfg, 4, 0);
+    sm_config_set_clkdiv_int_frac(&cfg, 4, 0);
     pio_sim_sm_init(&pio, 0, 0, &cfg); /* apply config; SM left disabled */
     pio_sim_run(&pio, 3);
     TEST_ASSERT_EQUAL_UINT32(768U, pio.sm[0].clk_accum);     /* divider free-ran */
@@ -1257,12 +1276,12 @@ static void test_rxfifo_host_index_access(void)
     pio.sm[0].isr = 0xCAFEF00DU;
     pio.sm[0].isr_count = 32;
     pio_sim_run(&pio, 1);
-    TEST_ASSERT_EQUAL_HEX32(0xCAFEF00DU, pio_sim_rxfifo_get(&pio, 0, 2));
+    TEST_ASSERT_EQUAL_HEX32(0xCAFEF00DU, pio_sim_sm_rxfifo_get(&pio, 0, 2));
 
     /* GET: host writes rxfifo[1], SM reads it into OSR. */
     pio_sim_init(&pio); /* fresh SM */
     sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX_GET);
-    pio_sim_rxfifo_put(&pio, 0, 1, 0x0BADC0DEU);
+    pio_sim_sm_rxfifo_put(&pio, 0, 1, 0x0BADC0DEU);
     const uint16_t get[] = {pio_sim_encode_mov_from_rxfifo(1)};
     load_prog(get, 1);
     pio_sim_run(&pio, 1);
@@ -1707,11 +1726,20 @@ static void test_sm_mask_enabled(void)
 {
     const uint16_t prog[] = {pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
     pio_sim_load(&pio, 0, prog, 1);
+    /* Pure set/clear: toggles the enable flags without touching the dividers. */
+    pio.sm[0].clk_accum = 7U;
     pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
     TEST_ASSERT_TRUE(pio.sm[0].enabled);
     TEST_ASSERT_TRUE(pio.sm[1].enabled);
     TEST_ASSERT_FALSE(pio.sm[2].enabled);
-    /* Restarted in phase: accumulators aligned. */
+    TEST_ASSERT_EQUAL_UINT32(7U, pio.sm[0].clk_accum); /* dividers untouched */
+    pio_sim_set_sm_mask_enabled(&pio, 0x1U, false);
+    TEST_ASSERT_FALSE(pio.sm[0].enabled);
+
+    /* The in_sync form enables and restarts the dividers in phase. */
+    pio.sm[0].clk_accum = 7U;
+    pio_sim_enable_sm_mask_in_sync(&pio, 0x3U);
+    TEST_ASSERT_TRUE(pio.sm[0].enabled);
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].clk_accum);
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[1].clk_accum);
 }
@@ -1727,9 +1755,9 @@ static void test_fdebug_flags(void)
     };
     load_prog(prog, 2);
     pio_sim_run(&pio, 2);
-    TEST_ASSERT_TRUE((pio_sim_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
-    pio_sim_clear_fdebug(&pio, 0, PIO_FDEBUG_TXSTALL);
-    TEST_ASSERT_EQUAL_UINT8(0U, (uint8_t)(pio_sim_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL));
+    TEST_ASSERT_TRUE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
+    pio_sim_sm_clear_fdebug(&pio, 0, PIO_FDEBUG_TXSTALL);
+    TEST_ASSERT_EQUAL_UINT8(0U, (uint8_t)(pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL));
 
     /* Host overflow -> TXOVER; levels track occupancy. */
     for (uint32_t i = 0; i < 4U; i++) {
@@ -1737,12 +1765,12 @@ static void test_fdebug_flags(void)
     }
     TEST_ASSERT_EQUAL_UINT8(4U, pio_sim_sm_get_tx_fifo_level(&pio, 0));
     TEST_ASSERT_FALSE(pio_sim_sm_put(&pio, 0, 99U));
-    TEST_ASSERT_TRUE((pio_sim_get_fdebug(&pio, 0) & PIO_FDEBUG_TXOVER) != 0U);
+    TEST_ASSERT_TRUE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXOVER) != 0U);
 
     /* Host underflow -> RXUNDER. */
     uint32_t w;
     TEST_ASSERT_FALSE(pio_sim_sm_get(&pio, 0, &w));
-    TEST_ASSERT_TRUE((pio_sim_get_fdebug(&pio, 0) & PIO_FDEBUG_RXUNDER) != 0U);
+    TEST_ASSERT_TRUE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_RXUNDER) != 0U);
     TEST_ASSERT_EQUAL_UINT8(0U, pio_sim_sm_get_rx_fifo_level(&pio, 0));
 }
 
@@ -1751,24 +1779,24 @@ static void test_fdebug_flags(void)
 static void test_system_irq_lines(void)
 {
     /* A fresh SM has a non-full TX FIFO, so TXNFULL is a live INTR source. */
-    TEST_ASSERT_TRUE((pio_sim_get_irq_raw(&pio) & PIO_INTR_SM_TXNFULL(0)) != 0U);
-    TEST_ASSERT_FALSE(pio_sim_interrupt_line(&pio, 0)); /* nothing enabled yet */
+    TEST_ASSERT_TRUE((pio_sim_get_intr(&pio) & PIO_INTR_SM_TXNFULL(0)) != 0U);
+    TEST_ASSERT_FALSE(pio_sim_get_irqn_asserted(&pio, 0)); /* nothing enabled yet */
     pio_sim_set_irqn_source_mask_enabled(&pio, 0, PIO_INTR_SM_TXNFULL(0), true);
-    TEST_ASSERT_TRUE(pio_sim_interrupt_line(&pio, 0));
+    TEST_ASSERT_TRUE(pio_sim_get_irqn_asserted(&pio, 0));
 
     /* An SM IRQ flag drives line 1 once enabled. */
     pio_sim_set_irqn_source_mask_enabled(&pio, 1, PIO_INTR_SM_IRQ(2), true);
-    TEST_ASSERT_FALSE(pio_sim_interrupt_line(&pio, 1));
+    TEST_ASSERT_FALSE(pio_sim_get_irqn_asserted(&pio, 1));
     const uint16_t prog[] = {pio_sim_encode_irq(false, false, 2)};
     load_prog(prog, 1);
     pio_sim_run(&pio, 1);
-    TEST_ASSERT_TRUE(pio_sim_interrupt_line(&pio, 1));
+    TEST_ASSERT_TRUE(pio_sim_get_irqn_asserted(&pio, 1));
 
     /* INTF forces a line regardless of sources/enables. */
     pio_sim_set_irqn_source_mask_enabled(&pio, 0, PIO_INTR_SM_TXNFULL(0), false);
-    TEST_ASSERT_FALSE(pio_sim_interrupt_line(&pio, 0));
-    pio_sim_set_irq_force(&pio, 0, PIO_INTR_SM_IRQ(0), true);
-    TEST_ASSERT_TRUE(pio_sim_interrupt_line(&pio, 0));
+    TEST_ASSERT_FALSE(pio_sim_get_irqn_asserted(&pio, 0));
+    pio_sim_set_intf(&pio, 0, PIO_INTR_SM_IRQ(0), true);
+    TEST_ASSERT_TRUE(pio_sim_get_irqn_asserted(&pio, 0));
 }
 
 /* IRQ-flag routing into INTR: RP2350 routes all eight SM IRQ flags (INTR bits
@@ -1776,7 +1804,7 @@ static void test_system_irq_lines(void)
 static void test_intr_irq_flag_routing(void)
 {
     pio.irq = 0xFFU; /* all eight flags raised */
-    uint32_t intr = pio_sim_get_irq_raw(&pio);
+    uint32_t intr = pio_sim_get_intr(&pio);
 #if PIO_SIM_HAS_INTR_IRQ8
     for (uint8_t i = 0; i < 8U; i++) {
         TEST_ASSERT_TRUE((intr & PIO_INTR_SM_IRQ(i)) != 0U);
@@ -1794,16 +1822,16 @@ static void test_intr_irq_flag_routing(void)
 /* The INTE/INTF masks read back exactly as set, per line and independently. */
 static void test_irq_enable_force_read_back(void)
 {
-    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_irq_enable(&pio, 0)); /* default after init */
-    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_irq_force(&pio, 1));
+    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_inte(&pio, 0)); /* default after init */
+    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_intf(&pio, 1));
 
     pio_sim_set_irqn_source_mask_enabled(&pio, 0, 0x00F0U, true);
-    pio_sim_set_irq_force(&pio, 1, 0x0A00U, true);
-    TEST_ASSERT_EQUAL_HEX32(0x00F0U, pio_sim_get_irq_enable(&pio, 0));
-    TEST_ASSERT_EQUAL_HEX32(0x0A00U, pio_sim_get_irq_force(&pio, 1));
+    pio_sim_set_intf(&pio, 1, 0x0A00U, true);
+    TEST_ASSERT_EQUAL_HEX32(0x00F0U, pio_sim_get_inte(&pio, 0));
+    TEST_ASSERT_EQUAL_HEX32(0x0A00U, pio_sim_get_intf(&pio, 1));
     /* The other line of each mask stays untouched. */
-    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_irq_enable(&pio, 1));
-    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_irq_force(&pio, 0));
+    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_inte(&pio, 1));
+    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_intf(&pio, 0));
 }
 
 /* ── #8: input synchroniser (always-on two-cycle delay) ────────────────────── */
@@ -1871,7 +1899,7 @@ static void test_clear_fifos(void)
     TEST_ASSERT_TRUE(pio_sim_sm_is_rx_fifo_empty(&pio, 0));
 }
 
-static void test_group_enable_sm_mask_sync(void)
+static void test_group_enable_sm_mask_in_sync(void)
 {
     pio_sim_t a, b;
     pio_sim_init(&a);
@@ -1887,7 +1915,7 @@ static void test_group_enable_sm_mask_sync(void)
     pio_sim_group_t g;
     pio_sim_group_init(&g, blocks, 2);
     const uint8_t masks[] = {0x1U, 0x1U};
-    pio_sim_group_enable_sm_mask_sync(&g, masks);
+    pio_sim_group_enable_sm_mask_in_sync(&g, masks);
     pio_sim_group_run(&g, 5);
     TEST_ASSERT_TRUE(pio_sim_sm_is_enabled(&a, 0));
     TEST_ASSERT_TRUE(pio_sim_sm_is_enabled(&b, 0));
@@ -1910,10 +1938,38 @@ static void test_unwritten_fetch_is_flagged(void)
     TEST_ASSERT_TRUE(pio.unwritten_fetches > 0U);
 }
 
+/* A caller-poked PC past the 32-word instruction memory must not index out of
+ * bounds: pio_sim_sm_set_pc keeps it in range and stepping stays safe (the
+ * sanitizer CI build turns any OOB access here into a failure). */
+static void test_set_pc_out_of_range_is_bounded(void)
+{
+    const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 1)};
+    load_prog(prog, 1);
+    pio_sim_sm_set_pc(&pio, 0, 200);
+    TEST_ASSERT_TRUE(pio_sim_sm_get_pc(&pio, 0) < PIO_SIM_INSN_COUNT);
+    (void)pio_sim_sm_get_instruction(&pio, 0); /* fetch must stay in bounds */
+    pio_sim_run(&pio, 2);                      /* stepping must not read OOB */
+}
+
+/* sm_config_set_clkdiv must not invoke float→int UB for out-of-range divisors
+ * (negative / NaN / >= 65536): they clamp into the valid range. */
+static void test_clkdiv_float_out_of_range_clamped(void)
+{
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_clkdiv(&c, 0.0F); /* below 1 → clamped to 1 */
+    TEST_ASSERT_EQUAL_UINT16(1U, c.clkdiv_int);
+    sm_config_set_clkdiv(&c, -5.0F); /* negative → clamped to 1 */
+    TEST_ASSERT_EQUAL_UINT16(1U, c.clkdiv_int);
+    sm_config_set_clkdiv(&c, 1.0e9F); /* huge → clamped, no UB */
+    TEST_ASSERT_TRUE(c.clkdiv_int >= 1U);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
 
+    RUN_TEST(test_set_pc_out_of_range_is_bounded);
+    RUN_TEST(test_clkdiv_float_out_of_range_clamped);
     RUN_TEST(test_set_x_and_y);
     RUN_TEST(test_set_pins_drives_pads);
     RUN_TEST(test_set_pindirs);
@@ -1979,6 +2035,7 @@ int main(void)
     RUN_TEST(test_sm_get_instr_reads_current);
     RUN_TEST(test_sm_is_stalled);
     RUN_TEST(test_sm_exec_ignores_delay);
+    RUN_TEST(test_sm_exec_masks_sm_index);
     RUN_TEST(test_sideset_applies_while_stalled);
 
     RUN_TEST(test_mov_status_tx_level);
@@ -2043,7 +2100,7 @@ int main(void)
 
     RUN_TEST(test_fifo_join_survives_restart);
     RUN_TEST(test_clear_fifos);
-    RUN_TEST(test_group_enable_sm_mask_sync);
+    RUN_TEST(test_group_enable_sm_mask_in_sync);
     RUN_TEST(test_unwritten_fetch_is_flagged);
 
     return UNITY_END();

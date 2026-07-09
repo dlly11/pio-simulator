@@ -1,6 +1,0 @@
-;; Every jmp cond
-.program jmpcov
-target:
-    jmp target
-    jmp !x target
-rget

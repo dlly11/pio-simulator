@@ -16,7 +16,7 @@
  *   .wrap
  *   .origin <addr>            .pio_version <0|1|rp2040|rp2350>
  *   .clock_div <float>        .fifo <txrx|tx|rx|txput|txget|putget>
- *   .mov_status <txfifo|rxfifo|irq ...> < <n>
+ *   .mov_status txfifo < <n>  |  rxfifo < <n>  |  irq [next|prev] set <n>
  *   .out <count> [left|right] [auto|manual] [<thresh>]   ; pin count + shift cfg
  *   .in  <count> [left|right] [auto|manual] [<thresh>]
  *   .set <count>

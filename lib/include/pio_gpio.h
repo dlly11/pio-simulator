@@ -101,15 +101,19 @@ void pio_sim_gpio_set_periph_output(pio_sim_t *pio, uint8_t pin, bool oe, bool l
 /** Input enable: while false the PIO logic reads the pin as 0 (the host-side
  * pio_sim_get_pin still returns the true wire level). Reset: enabled. */
 void pio_sim_pad_set_input_enable(pio_sim_t *pio, uint8_t pin, bool ie);
+bool pio_sim_pad_get_input_enable(const pio_sim_t *pio, uint8_t pin);
 
 /** Output disable: while true the chip never drives the pad, whatever the mux
  * or the SMs ask for; external drive and pulls still apply. Reset: off. */
 void pio_sim_pad_set_output_disable(pio_sim_t *pio, uint8_t pin, bool od);
+bool pio_sim_pad_get_output_disable(const pio_sim_t *pio, uint8_t pin);
 
 /** Pull resistors: up only reads 1 when undriven, down only reads 0, both
  * enabled is the bus keeper (holds the last driven level), neither floats
  * (reads 0). Subsumes pio_sim_set_pull_level. Reset: none. */
 void pio_sim_pad_set_pulls(pio_sim_t *pio, uint8_t pin, bool up, bool down);
+/** Read back the pull configuration set above (either pointer may be NULL). */
+void pio_sim_pad_get_pulls(const pio_sim_t *pio, uint8_t pin, bool *up, bool *down);
 
 /** Analog pad config, stored for read-back only — no digital effect.
  * `drive` is the DRIVE field code (0=2mA, 1=4mA, 2=8mA, 3=12mA). */

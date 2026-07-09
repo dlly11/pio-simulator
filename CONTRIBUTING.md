@@ -57,8 +57,10 @@ reads `PIO_SIM_PIO_VERSION`.)
 ## Before you push — reproduce the CI gate
 
 ```sh
-# Formatting (must be clean)
-clang-format --dry-run --Werror lib/src/*.c lib/include/*.h lib/config/*.h tests/test_*.c
+# Formatting (must be clean) — the same file set CI checks
+clang-format --dry-run --Werror lib/src/*.c lib/src/pio_sim_internal.h \
+    lib/include/*.h lib/config/*.h \
+    tests/test_*.c tests/fuzz_pio_asm.c tests/consumer/main.c
 
 # Static analysis (clean, WarningsAsErrors)
 cmake -B build -G Ninja -DPIO_SIM_PLATFORM=RP2350 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON

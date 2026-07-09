@@ -208,7 +208,7 @@ static void test_chip_dma_feeds_ws2812(void)
     pio_sim_sm_set_enabled(p0, 0, true);
 
     static uint32_t pixel[1] = {0x80U << 24}; /* MSB-first 0b10000000 → 1,0,0,0,0,0,0,0 */
-    pio_dma_channel_config_t dc = pio_dma_channel_get_default_config(0);
+    dma_channel_config dc = pio_dma_channel_get_default_config(0);
     channel_config_set_dreq(&dc, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&chip.dma, 0, &dc, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(pixel), 1,
                               true);
@@ -233,6 +233,14 @@ static void test_chip_dma_feeds_ws2812(void)
     TEST_ASSERT_EQUAL_UINT8(7U, first_run);
     /* The frame duration has a defined wall-clock length under the default tree. */
     TEST_ASSERT_TRUE(pio_chip_ticks_to_ns(&chip, 120) > 0U);
+    /* The chip-level time conversions delegate to the embedded clock tree
+     * (frequency-independent: compare against pio_clk_* on chip.clk directly). */
+    TEST_ASSERT_EQUAL_UINT64(pio_clk_ticks_to_us(&chip.clk, 1500000U),
+                             pio_chip_ticks_to_us(&chip, 1500000U));
+    TEST_ASSERT_EQUAL_UINT64(pio_clk_ns_to_ticks(&chip.clk, 1000000U),
+                             pio_chip_ns_to_ticks(&chip, 1000000U));
+    TEST_ASSERT_EQUAL_UINT64(pio_clk_us_to_ticks(&chip.clk, 1000U),
+                             pio_chip_us_to_ticks(&chip, 1000U));
 }
 
 int main(void)

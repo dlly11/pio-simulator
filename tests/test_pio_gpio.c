@@ -117,6 +117,27 @@ static void test_analog_fields_stored_noop(void)
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 9)); /* behaviour unchanged */
 }
 
+/* The functional pad fields (IE / OD / pulls) read back through their getters,
+ * symmetric with the analog getters. */
+static void test_functional_pad_fields_read_back(void)
+{
+    pio_sim_pad_set_input_enable(&pio, 5, false);
+    TEST_ASSERT_FALSE(pio_sim_pad_get_input_enable(&pio, 5));
+    pio_sim_pad_set_input_enable(&pio, 5, true);
+    TEST_ASSERT_TRUE(pio_sim_pad_get_input_enable(&pio, 5));
+
+    pio_sim_pad_set_output_disable(&pio, 5, true);
+    TEST_ASSERT_TRUE(pio_sim_pad_get_output_disable(&pio, 5));
+
+    pio_sim_pad_set_pulls(&pio, 5, true, false);
+    bool up = false;
+    bool down = true;
+    pio_sim_pad_get_pulls(&pio, 5, &up, &down);
+    TEST_ASSERT_TRUE(up);
+    TEST_ASSERT_FALSE(down);
+    pio_sim_pad_get_pulls(&pio, 5, NULL, NULL); /* NULL out-params tolerated */
+}
+
 static void test_pads_reset_hw_matches_datasheet(void)
 {
     pio_sim_pads_reset_hw(&pio);
@@ -327,6 +348,7 @@ int main(void)
     RUN_TEST(test_pulls_up_down_and_float);
     RUN_TEST(test_buskeep_holds_last_driven_level);
     RUN_TEST(test_analog_fields_stored_noop);
+    RUN_TEST(test_functional_pad_fields_read_back);
     RUN_TEST(test_pads_reset_hw_matches_datasheet);
 #if PIO_SIM_HAS_PAD_ISO
     RUN_TEST(test_iso_freezes_output_and_gates_input);

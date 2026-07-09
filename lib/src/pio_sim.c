@@ -250,9 +250,12 @@ void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled)
             pio->sm[i].enabled = enabled;
         }
     }
-    if (enabled) {
-        pio_sim_clkdiv_restart_sm_mask(pio, sm_mask); /* phase-align the started SMs */
-    }
+}
+
+void pio_sim_enable_sm_mask_in_sync(pio_sim_t *pio, uint8_t sm_mask)
+{
+    pio_sim_set_sm_mask_enabled(pio, sm_mask, true);
+    pio_sim_clkdiv_restart_sm_mask(pio, sm_mask); /* phase-align the started SMs */
 }
 
 /* ── Configuration ─────────────────────────────────────────────────────────── */
@@ -322,16 +325,26 @@ void sm_config_set_sideset(pio_sm_config *c, uint8_t bit_count, bool optional, b
 }
 void sm_config_set_wrap(pio_sm_config *c, uint8_t wrap_target, uint8_t wrap)
 {
-    c->wrap_bottom = wrap_target;
-    c->wrap_top = wrap;
+    /* Both ends address the 32-word instruction memory. */
+    c->wrap_bottom = (uint8_t)(wrap_target % PIO_SIM_INSN_COUNT);
+    c->wrap_top = (uint8_t)(wrap % PIO_SIM_INSN_COUNT);
 }
-void sm_config_set_clkdiv_int_frac8(pio_sm_config *c, uint16_t div_int, uint8_t div_frac8)
+void sm_config_set_clkdiv_int_frac(pio_sm_config *c, uint16_t div_int, uint8_t div_frac)
 {
     c->clkdiv_int = div_int;
-    c->clkdiv_frac = div_frac8;
+    c->clkdiv_frac = div_frac;
 }
 void sm_config_set_clkdiv(pio_sm_config *c, float div)
 {
+    /* Guard the float→int conversions: a value that can't be represented in the
+     * target integer type is UB. Clamp to the hardware range [1, 65536); the
+     * SDK encodes a divisor of 65536 as clkdiv_int == 0, but that is only
+     * reachable via set_clkdiv_int_frac, not this float helper. */
+    if (!(div >= 1.0F)) { /* also catches NaN */
+        div = 1.0F;
+    } else if (div > 65535.99F) {
+        div = 65535.99F;
+    }
     uint16_t whole = (uint16_t)div;
     uint8_t frac = (uint8_t)((div - (float)whole) * 256.0F);
     c->clkdiv_int = whole;
@@ -380,7 +393,11 @@ void pio_sim_clkdiv_restart_sm_mask(pio_sim_t *pio, uint8_t sm_mask)
 
 void pio_sim_sm_clkdiv_restart(pio_sim_t *pio, uint8_t sm) { pio->sm[SM_IDX(sm)].clk_accum = 0; }
 
-void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc) { pio->sm[SM_IDX(sm)].pc = pc; }
+void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc)
+{
+    /* PC indexes the 32-word instruction memory; keep it in range. */
+    pio->sm[SM_IDX(sm)].pc = (uint8_t)(pc % PIO_SIM_INSN_COUNT);
+}
 
 uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].pc; }
 
@@ -399,16 +416,21 @@ uint8_t pio_sim_sm_get_osr_count(const pio_sim_t *pio, uint8_t sm)
     return pio->sm[SM_IDX(sm)].osr_count;
 }
 
-uint16_t pio_sim_sm_get_instr(const pio_sim_t *pio, uint8_t sm)
+uint16_t pio_sim_sm_get_instruction(const pio_sim_t *pio, uint8_t sm)
 {
     const pio_sm_t *s = &pio->sm[SM_IDX(sm)];
-    return s->exec_pending ? s->exec_insn : pio->insn[s->pc];
+    return s->exec_pending ? s->exec_insn : pio->insn[s->pc % PIO_SIM_INSN_COUNT];
 }
 
 void pio_sim_sm_set_status_value(pio_sim_t *pio, uint8_t sm, uint32_t value)
 {
     pio->sm[SM_IDX(sm)].status_value = value;
     pio->sm[SM_IDX(sm)].status_override = true;
+}
+
+void pio_sim_sm_clear_status_value(pio_sim_t *pio, uint8_t sm)
+{
+    pio->sm[SM_IDX(sm)].status_override = false;
 }
 
 /* Apply a FIFO-join mode to an SM: reshape the TX/RX capacities and clear both
@@ -510,6 +532,7 @@ void pio_sim_sm_set_consecutive_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base
                                         bool is_out)
 {
     pio_sm_t *s = &pio->sm[SM_IDX(sm)];
+    count = clamp_pin_count(count); /* at most one full 32-pin window */
     for (uint8_t i = 0; i < count; i++) {
         uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
         if (is_out) {
@@ -615,12 +638,12 @@ void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm)
 }
 
 #if PIO_SIM_HAS_RXFIFO_MOV
-uint32_t pio_sim_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index)
+uint32_t pio_sim_sm_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index)
 {
     return pio->sm[SM_IDX(sm)].rx.buf[index & 0x3U];
 }
 
-void pio_sim_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word)
+void pio_sim_sm_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word)
 {
     pio->sm[SM_IDX(sm)].rx.buf[index & 0x3U] = word;
 }
@@ -635,9 +658,12 @@ uint8_t pio_sim_sm_get_rx_fifo_level(const pio_sim_t *pio, uint8_t sm)
     return pio->sm[SM_IDX(sm)].rx.count;
 }
 
-uint8_t pio_sim_get_fdebug(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].fdebug; }
+uint8_t pio_sim_sm_get_fdebug(const pio_sim_t *pio, uint8_t sm)
+{
+    return pio->sm[SM_IDX(sm)].fdebug;
+}
 
-void pio_sim_clear_fdebug(pio_sim_t *pio, uint8_t sm, uint8_t mask)
+void pio_sim_sm_clear_fdebug(pio_sim_t *pio, uint8_t sm, uint8_t mask)
 {
     pio->sm[SM_IDX(sm)].fdebug &= (uint8_t)~mask;
 }
@@ -763,7 +789,7 @@ void pio_sim_irq_clear(pio_sim_t *pio, uint8_t irq)
 
 /* ── System interrupt lines ────────────────────────────────────────────────── */
 
-uint32_t pio_sim_get_irq_raw(const pio_sim_t *pio)
+uint32_t pio_sim_get_intr(const pio_sim_t *pio)
 {
     uint32_t intr = 0;
     for (uint8_t sm = 0; sm < PIO_SIM_NUM_SM; sm++) {
@@ -802,12 +828,9 @@ void pio_sim_set_irqn_source_enabled(pio_sim_t *pio, uint8_t line, uint32_t sour
     pio_sim_set_irqn_source_mask_enabled(pio, line, source, enabled);
 }
 
-uint32_t pio_sim_get_irq_enable(const pio_sim_t *pio, uint8_t line)
-{
-    return pio->irq_inte[line & 1U];
-}
+uint32_t pio_sim_get_inte(const pio_sim_t *pio, uint8_t line) { return pio->irq_inte[line & 1U]; }
 
-void pio_sim_set_irq_force(pio_sim_t *pio, uint8_t line, uint32_t mask, bool on)
+void pio_sim_set_intf(pio_sim_t *pio, uint8_t line, uint32_t mask, bool on)
 {
     if (on) {
         pio->irq_intf[line & 1U] |= mask;
@@ -816,18 +839,15 @@ void pio_sim_set_irq_force(pio_sim_t *pio, uint8_t line, uint32_t mask, bool on)
     }
 }
 
-uint32_t pio_sim_get_irq_force(const pio_sim_t *pio, uint8_t line)
-{
-    return pio->irq_intf[line & 1U];
-}
+uint32_t pio_sim_get_intf(const pio_sim_t *pio, uint8_t line) { return pio->irq_intf[line & 1U]; }
 
 uint32_t pio_sim_get_ints(const pio_sim_t *pio, uint8_t line)
 {
     uint8_t l = (uint8_t)(line & 1U);
-    return (pio_sim_get_irq_raw(pio) & pio->irq_inte[l]) | pio->irq_intf[l];
+    return (pio_sim_get_intr(pio) & pio->irq_inte[l]) | pio->irq_intf[l];
 }
 
-bool pio_sim_interrupt_line(const pio_sim_t *pio, uint8_t line)
+bool pio_sim_get_irqn_asserted(const pio_sim_t *pio, uint8_t line)
 {
     return pio_sim_get_ints(pio, line) != 0U;
 }
@@ -1512,10 +1532,13 @@ static void sm_cycle(pio_sim_t *pio, uint8_t sm_idx)
     if (from_exec) {
         insn = sm->exec_insn;
     } else {
-        if (!pio->insn_used[sm->pc]) {
+        /* Fetch address is masked to the 32-word memory: a caller-poked PC or a
+         * bad wrap can never index out of bounds. */
+        uint8_t fetch_pc = (uint8_t)(sm->pc % PIO_SIM_INSN_COUNT);
+        if (!pio->insn_used[fetch_pc]) {
             pio->unwritten_fetches++; /* diagnostic: runaway PC / bad wrap */
         }
-        insn = pio->insn[sm->pc];
+        insn = pio->insn[fetch_pc];
     }
 
     uint8_t next_pc = 0;
@@ -1641,9 +1664,9 @@ uint64_t pio_sim_run_until_tx_drained(pio_sim_t *pio, uint8_t sm, uint64_t max_t
      * sets again — the SM stalling on an empty TX means the FIFO is empty AND
      * the OSR's last word has been fully consumed. Requires the program to
      * keep OUTing/PULLing (as streaming programs do); bounded by max_ticks. */
-    pio_sim_clear_fdebug(pio, sm, PIO_FDEBUG_TXSTALL);
+    pio_sim_sm_clear_fdebug(pio, sm, PIO_FDEBUG_TXSTALL);
     uint64_t t = 0;
-    while ((t < max_ticks) && ((pio_sim_get_fdebug(pio, sm) & PIO_FDEBUG_TXSTALL) == 0U)) {
+    while ((t < max_ticks) && ((pio_sim_sm_get_fdebug(pio, sm) & PIO_FDEBUG_TXSTALL) == 0U)) {
         pio_sim_tick(pio);
         t++;
     }
@@ -1719,10 +1742,10 @@ void pio_sim_group_run(pio_sim_group_t *g, uint64_t n)
     }
 }
 
-void pio_sim_group_enable_sm_mask_sync(pio_sim_group_t *g, const uint8_t *masks)
+void pio_sim_group_enable_sm_mask_in_sync(pio_sim_group_t *g, const uint8_t *masks)
 {
     for (uint8_t i = 0; i < g->count; i++) {
-        pio_sim_set_sm_mask_enabled(g->blk[i], masks[i], true);
+        pio_sim_enable_sm_mask_in_sync(g->blk[i], masks[i]);
     }
 }
 
@@ -1743,7 +1766,7 @@ void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn)
     uint8_t next_pc = 0;
     bool set_pc = false;
     uint8_t delay = 0;
-    bool committed = exec_one(pio, sm, insn, &next_pc, &set_pc, &delay);
+    bool committed = exec_one(pio, SM_IDX(sm), insn, &next_pc, &set_pc, &delay);
     (void)delay; /* a forced instruction executes immediately; its delay field
                   * is ignored (side-set still applies). */
     if (committed) {

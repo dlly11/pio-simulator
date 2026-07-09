@@ -42,7 +42,9 @@ lib/include/   public headers (pio_sim.h, pio_asm.h, pio_gpio.h, pio_dma.h,
 lib/src/       implementation (and any private headers)
 lib/config/    library configuration header (pio_sim_config.h: target-chip select)
 third_party/   Unity test framework (git submodule)
-tests/         unit tests + unity_config.h
+tests/         unit tests + unity_config.h; tests/pio/ (.pio corpus for the
+               program tests and the pioasm differential); tests/consumer/
+               (install smoke test)
 ```
 
 ## Target chip (RP2040 vs RP2350)
@@ -107,23 +109,24 @@ against the same feature surface the library was built with.
   blocks at one shared pad set so they drive and sample the same GPIOs. (Link two
   blocks directly with `pio_sim_set_irq_neighbors` for the IRQ ring alone.)
 - **FIFO status** — `pio_sim_sm_get_tx_fifo_level`/`get_rx_fifo_level` report
-  occupancy (FSTAT) and `pio_sim_get_fdebug`/`clear_fdebug` expose the sticky
+  occupancy (FSTAT) and `pio_sim_sm_get_fdebug`/`clear_fdebug` expose the sticky
   TXSTALL/TXOVER/RXUNDER/RXSTALL debug flags. Host access is
   `pio_sim_sm_put`/`get` (SDK names); in the RP2350 random-access RX modes
   (`.fifo txput`/`txget`) the four entries are reached by index with
-  `pio_sim_rxfifo_get`/`_put` instead.
+  `pio_sim_sm_rxfifo_get`/`_put` instead.
 - **System interrupts** — the two PIO interrupt lines are modelled:
-  `pio_sim_set_irqn_source_mask_enabled`/`set_irq_force` (INTE/INTF, toggle-with-
+  `pio_sim_set_irqn_source_mask_enabled`/`pio_sim_set_intf` (INTE/INTF, toggle-with-
   bool like the SDK) over the INTR sources (per-SM RX-not-empty, TX-not-full,
   and the SM IRQ flags), read back with `pio_sim_get_ints` /
-  `pio_sim_interrupt_line`.
-- **Synchronised start** — `pio_sim_set_sm_mask_enabled` enables several SMs at
-  once and phase-aligns their dividers (like `pio_enable_sm_mask_in_sync`).
+  `pio_sim_get_irqn_asserted`.
+- **Synchronised start** — `pio_sim_enable_sm_mask_in_sync` enables several SMs
+  at once and phase-aligns their dividers (the SDK's `pio_enable_sm_mask_in_sync`);
+  `pio_sim_set_sm_mask_enabled` is the plain set/clear that leaves dividers alone.
 - **DMA** — a full controller model in `pio_dma.h`: build a channel with the
   SDK-shaped `channel_config_set_*` mutators, program it with
   `pio_dma_channel_configure`, and advance it with `pio_dma_tick` (one transfer
   per system tick). Endpoints are host memory or a PIO FIFO
-  (`pio_dma_addr_mem`/`_txf`/`_rxf`); DREQ pacing follows `pio_sim_dreq_tx`/`_rx`.
+  (`pio_dma_addr_mem`/`_txf`/`_rxf`); DREQ pacing follows `pio_sim_sm_is_dreq_tx`/`_rx`.
   It covers chaining, null triggers, the `dma_irqn_*` completion IRQs, the CRC
   sniffer, and fractional pacing timers — see the [Scope](#scope) section.
 
@@ -197,6 +200,8 @@ gcc -std=c11 -Wall -Wextra -I lib/include -I lib/config -I lib/src -I third_part
 ```
 
 (`-I lib/src` is needed — the sources share a private `pio_sim_internal.h`.)
+This compiles only `test_pio_sim`; swap in another `tests/test_*.c` for a
+different suite, or use CMake + `ctest` to build and run all six at once.
 
 CI builds gcc + clang across both platforms (`-DPIO_SIM_PLATFORM=RP2040|RP2350`),
 runs the suites under ASan/UBSan, lints with clang-tidy/clang-format, and
@@ -208,8 +213,10 @@ CI also runs `clang-format` (style in `.clang-format`) and `clang-tidy` (checks 
 `.clang-tidy`) over the library. To reproduce locally:
 
 ```sh
-# formatting (no changes => clean)
-clang-format --dry-run --Werror lib/src/*.c lib/include/*.h tests/test_*.c
+# formatting (no changes => clean) — the same file set CI checks
+clang-format --dry-run --Werror lib/src/*.c lib/src/pio_sim_internal.h \
+    lib/include/*.h lib/config/*.h \
+    tests/test_*.c tests/fuzz_pio_asm.c tests/consumer/main.c
 
 # static analysis: needs a compile database for the include paths / feature defines
 cmake -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON

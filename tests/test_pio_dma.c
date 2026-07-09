@@ -56,7 +56,7 @@ static void tick_all(int n)
 /* Feed `in` to SM0 TX on channel 0 and drain RX to `out` on channel 1. */
 static void configure_echo_pair(uint32_t *in, uint32_t *out, uint32_t n)
 {
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     c = pio_dma_channel_get_default_config(0);
     channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(in), n, true);
@@ -86,13 +86,13 @@ static void test_tx_dreq_pacing_respects_fifo_depth(void)
 {
     /* No SM consuming: a TX-paced channel fills the 4-deep FIFO and stalls. */
     static uint32_t in[8] = {1, 2, 3, 4, 5, 6, 7, 8};
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     c = pio_dma_channel_get_default_config(0);
     channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(in), 8, true);
     tick_all(20);
     TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 0));
-    TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_transfer_count(&dma, 0));
+    TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_get_trans_count(&dma, 0));
     TEST_ASSERT_TRUE(pio_sim_sm_is_tx_fifo_full(&pio, 0));
 }
 
@@ -101,7 +101,7 @@ static void test_size8_and_bswap(void)
     load_echo_prog();
     static uint8_t in8[4] = {0xAAU, 0xBBU, 0xCCU, 0xDDU};
     static uint8_t out8[4] = {0};
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     c = pio_dma_channel_get_default_config(0);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
     channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
@@ -133,7 +133,7 @@ static void test_ring_wraps_read_side(void)
     /* 2-word (8-byte) ring on the read side: buffer must be 8-aligned. */
     _Alignas(8) static uint32_t in[2] = {0x55U, 0x66U};
     static uint32_t out[4] = {0};
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     c = pio_dma_channel_get_default_config(0);
     channel_config_set_ring(&c, false, 3); /* wrap read addr, 2^3 bytes = two words */
     channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
@@ -156,7 +156,7 @@ static void test_chain_to_next_channel(void)
     static uint32_t a[2] = {0x11U, 0x22U};
     static uint32_t b[2] = {0x33U, 0x44U};
     static uint32_t out[4] = {0};
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     /* ch0 sends a[], chains to ch2 which sends b[]. ch2 is programmed but not
      * triggered — the chain starts it. */
     c = pio_dma_channel_get_default_config(2);
@@ -179,6 +179,23 @@ static void test_chain_to_next_channel(void)
     TEST_ASSERT_FALSE(pio_dma_channel_is_busy(&dma, 2));
 }
 
+/* An out-of-range chain_to must be clamped so the `1u << chain_to` trigger in
+ * the engine is never a shift by >= 32 (UB). Verified under the sanitizer CI
+ * build; here we just confirm it is clamped and the transfer still completes. */
+static void test_chain_to_out_of_range_clamped(void)
+{
+    dma_channel_config c = pio_dma_channel_get_default_config(0);
+    channel_config_set_chain_to(&c, 200);
+    TEST_ASSERT_TRUE(c.chain_to < PIO_SIM_DMA_NUM_CHANNELS);
+
+    load_echo_prog();
+    static uint32_t src[2] = {0xAAU, 0xBBU};
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(src), 2, true);
+    tick_all(100); /* must not invoke shift UB on completion-chain */
+    TEST_ASSERT_FALSE(pio_dma_channel_is_busy(&dma, 0));
+}
+
 static uint8_t cb_hits;
 static uint8_t cb_last_ch;
 
@@ -197,7 +214,7 @@ static void test_irq_on_complete_and_ack(void)
     cb_hits = 0;
     pio_dma_channel_set_callback(&dma, 3, count_cb, NULL);
     pio_dma_irqn_set_channel_enabled(&dma, 0, 3, true);
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     c = pio_dma_channel_get_default_config(3);
     channel_config_set_write_increment(&c, true);
     pio_dma_channel_configure(&dma, 3, &c, pio_dma_addr_mem(dst), pio_dma_addr_mem(src), 2, true);
@@ -223,7 +240,7 @@ static void test_irq_quiet_defers_to_null_trigger(void)
     static uint32_t dst[1] = {0};
     cb_hits = 0;
     pio_dma_channel_set_callback(&dma, 0, count_cb, NULL);
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     c = pio_dma_channel_get_default_config(0);
     channel_config_set_irq_quiet(&c, true);
     channel_config_set_write_increment(&c, true);
@@ -234,7 +251,7 @@ static void test_irq_quiet_defers_to_null_trigger(void)
     TEST_ASSERT_EQUAL_HEX32(0U, pio_dma_get_intr(&dma));
     /* A null trigger (reload = 0) fires the deferred IRQ. */
     dma.ch[0].trans_count_reload = 0;
-    pio_dma_channel_start_mask(&dma, 1U << 0U);
+    pio_dma_start_channel_mask(&dma, 1U << 0U);
     TEST_ASSERT_EQUAL_UINT8(1U, cb_hits);
     TEST_ASSERT_EQUAL_HEX32(1U << 0U, pio_dma_get_intr(&dma));
 }
@@ -247,7 +264,7 @@ static void test_abort_midstream_and_retrigger(void)
     configure_echo_pair(in, out, 4);
     tick_all(2); /* partway through: both channels still busy */
     TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 0));
-    pio_dma_channel_abort(&dma, (1U << 0U) | (1U << 1U));
+    pio_dma_channel_abort_mask(&dma, (1U << 0U) | (1U << 1U));
     TEST_ASSERT_FALSE(pio_dma_channel_is_busy(&dma, 0));
     TEST_ASSERT_FALSE(pio_dma_channel_is_busy(&dma, 1));
     TEST_ASSERT_EQUAL_HEX32(0U, pio_dma_get_intr(&dma)); /* abort raises no IRQ */
@@ -261,13 +278,46 @@ static void test_abort_midstream_and_retrigger(void)
     TEST_ASSERT_EQUAL_HEX32(4U, out[3]);
 }
 
+/* An out-of-range transfer size is clamped to 32-bit, so elem_bytes (1<<size)
+ * can never exceed 4 and overrun the transfer word during a memcpy (the
+ * ASan/UBSan CI build turns any overrun/shift-UB here into a failure). */
+static void test_transfer_size_out_of_range_clamped(void)
+{
+    dma_channel_config c = pio_dma_channel_get_default_config(0);
+    channel_config_set_transfer_data_size(&c, (pio_dma_size_t)7);
+    TEST_ASSERT_EQUAL_INT(DMA_SIZE_32, c.data_size);
+
+    /* A mem-to-mem transfer with the (clamped) size must not overrun. */
+    static uint32_t src = 0xDEADBEEFU;
+    static uint32_t dst = 0;
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(&dst), pio_dma_addr_mem(&src), 1, true);
+    (void)pio_dma_tick(&dma);
+    TEST_ASSERT_EQUAL_HEX32(0xDEADBEEFU, dst);
+}
+
+/* The single-channel abort wrapper stops just its channel (SDK
+ * dma_channel_abort), leaving others untouched. */
+static void test_single_channel_abort(void)
+{
+    load_echo_prog();
+    static uint32_t in[4] = {1, 2, 3, 4};
+    static uint32_t out[4] = {0};
+    configure_echo_pair(in, out, 4);
+    tick_all(2);
+    TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 0));
+    TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 1));
+    pio_dma_channel_abort(&dma, 0);
+    TEST_ASSERT_FALSE(pio_dma_channel_is_busy(&dma, 0));
+    TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 1)); /* channel 1 untouched */
+}
+
 static void test_sniffer_crc32_check_value(void)
 {
     /* Standard CRC-32 check: "123456789" -> 0xCBF43926, via the reflected
      * update (CALC=CRC32R), seed 0xFFFFFFFF, OUT_INV on readback. */
     static const char msg[] = "123456789";
     static uint8_t dst[9];
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     c = pio_dma_channel_get_default_config(0);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
     channel_config_set_write_increment(&c, true);
@@ -286,7 +336,7 @@ static void test_sniffer_crc16_ccitt_check_value(void)
     /* CRC-16-CCITT (false): "123456789" -> 0x29B1. MSB-first, seed 0xFFFF. */
     static const char msg[] = "123456789";
     static uint8_t dst[9];
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     c = pio_dma_channel_get_default_config(0);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
     channel_config_set_write_increment(&c, true);
@@ -303,7 +353,7 @@ static void test_sniffer_sum_and_parity(void)
 {
     static uint32_t src[3] = {1, 2, 3};
     static uint32_t dst[3];
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     c = pio_dma_channel_get_default_config(0);
     channel_config_set_write_increment(&c, true);
     channel_config_set_sniff_enable(&c, true);
@@ -327,7 +377,7 @@ static void test_pacing_timer_quarter_rate(void)
     static uint32_t src[4] = {1, 2, 3, 4};
     static uint32_t dst[4] = {0};
     pio_dma_timer_set_fraction(&dma, 0, 1, 4);
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     c = pio_dma_channel_get_default_config(0);
     channel_config_set_write_increment(&c, true);
     channel_config_set_dreq(&c, PIO_DMA_TREQ_TIMER(0));
@@ -335,7 +385,7 @@ static void test_pacing_timer_quarter_rate(void)
     for (int i = 0; i < 8; i++) {
         (void)pio_dma_tick(&dma);
     }
-    TEST_ASSERT_EQUAL_UINT32(2U, pio_dma_channel_transfer_count(&dma, 0)); /* 2 of 4 done */
+    TEST_ASSERT_EQUAL_UINT32(2U, pio_dma_channel_get_trans_count(&dma, 0)); /* 2 of 4 done */
     for (int i = 0; i < 8; i++) {
         (void)pio_dma_tick(&dma);
     }
@@ -350,7 +400,7 @@ static void test_one_transfer_per_tick_and_priority(void)
     static uint32_t src[8] = {1, 2, 3, 4, 5, 6, 7, 8};
     static uint32_t dst_a[4] = {0};
     static uint32_t dst_b[4] = {0};
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     c = pio_dma_channel_get_default_config(0);
     channel_config_set_write_increment(&c, true);
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst_a), pio_dma_addr_mem(src), 4, true);
@@ -360,14 +410,14 @@ static void test_one_transfer_per_tick_and_priority(void)
     pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_mem(dst_b), pio_dma_addr_mem(&src[4]), 4,
                               true);
     (void)pio_dma_tick(&dma); /* one element total */
-    TEST_ASSERT_EQUAL_UINT32(4U + 3U, pio_dma_channel_transfer_count(&dma, 0) +
-                                          pio_dma_channel_transfer_count(&dma, 1));
+    TEST_ASSERT_EQUAL_UINT32(4U + 3U, pio_dma_channel_get_trans_count(&dma, 0) +
+                                          pio_dma_channel_get_trans_count(&dma, 1));
     for (int i = 0; i < 3; i++) {
         (void)pio_dma_tick(&dma);
     }
     /* 4 ticks: the high-priority channel is done; ch0 hasn't moved. */
     TEST_ASSERT_FALSE(pio_dma_channel_is_busy(&dma, 1));
-    TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_transfer_count(&dma, 0));
+    TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_get_trans_count(&dma, 0));
     for (int i = 0; i < 4; i++) {
         (void)pio_dma_tick(&dma);
     }
@@ -406,7 +456,7 @@ static void test_cross_pio_transfer_in_group(void)
     pio_sim_sm_set_enabled(&p2, 0, true);
 
     static uint32_t in[2] = {0xAB1U, 0xAB2U};
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     c = pio_dma_channel_get_default_config(0);
     channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(in), 2, true);
@@ -462,7 +512,7 @@ static void test_chip_loopback_dma_pin_dma(void)
 
     static uint32_t word_in = 0x1U;
     static uint32_t word_out = 0;
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     c = pio_dma_channel_get_default_config(0);
     channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&chip.dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(&word_in),
@@ -489,7 +539,7 @@ static void test_ring_size_out_of_range_no_ub(void)
 {
     static uint32_t src[4] = {1, 2, 3, 4};
     static uint32_t dst[4] = {0};
-    pio_dma_channel_config_t c = pio_dma_channel_get_default_config(0);
+    dma_channel_config c = pio_dma_channel_get_default_config(0);
     channel_config_set_ring(&c, false, 64); /* > pointer width: guarded, no wrap */
     channel_config_set_write_increment(&c, true);
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), pio_dma_addr_mem(src), 2, true);
@@ -506,7 +556,7 @@ static void test_null_block_slot_no_crash(void)
     pio_dma_t d;
     pio_dma_init(&d, blocks, 2);
     static uint32_t src[2] = {7, 8};
-    pio_dma_channel_config_t c = pio_dma_channel_get_default_config(0);
+    dma_channel_config c = pio_dma_channel_get_default_config(0);
     channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(1, 0)); /* endpoint on the NULL slot */
     pio_dma_channel_configure(&d, 0, &c, pio_dma_addr_txf(1, 0), pio_dma_addr_mem(src), 2, true);
     (void)pio_dma_tick(&d); /* must not crash; channel simply never becomes ready */
@@ -523,9 +573,12 @@ int main(void)
     RUN_TEST(test_size8_and_bswap);
     RUN_TEST(test_ring_wraps_read_side);
     RUN_TEST(test_chain_to_next_channel);
+    RUN_TEST(test_chain_to_out_of_range_clamped);
     RUN_TEST(test_irq_on_complete_and_ack);
     RUN_TEST(test_irq_quiet_defers_to_null_trigger);
     RUN_TEST(test_abort_midstream_and_retrigger);
+    RUN_TEST(test_single_channel_abort);
+    RUN_TEST(test_transfer_size_out_of_range_clamped);
     RUN_TEST(test_sniffer_crc32_check_value);
     RUN_TEST(test_sniffer_crc16_ccitt_check_value);
     RUN_TEST(test_sniffer_sum_and_parity);

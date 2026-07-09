@@ -1,0 +1,5 @@
+# The committed corpus is the hand-authored seed_* files only. libFuzzer writes
+# new coverage inputs here at runtime (CI and local runs); never commit those.
+*
+!.gitignore
+!seed_*

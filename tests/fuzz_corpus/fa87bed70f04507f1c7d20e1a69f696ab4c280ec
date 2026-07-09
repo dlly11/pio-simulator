@@ -1,5 +1,0 @@
-; E WS28A /b10
-.define E (::2 >> 27) & 0x1F
-.defini8
-.program xxprco er
-.define E (ÿÿogart

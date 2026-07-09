@@ -17,11 +17,9 @@ void pio_clk_init_default(pio_clk_tree_t *t)
     t->xosc_hz = 12000000U;
     t->pll_refdiv = 1;
     t->pll_fbdiv = 125; /* VCO = 1500 MHz on a 12 MHz crystal */
-#if PIO_SIM_PIO_VERSION >= 1
-    t->pll_postdiv1 = 5; /* 1500 / 5 / 2 = 150 MHz (RP2350 boot default) */
-#else
-    t->pll_postdiv1 = 6; /* 1500 / 6 / 2 = 125 MHz (RP2040 boot default) */
-#endif
+    /* Boot default clk_sys: 150 MHz (RP2350) or 125 MHz (RP2040), via the
+     * platform config gate rather than a bare version check. */
+    t->pll_postdiv1 = PIO_SIM_CLK_SYS_BOOT_POSTDIV1;
     t->pll_postdiv2 = 2;
     t->clksys_div_int = 1;
     t->clksys_div_frac = 0;
