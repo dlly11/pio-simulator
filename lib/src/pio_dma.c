@@ -65,9 +65,9 @@ void pio_dma_init(pio_dma_t *d, pio_sim_t *const *pios, uint8_t pio_count)
     }
 }
 
-pio_dma_channel_config_t pio_dma_channel_get_default_config(uint8_t ch)
+dma_channel_config pio_dma_channel_get_default_config(uint8_t ch)
 {
-    pio_dma_channel_config_t c;
+    dma_channel_config c;
     (void)memset(&c, 0, sizeof(c));
     c.data_size = DMA_SIZE_32;
     c.incr_read = true;
@@ -79,45 +79,39 @@ pio_dma_channel_config_t pio_dma_channel_get_default_config(uint8_t ch)
 
 /* ── SDK-named config mutators ─────────────────────────────────────────────── */
 
-void channel_config_set_read_increment(pio_dma_channel_config_t *c, bool incr)
-{
-    c->incr_read = incr;
-}
-void channel_config_set_write_increment(pio_dma_channel_config_t *c, bool incr)
-{
-    c->incr_write = incr;
-}
-void channel_config_set_dreq(pio_dma_channel_config_t *c, uint8_t dreq) { c->treq_sel = dreq; }
-void channel_config_set_chain_to(pio_dma_channel_config_t *c, uint8_t chain_to)
+void channel_config_set_read_increment(dma_channel_config *c, bool incr) { c->incr_read = incr; }
+void channel_config_set_write_increment(dma_channel_config *c, bool incr) { c->incr_write = incr; }
+void channel_config_set_dreq(dma_channel_config *c, uint8_t dreq) { c->treq_sel = dreq; }
+void channel_config_set_chain_to(dma_channel_config *c, uint8_t chain_to)
 {
     /* Only real channels can be chained to; keep the field in range so the
      * `1u << chain_to` trigger in dma_advance is always well-defined. */
     c->chain_to = (uint8_t)(chain_to % PIO_SIM_DMA_NUM_CHANNELS);
 }
-void channel_config_set_transfer_data_size(pio_dma_channel_config_t *c, pio_dma_size_t size)
+void channel_config_set_transfer_data_size(dma_channel_config *c, pio_dma_size_t size)
 {
     c->data_size = size;
 }
-void channel_config_set_ring(pio_dma_channel_config_t *c, bool write, uint8_t size_bits)
+void channel_config_set_ring(dma_channel_config *c, bool write, uint8_t size_bits)
 {
     c->ring_sel = write;
     c->ring_size = size_bits;
 }
-void channel_config_set_bswap(pio_dma_channel_config_t *c, bool bswap) { c->bswap = bswap; }
-void channel_config_set_irq_quiet(pio_dma_channel_config_t *c, bool irq_quiet)
+void channel_config_set_bswap(dma_channel_config *c, bool bswap) { c->bswap = bswap; }
+void channel_config_set_irq_quiet(dma_channel_config *c, bool irq_quiet)
 {
     c->irq_quiet = irq_quiet;
 }
-void channel_config_set_high_priority(pio_dma_channel_config_t *c, bool high_priority)
+void channel_config_set_high_priority(dma_channel_config *c, bool high_priority)
 {
     c->high_priority = high_priority;
 }
-void channel_config_set_sniff_enable(pio_dma_channel_config_t *c, bool sniff_enable)
+void channel_config_set_sniff_enable(dma_channel_config *c, bool sniff_enable)
 {
     c->sniff_en = sniff_enable;
 }
 
-void pio_dma_channel_configure(pio_dma_t *d, uint8_t ch, const pio_dma_channel_config_t *c,
+void pio_dma_channel_configure(pio_dma_t *d, uint8_t ch, const dma_channel_config *c,
                                pio_dma_addr_t write_addr, pio_dma_addr_t read_addr,
                                uint32_t trans_count, bool trigger)
 {
@@ -128,7 +122,7 @@ void pio_dma_channel_configure(pio_dma_t *d, uint8_t ch, const pio_dma_channel_c
     chan->trans_count_reload = trans_count;
     chan->en = true;
     if (trigger) {
-        pio_dma_channel_start_mask(d, (uint32_t)1U << CH_IDX(ch));
+        pio_dma_start_channel_mask(d, (uint32_t)1U << CH_IDX(ch));
     }
 }
 
@@ -143,7 +137,7 @@ static void dma_raise_irq(pio_dma_t *d, uint8_t ch)
     }
 }
 
-void pio_dma_channel_start_mask(pio_dma_t *d, uint32_t mask)
+void pio_dma_start_channel_mask(pio_dma_t *d, uint32_t mask)
 {
     for (uint8_t c = 0; c < PIO_SIM_DMA_NUM_CHANNELS; c++) {
         if ((mask & ((uint32_t)1U << c)) == 0U) {
@@ -164,13 +158,18 @@ void pio_dma_channel_start_mask(pio_dma_t *d, uint32_t mask)
     }
 }
 
-void pio_dma_channel_abort(pio_dma_t *d, uint32_t mask)
+void pio_dma_channel_abort_mask(pio_dma_t *d, uint32_t mask)
 {
     for (uint8_t c = 0; c < PIO_SIM_DMA_NUM_CHANNELS; c++) {
         if ((mask & ((uint32_t)1U << c)) != 0U) {
             d->ch[c].busy = false; /* atomic transfers: nothing in flight */
         }
     }
+}
+
+void pio_dma_channel_abort(pio_dma_t *d, uint8_t ch)
+{
+    pio_dma_channel_abort_mask(d, (uint32_t)1U << CH_IDX(ch));
 }
 
 bool pio_dma_channel_is_busy(const pio_dma_t *d, uint8_t ch) { return d->ch[CH_IDX(ch)].busy; }
@@ -441,7 +440,7 @@ static void dma_transfer_one(pio_dma_t *d, uint8_t c)
             dma_raise_irq(d, c);
         }
         if ((chan->ctrl.chain_to != c) && (chan->ctrl.chain_to < PIO_SIM_DMA_NUM_CHANNELS)) {
-            pio_dma_channel_start_mask(d, (uint32_t)1U << chan->ctrl.chain_to);
+            pio_dma_start_channel_mask(d, (uint32_t)1U << chan->ctrl.chain_to);
         }
     }
 }

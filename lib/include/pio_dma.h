@@ -93,21 +93,21 @@ typedef struct {
     bool bswap;               /* private — use channel_config_set_bswap */
     bool irq_quiet;           /* private — use channel_config_set_irq_quiet */
     bool sniff_en;            /* private — use channel_config_set_sniff_enable */
-} pio_dma_channel_config_t;
+} dma_channel_config;
 
 /* SDK-named config mutators (config value only, no controller object). */
-void channel_config_set_read_increment(pio_dma_channel_config_t *c, bool incr);
-void channel_config_set_write_increment(pio_dma_channel_config_t *c, bool incr);
-void channel_config_set_dreq(pio_dma_channel_config_t *c, uint8_t dreq);
-void channel_config_set_chain_to(pio_dma_channel_config_t *c, uint8_t chain_to);
-void channel_config_set_transfer_data_size(pio_dma_channel_config_t *c, pio_dma_size_t size);
+void channel_config_set_read_increment(dma_channel_config *c, bool incr);
+void channel_config_set_write_increment(dma_channel_config *c, bool incr);
+void channel_config_set_dreq(dma_channel_config *c, uint8_t dreq);
+void channel_config_set_chain_to(dma_channel_config *c, uint8_t chain_to);
+void channel_config_set_transfer_data_size(dma_channel_config *c, pio_dma_size_t size);
 /** Ring wrap: `write` selects the address (false = read, true = write) and
  * `size_bits` the 2^size_bits-byte window (0 = none, hardware range 0..15). */
-void channel_config_set_ring(pio_dma_channel_config_t *c, bool write, uint8_t size_bits);
-void channel_config_set_bswap(pio_dma_channel_config_t *c, bool bswap);
-void channel_config_set_irq_quiet(pio_dma_channel_config_t *c, bool irq_quiet);
-void channel_config_set_high_priority(pio_dma_channel_config_t *c, bool high_priority);
-void channel_config_set_sniff_enable(pio_dma_channel_config_t *c, bool sniff_enable);
+void channel_config_set_ring(dma_channel_config *c, bool write, uint8_t size_bits);
+void channel_config_set_bswap(dma_channel_config *c, bool bswap);
+void channel_config_set_irq_quiet(dma_channel_config *c, bool irq_quiet);
+void channel_config_set_high_priority(dma_channel_config *c, bool high_priority);
+void channel_config_set_sniff_enable(dma_channel_config *c, bool sniff_enable);
 
 /* ── Controller ────────────────────────────────────────────────────────────── */
 
@@ -116,7 +116,7 @@ struct pio_dma;
 typedef void (*pio_dma_callback_t)(struct pio_dma *d, uint8_t ch, void *ctx);
 
 typedef struct {
-    pio_dma_channel_config_t ctrl;
+    dma_channel_config ctrl;
     pio_dma_addr_t read_addr;
     pio_dma_addr_t write_addr;
     uint32_t trans_count;        /* transfers remaining in this run       */
@@ -176,11 +176,11 @@ void pio_dma_init(pio_dma_t *d, pio_sim_t *const *pios, uint8_t pio_count);
 /** The pico-sdk-shaped default config (returned by value, like
  * dma_channel_get_default_config): 32-bit, increment read, don't increment
  * write, no ring, chain to `ch` itself (none), TREQ_FORCE, normal priority. */
-pio_dma_channel_config_t pio_dma_channel_get_default_config(uint8_t ch);
+dma_channel_config pio_dma_channel_get_default_config(uint8_t ch);
 
 /** Program a channel and optionally trigger it (SDK dma_channel_configure,
  * with the controller passed explicitly). Enables the channel. */
-void pio_dma_channel_configure(pio_dma_t *d, uint8_t ch, const pio_dma_channel_config_t *c,
+void pio_dma_channel_configure(pio_dma_t *d, uint8_t ch, const dma_channel_config *c,
                                pio_dma_addr_t write_addr, pio_dma_addr_t read_addr,
                                uint32_t trans_count, bool trigger);
 
@@ -191,11 +191,14 @@ void pio_dma_channel_set_enabled(pio_dma_t *d, uint8_t ch, bool en);
  * A reload count of 0 is a NULL trigger (does not start; in IRQ_QUIET raises
  * the completion IRQ — the control-block chain termination idiom). Addresses
  * are NOT reset. */
-void pio_dma_channel_start_mask(pio_dma_t *d, uint32_t mask);
+void pio_dma_start_channel_mask(pio_dma_t *d, uint32_t mask);
 
 /** CHAN_ABORT: stop the channels in `mask` dead. Immediate (transfers are
  * per-tick atomic); no completion IRQ is raised. */
-void pio_dma_channel_abort(pio_dma_t *d, uint32_t mask);
+void pio_dma_channel_abort_mask(pio_dma_t *d, uint32_t mask);
+
+/** Abort a single channel `ch` (SDK dma_channel_abort). */
+void pio_dma_channel_abort(pio_dma_t *d, uint8_t ch);
 
 /** True while the channel is transferring (CTRL.BUSY). */
 bool pio_dma_channel_is_busy(const pio_dma_t *d, uint8_t ch);

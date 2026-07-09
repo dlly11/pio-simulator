@@ -42,3 +42,18 @@ uint64_t pio_chip_ticks_to_ns(const pio_chip_t *c, uint64_t ticks)
 {
     return pio_clk_ticks_to_ns(&c->clk, ticks);
 }
+
+uint64_t pio_chip_ticks_to_us(const pio_chip_t *c, uint64_t ticks)
+{
+    return pio_clk_ticks_to_us(&c->clk, ticks);
+}
+
+uint64_t pio_chip_ns_to_ticks(const pio_chip_t *c, uint64_t ns)
+{
+    return pio_clk_ns_to_ticks(&c->clk, ns);
+}
+
+uint64_t pio_chip_us_to_ticks(const pio_chip_t *c, uint64_t us)
+{
+    return pio_clk_us_to_ticks(&c->clk, us);
+}

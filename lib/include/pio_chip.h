@@ -41,7 +41,11 @@ void pio_chip_run(pio_chip_t *c, uint64_t n);
  * (you configure and drive it). */
 pio_sim_t *pio_chip_pio(pio_chip_t *c, uint8_t index);
 
-/** Wall-clock duration of `ticks` chip cycles under the configured tree. */
+/** Wall-clock duration of `ticks` chip cycles under the configured tree, and the
+ * inverse conversions — thin wrappers over the embedded pio_clk tree. */
 uint64_t pio_chip_ticks_to_ns(const pio_chip_t *c, uint64_t ticks);
+uint64_t pio_chip_ticks_to_us(const pio_chip_t *c, uint64_t ticks);
+uint64_t pio_chip_ns_to_ticks(const pio_chip_t *c, uint64_t ns);
+uint64_t pio_chip_us_to_ticks(const pio_chip_t *c, uint64_t us);
 
 #endif /* PIO_CHIP_H */

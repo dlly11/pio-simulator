@@ -154,7 +154,7 @@ typedef struct {
     uint16_t exec_insn; /* the injected instruction                  */
 
     /* Sticky FIFO-debug flags (FDEBUG): set on the corresponding event, cleared
-     * by the host. See PIO_FDEBUG_* and pio_sim_get_fdebug/clear_fdebug. */
+     * by the host. See PIO_FDEBUG_* and pio_sim_sm_get_fdebug/clear_fdebug. */
     uint8_t fdebug;
 
     pio_fifo_t tx;
@@ -315,10 +315,14 @@ bool pio_sim_sm_is_enabled(const pio_sim_t *pio, uint8_t sm);
  * empty/full FIFO, or a stalled instruction injected via pio_sim_sm_exec / OUT-EXEC. */
 bool pio_sim_sm_is_stalled(const pio_sim_t *pio, uint8_t sm);
 
-/** Enable/disable the state machines selected in `sm_mask` atomically. When
- * enabling, their clock dividers are restarted in phase (as the SDK's
- * pio_enable_sm_mask_in_sync does) so equal-divider SMs run in lockstep. */
+/** Set the enabled/disabled state of the state machines in `sm_mask` (SDK
+ * pio_set_sm_mask_enabled). Does not touch the clock dividers — use
+ * pio_sim_enable_sm_mask_in_sync when phase alignment is required. */
 void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled);
+
+/** Enable the state machines in `sm_mask` and restart their clock dividers in
+ * phase (SDK pio_enable_sm_mask_in_sync) so equal-divider SMs run in lockstep. */
+void pio_sim_enable_sm_mask_in_sync(pio_sim_t *pio, uint8_t sm_mask);
 
 /* ── Configuration ────────────────────────────────────────────────────────────
  * The SDK config-struct pattern: build a pio_sm_config with
@@ -383,8 +387,12 @@ typedef enum {
 
 /** Pin MOV STATUS to a fixed value (sim extension, no SDK analogue: a test
  * override bypassing the FIFO/IRQ derivation). Runtime — not part of the
- * config struct. */
+ * config struct. Clear the override with pio_sim_sm_clear_status_value. */
 void pio_sim_sm_set_status_value(pio_sim_t *pio, uint8_t sm, uint32_t value);
+
+/** Remove the MOV STATUS override set by pio_sim_sm_set_status_value, restoring
+ * the normal FIFO/IRQ-derived status (sim extension). */
+void pio_sim_sm_clear_status_value(pio_sim_t *pio, uint8_t sm);
 
 /* FIFO join: 0 = none (4+4), 1 = join TX (8 TX, 0 RX), 2 = join RX (8 RX, 0 TX).
  * RP2350 adds the random-access RX modes (4-entry register file addressed by
@@ -547,7 +555,7 @@ bool pio_sim_sm_is_rx_fifo_empty(const pio_sim_t *pio, uint8_t sm);
 
 /** Put a word into the TX FIFO (SDK pio_sm_put). Sim extension: returns false
  * instead of blocking when full, and — like the hardware — sets the TXOVER
- * FDEBUG flag on a full-FIFO write (observable via pio_sim_get_fdebug). */
+ * FDEBUG flag on a full-FIFO write (observable via pio_sim_sm_get_fdebug). */
 bool pio_sim_sm_put(pio_sim_t *pio, uint8_t sm, uint32_t word);
 
 /** Get a word from the RX FIFO (SDK pio_sm_get). Sim extension: returns false
@@ -561,12 +569,12 @@ void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm);
 #if PIO_SIM_HAS_RXFIFO_MOV
 /* RP2350 direct-mapped RX register file (FJOIN_RX_PUT / RX_GET): the four RX
  * entries are addressed by index (0..3), not popped as a FIFO. In PUT mode the SM
- * writes via `mov rxfifo[], isr` and the host reads with pio_sim_rxfifo_get; in
- * GET mode the host writes with pio_sim_rxfifo_put and the SM reads via
+ * writes via `mov rxfifo[], isr` and the host reads with pio_sim_sm_rxfifo_get; in
+ * GET mode the host writes with pio_sim_sm_rxfifo_put and the SM reads via
  * `mov osr, rxfifo[]`. These — not pio_sim_sm_get/put — are the host access
  * path for those modes. `index` is masked to the 4-entry file (index & 3). */
-uint32_t pio_sim_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index);
-void pio_sim_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word);
+uint32_t pio_sim_sm_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index);
+void pio_sim_sm_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word);
 #endif
 
 /* Current FIFO occupancy (SDK pio_sm_get_*_fifo_level), 0..cap. */
@@ -580,9 +588,9 @@ uint8_t pio_sim_sm_get_rx_fifo_level(const pio_sim_t *pio, uint8_t sm);
 #define PIO_FDEBUG_RXSTALL 0x8U /* SM stalled pushing to a full RX FIFO        */
 
 /** Read the packed FDEBUG flags for `sm`. */
-uint8_t pio_sim_get_fdebug(const pio_sim_t *pio, uint8_t sm);
+uint8_t pio_sim_sm_get_fdebug(const pio_sim_t *pio, uint8_t sm);
 /** Clear the FDEBUG flags selected by `mask` for `sm`. */
-void pio_sim_clear_fdebug(pio_sim_t *pio, uint8_t sm, uint8_t mask);
+void pio_sim_sm_clear_fdebug(pio_sim_t *pio, uint8_t sm, uint8_t mask);
 
 /* ── Pin access (external device / test harness) ───────────────────────────── */
 
@@ -615,7 +623,7 @@ void pio_sim_irq_clear(pio_sim_t *pio, uint8_t irq);
 #define PIO_INTR_SM_IRQ(i) ((uint32_t)1U << (8U + (i)))       /* bits 8..11 (v0) / 8..15 (v1) */
 
 /** Raw interrupt source word (INTR), independent of the enable/force masks. */
-uint32_t pio_sim_get_irq_raw(const pio_sim_t *pio);
+uint32_t pio_sim_get_intr(const pio_sim_t *pio);
 /** Enable/disable the sources in `source_mask` on system line `line` (INTE),
  * toggling with `enabled` — matching the SDK's pio_set_irqn_source_mask_enabled
  * rather than replacing the whole register. */
@@ -624,16 +632,16 @@ void pio_sim_set_irqn_source_mask_enabled(pio_sim_t *pio, uint8_t line, uint32_t
 /** Enable/disable a single source bit on `line` (SDK pio_set_irqn_source_enabled). */
 void pio_sim_set_irqn_source_enabled(pio_sim_t *pio, uint8_t line, uint32_t source, bool enabled);
 /** Read back the enable mask (INTE) for system line `line` (0 or 1). */
-uint32_t pio_sim_get_irq_enable(const pio_sim_t *pio, uint8_t line);
+uint32_t pio_sim_get_inte(const pio_sim_t *pio, uint8_t line);
 /** Force the sources in `mask` on line `line` (INTF), toggling with `on`. Sim
  * extension: the SDK exposes no PIO IRQ-force helper. */
-void pio_sim_set_irq_force(pio_sim_t *pio, uint8_t line, uint32_t mask, bool on);
+void pio_sim_set_intf(pio_sim_t *pio, uint8_t line, uint32_t mask, bool on);
 /** Read back the force mask (INTF) for system line `line` (0 or 1). */
-uint32_t pio_sim_get_irq_force(const pio_sim_t *pio, uint8_t line);
+uint32_t pio_sim_get_intf(const pio_sim_t *pio, uint8_t line);
 /** Masked interrupt status (INTS) for `line`: (INTR & INTE) | INTF. */
 uint32_t pio_sim_get_ints(const pio_sim_t *pio, uint8_t line);
 /** Whether system interrupt line `line` is currently asserted (INTS != 0). */
-bool pio_sim_interrupt_line(const pio_sim_t *pio, uint8_t line);
+bool pio_sim_get_irqn_asserted(const pio_sim_t *pio, uint8_t line);
 
 /* ── Stepping ──────────────────────────────────────────────────────────────── */
 
@@ -699,7 +707,7 @@ void pio_sim_group_run(pio_sim_group_t *g, uint64_t n);
 
 /** Enable state machines across every block in the group in one synchronised step:
  * `masks[i]` selects the SMs to enable on block `i`, and their clock dividers are
- * phase-aligned (as pio_sim_set_sm_mask_enabled does per block). Because the group
+ * phase-aligned (as pio_sim_enable_sm_mask_in_sync does per block). Because the group
  * ticks all blocks in lockstep, SMs started this way run cycle-aligned across PIO
  * blocks — the multi-PIO analogue of an in-block synchronised start. */
 void pio_sim_group_enable_sm_mask_sync(pio_sim_group_t *g, const uint8_t *masks);

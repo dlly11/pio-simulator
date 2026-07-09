@@ -109,18 +109,19 @@ against the same feature surface the library was built with.
   blocks at one shared pad set so they drive and sample the same GPIOs. (Link two
   blocks directly with `pio_sim_set_irq_neighbors` for the IRQ ring alone.)
 - **FIFO status** — `pio_sim_sm_get_tx_fifo_level`/`get_rx_fifo_level` report
-  occupancy (FSTAT) and `pio_sim_get_fdebug`/`clear_fdebug` expose the sticky
+  occupancy (FSTAT) and `pio_sim_sm_get_fdebug`/`clear_fdebug` expose the sticky
   TXSTALL/TXOVER/RXUNDER/RXSTALL debug flags. Host access is
   `pio_sim_sm_put`/`get` (SDK names); in the RP2350 random-access RX modes
   (`.fifo txput`/`txget`) the four entries are reached by index with
-  `pio_sim_rxfifo_get`/`_put` instead.
+  `pio_sim_sm_rxfifo_get`/`_put` instead.
 - **System interrupts** — the two PIO interrupt lines are modelled:
-  `pio_sim_set_irqn_source_mask_enabled`/`pio_sim_set_irq_force` (INTE/INTF, toggle-with-
+  `pio_sim_set_irqn_source_mask_enabled`/`pio_sim_set_intf` (INTE/INTF, toggle-with-
   bool like the SDK) over the INTR sources (per-SM RX-not-empty, TX-not-full,
   and the SM IRQ flags), read back with `pio_sim_get_ints` /
-  `pio_sim_interrupt_line`.
-- **Synchronised start** — `pio_sim_set_sm_mask_enabled` enables several SMs at
-  once and phase-aligns their dividers (like `pio_enable_sm_mask_in_sync`).
+  `pio_sim_get_irqn_asserted`.
+- **Synchronised start** — `pio_sim_enable_sm_mask_in_sync` enables several SMs
+  at once and phase-aligns their dividers (the SDK's `pio_enable_sm_mask_in_sync`);
+  `pio_sim_set_sm_mask_enabled` is the plain set/clear that leaves dividers alone.
 - **DMA** — a full controller model in `pio_dma.h`: build a channel with the
   SDK-shaped `channel_config_set_*` mutators, program it with
   `pio_dma_channel_configure`, and advance it with `pio_dma_tick` (one transfer

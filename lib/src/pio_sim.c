@@ -250,9 +250,12 @@ void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled)
             pio->sm[i].enabled = enabled;
         }
     }
-    if (enabled) {
-        pio_sim_clkdiv_restart_sm_mask(pio, sm_mask); /* phase-align the started SMs */
-    }
+}
+
+void pio_sim_enable_sm_mask_in_sync(pio_sim_t *pio, uint8_t sm_mask)
+{
+    pio_sim_set_sm_mask_enabled(pio, sm_mask, true);
+    pio_sim_clkdiv_restart_sm_mask(pio, sm_mask); /* phase-align the started SMs */
 }
 
 /* ── Configuration ─────────────────────────────────────────────────────────── */
@@ -423,6 +426,11 @@ void pio_sim_sm_set_status_value(pio_sim_t *pio, uint8_t sm, uint32_t value)
 {
     pio->sm[SM_IDX(sm)].status_value = value;
     pio->sm[SM_IDX(sm)].status_override = true;
+}
+
+void pio_sim_sm_clear_status_value(pio_sim_t *pio, uint8_t sm)
+{
+    pio->sm[SM_IDX(sm)].status_override = false;
 }
 
 /* Apply a FIFO-join mode to an SM: reshape the TX/RX capacities and clear both
@@ -630,12 +638,12 @@ void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm)
 }
 
 #if PIO_SIM_HAS_RXFIFO_MOV
-uint32_t pio_sim_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index)
+uint32_t pio_sim_sm_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index)
 {
     return pio->sm[SM_IDX(sm)].rx.buf[index & 0x3U];
 }
 
-void pio_sim_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word)
+void pio_sim_sm_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word)
 {
     pio->sm[SM_IDX(sm)].rx.buf[index & 0x3U] = word;
 }
@@ -650,9 +658,12 @@ uint8_t pio_sim_sm_get_rx_fifo_level(const pio_sim_t *pio, uint8_t sm)
     return pio->sm[SM_IDX(sm)].rx.count;
 }
 
-uint8_t pio_sim_get_fdebug(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].fdebug; }
+uint8_t pio_sim_sm_get_fdebug(const pio_sim_t *pio, uint8_t sm)
+{
+    return pio->sm[SM_IDX(sm)].fdebug;
+}
 
-void pio_sim_clear_fdebug(pio_sim_t *pio, uint8_t sm, uint8_t mask)
+void pio_sim_sm_clear_fdebug(pio_sim_t *pio, uint8_t sm, uint8_t mask)
 {
     pio->sm[SM_IDX(sm)].fdebug &= (uint8_t)~mask;
 }
@@ -778,7 +789,7 @@ void pio_sim_irq_clear(pio_sim_t *pio, uint8_t irq)
 
 /* ── System interrupt lines ────────────────────────────────────────────────── */
 
-uint32_t pio_sim_get_irq_raw(const pio_sim_t *pio)
+uint32_t pio_sim_get_intr(const pio_sim_t *pio)
 {
     uint32_t intr = 0;
     for (uint8_t sm = 0; sm < PIO_SIM_NUM_SM; sm++) {
@@ -817,12 +828,9 @@ void pio_sim_set_irqn_source_enabled(pio_sim_t *pio, uint8_t line, uint32_t sour
     pio_sim_set_irqn_source_mask_enabled(pio, line, source, enabled);
 }
 
-uint32_t pio_sim_get_irq_enable(const pio_sim_t *pio, uint8_t line)
-{
-    return pio->irq_inte[line & 1U];
-}
+uint32_t pio_sim_get_inte(const pio_sim_t *pio, uint8_t line) { return pio->irq_inte[line & 1U]; }
 
-void pio_sim_set_irq_force(pio_sim_t *pio, uint8_t line, uint32_t mask, bool on)
+void pio_sim_set_intf(pio_sim_t *pio, uint8_t line, uint32_t mask, bool on)
 {
     if (on) {
         pio->irq_intf[line & 1U] |= mask;
@@ -831,18 +839,15 @@ void pio_sim_set_irq_force(pio_sim_t *pio, uint8_t line, uint32_t mask, bool on)
     }
 }
 
-uint32_t pio_sim_get_irq_force(const pio_sim_t *pio, uint8_t line)
-{
-    return pio->irq_intf[line & 1U];
-}
+uint32_t pio_sim_get_intf(const pio_sim_t *pio, uint8_t line) { return pio->irq_intf[line & 1U]; }
 
 uint32_t pio_sim_get_ints(const pio_sim_t *pio, uint8_t line)
 {
     uint8_t l = (uint8_t)(line & 1U);
-    return (pio_sim_get_irq_raw(pio) & pio->irq_inte[l]) | pio->irq_intf[l];
+    return (pio_sim_get_intr(pio) & pio->irq_inte[l]) | pio->irq_intf[l];
 }
 
-bool pio_sim_interrupt_line(const pio_sim_t *pio, uint8_t line)
+bool pio_sim_get_irqn_asserted(const pio_sim_t *pio, uint8_t line)
 {
     return pio_sim_get_ints(pio, line) != 0U;
 }
@@ -1659,9 +1664,9 @@ uint64_t pio_sim_run_until_tx_drained(pio_sim_t *pio, uint8_t sm, uint64_t max_t
      * sets again — the SM stalling on an empty TX means the FIFO is empty AND
      * the OSR's last word has been fully consumed. Requires the program to
      * keep OUTing/PULLing (as streaming programs do); bounded by max_ticks. */
-    pio_sim_clear_fdebug(pio, sm, PIO_FDEBUG_TXSTALL);
+    pio_sim_sm_clear_fdebug(pio, sm, PIO_FDEBUG_TXSTALL);
     uint64_t t = 0;
-    while ((t < max_ticks) && ((pio_sim_get_fdebug(pio, sm) & PIO_FDEBUG_TXSTALL) == 0U)) {
+    while ((t < max_ticks) && ((pio_sim_sm_get_fdebug(pio, sm) & PIO_FDEBUG_TXSTALL) == 0U)) {
         pio_sim_tick(pio);
         t++;
     }
@@ -1740,7 +1745,7 @@ void pio_sim_group_run(pio_sim_group_t *g, uint64_t n)
 void pio_sim_group_enable_sm_mask_sync(pio_sim_group_t *g, const uint8_t *masks)
 {
     for (uint8_t i = 0; i < g->count; i++) {
-        pio_sim_set_sm_mask_enabled(g->blk[i], masks[i], true);
+        pio_sim_enable_sm_mask_in_sync(g->blk[i], masks[i]);
     }
 }
 
