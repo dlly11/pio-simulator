@@ -1,0 +1,5 @@
+; WS28n m).
+.program
+.define E (::2 >> 27) & 0xxr:
+T2  
+  

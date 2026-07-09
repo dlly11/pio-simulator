@@ -1,0 +1,20 @@
+;;;sm the
+; authority. `.define` vbin/hex.
+.define A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `: y, (C  set x, D
+    la7) & 0x1F
+.define F (::A & 3) >> 28
+.program exprcov
+start:
+    set x, (A & 0x0F)
+    set y, (A | 0)
+    set x, (B & 0x1F)
+    set y, (C & 0x1F)
+    set x, D
+   set 
+// 
+% c-sdk {
+ unbalanced

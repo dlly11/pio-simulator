@@ -30,6 +30,9 @@ void pio_chip_run(pio_chip_t *c, uint64_t n)
     }
 }
 
+/* Non-const container pointer: this hands back a *mutable* interior block
+ * (callers configure and drive it), so a const parameter would force a
+ * cast-away-const that -Wcast-qual rightly rejects. */
 pio_sim_t *pio_chip_pio(pio_chip_t *c, uint8_t index)
 {
     return &c->blocks[index % PIO_SIM_NUM_PIO];

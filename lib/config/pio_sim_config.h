@@ -64,8 +64,19 @@
 #define PIO_SIM_DMA_NUM_CHANNELS 12U
 #define PIO_SIM_DMA_NUM_IRQS 2U
 #endif
+#define PIO_SIM_DMA_NUM_TIMERS 4U /* four fractional pacing timers on both parts */
 
-/* PLL_SYS parameter limits (used by the pio_clock module): the VCO floor is
+/* clk_sys fractional divider width: RP2040 CLK_SYS_DIV is 24.8, RP2350 is 16.16
+ * (RP2040 datasheet §2.15.7 / RP2350 §8.1.6). */
+#if PIO_SIM_PIO_VERSION >= 1
+#define PIO_SIM_CLK_SYS_DIV_FRAC_BITS 16U
+#define PIO_SIM_CLK_SYS_DIV_INT_MAX 0xFFFFU
+#else
+#define PIO_SIM_CLK_SYS_DIV_FRAC_BITS 8U
+#define PIO_SIM_CLK_SYS_DIV_INT_MAX 0xFFFFFFU
+#endif
+
+/* PLL_SYS parameter limits (used by the pio_clk module): the VCO floor is
  * 750 MHz on RP2040 and 400 MHz on RP2350; both cap at 1600 MHz. */
 #if PIO_SIM_PIO_VERSION >= 1
 #define PIO_SIM_PLL_VCO_MIN_HZ 400000000ULL

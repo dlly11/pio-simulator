@@ -1,0 +1,9 @@
+; WS2813 (NeoPixel) ram).
+.program ws2812
+.sideA _set 1
+
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+ out x, 0       side 0 [T3 - 1] ;-set holds nch 

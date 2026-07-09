@@ -8,27 +8,39 @@
 
 static pio_sim_t pio;
 
-void setUp(void) { pio_sim_init(&pio); }
+static pio_sm_config cfg;
+
+void setUp(void)
+{
+    pio_sim_init(&pio);
+    cfg = pio_get_default_sm_config();
+}
 void tearDown(void) { (void)0; }
 
-/* Load a program at offset 0, set wrap to span it, enable SM0. */
+/* Load a program at offset 0, apply cfg (spanning wrap unless already set),
+ * init + enable SM0. */
 static void load_prog(const uint16_t *prog, uint8_t n)
 {
     pio_sim_load(&pio, 0, prog, n);
-    pio_sim_sm_set_wrap(&pio, 0, 0, (uint8_t)(n - 1U));
+    if ((cfg.wrap_bottom == 0U) && (cfg.wrap_top == PIO_SIM_INSN_COUNT - 1U)) {
+        sm_config_set_wrap(&cfg, 0, (uint8_t)(n - 1U));
+    }
+    pio_sim_sm_init(&pio, 0, 0, &cfg);
     pio_sim_sm_set_enabled(&pio, 0, true);
 }
 
 /* SM0 drives GPIO `pin` high forever. */
 static void drive_pin_high(pio_sim_t *p, uint8_t pin)
 {
-    pio_sim_sm_set_set_pins(p, 0, pin, 1);
-    pio_sim_sm_set_pindirs(p, 0, pin, 1, true);
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_set_pins(&c, pin, 1);
+    sm_config_set_wrap(&c, 0, 1);
     static uint16_t prog[2];
     prog[0] = pio_sim_encode_set(PIO_DST_PINS, 1);
     prog[1] = pio_sim_encode_jmp(PIO_COND_ALWAYS, 1);
     pio_sim_load(p, 0, prog, 2);
-    pio_sim_sm_set_wrap(p, 0, 0, 1);
+    pio_sim_sm_init(p, 0, 0, &c);
+    pio_sim_sm_set_consecutive_pindirs(p, 0, pin, 1, true);
     pio_sim_sm_set_enabled(p, 0, true);
 }
 
@@ -38,7 +50,7 @@ static void test_ie_zero_sm_reads_zero_but_host_sees_wire(void)
 {
     pio_sim_set_pin(&pio, 4, true); /* external drive high */
     pio_sim_pad_set_input_enable(&pio, 4, false);
-    pio_sim_sm_set_in_base(&pio, 0, 4);
+    sm_config_set_in_pins(&cfg, 4);
     const uint16_t prog[] = {pio_sim_encode_mov(PIO_DST_X, PIO_MOV_NONE, PIO_SRC_PINS),
                              pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
     load_prog(prog, 2);
@@ -172,15 +184,26 @@ static void test_funcsel_selects_between_shared_blocks(void)
 
     /* a (slot 0 = PIO0) drives high; b (slot 1 = PIO1) drives low. Both use
      * OUT_STICKY so they re-assert every cycle and keep competing. */
-    drive_pin_high(&a, 0);
-    pio_sim_sm_set_out_special(&a, 0, true, false, 0);
-    pio_sim_sm_set_set_pins(&b, 0, 0, 1);
-    pio_sim_sm_set_pindirs(&b, 0, 0, 1, true);
+    pio_sm_config ca = pio_get_default_sm_config();
+    sm_config_set_set_pins(&ca, 0, 1);
+    sm_config_set_wrap(&ca, 0, 1);
+    sm_config_set_out_special(&ca, true, false, 0);
+    const uint16_t aprog[] = {pio_sim_encode_set(PIO_DST_PINS, 1),
+                              pio_sim_encode_jmp(PIO_COND_ALWAYS, 1)};
+    pio_sim_load(&a, 0, aprog, 2);
+    pio_sim_sm_init(&a, 0, 0, &ca);
+    pio_sim_sm_set_consecutive_pindirs(&a, 0, 0, 1, true);
+    pio_sim_sm_set_enabled(&a, 0, true);
+
+    pio_sm_config cb = pio_get_default_sm_config();
+    sm_config_set_set_pins(&cb, 0, 1);
+    sm_config_set_wrap(&cb, 0, 1);
+    sm_config_set_out_special(&cb, true, false, 0);
     const uint16_t bprog[] = {pio_sim_encode_set(PIO_DST_PINS, 0),
                               pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
     pio_sim_load(&b, 0, bprog, 2);
-    pio_sim_sm_set_wrap(&b, 0, 0, 1);
-    pio_sim_sm_set_out_special(&b, 0, true, false, 0);
+    pio_sim_sm_init(&b, 0, 0, &cb);
+    pio_sim_sm_set_consecutive_pindirs(&b, 0, 0, 1, true);
     pio_sim_sm_set_enabled(&b, 0, true);
 
     pio_sim_gpio_set_function(&a, 0, PIO_GPIO_FUNC_PIO0); /* route to a */
@@ -198,7 +221,7 @@ static void test_input_visible_when_funcsel_is_sio(void)
     /* WAIT PIN completes even though the pin's output routing is SIO: PIO
      * inputs always see the pad. */
     pio_sim_gpio_set_function(&pio, 5, PIO_GPIO_FUNC_SIO);
-    pio_sim_sm_set_in_base(&pio, 0, 5);
+    sm_config_set_in_pins(&cfg, 5);
     const uint16_t prog[] = {pio_sim_encode_wait(1, PIO_WAIT_PIN, 0),
                              pio_sim_encode_set(PIO_DST_X, 1)};
     load_prog(prog, 2);
@@ -256,7 +279,7 @@ static void test_inover_inverts_through_sync_and_bypass(void)
 {
     /* INOVER=INVERT: an undriven (low) pin reads 1 to the PIO. */
     pio_sim_gpio_set_inover(&pio, 12, PIO_GPIO_OVERRIDE_INVERT);
-    pio_sim_sm_set_in_base(&pio, 0, 12);
+    sm_config_set_in_pins(&cfg, 12);
     const uint16_t prog[] = {pio_sim_encode_mov(PIO_DST_X, PIO_MOV_NONE, PIO_SRC_PINS),
                              pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
     load_prog(prog, 2);

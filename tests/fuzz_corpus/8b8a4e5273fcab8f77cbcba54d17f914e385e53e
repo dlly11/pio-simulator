@@ -1,0 +1,41 @@
+;;;d
+art:
+    session/hex.
+.define A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+;fine D 1 + 2 & 3
+; .
+.define A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `::`,  set y, En/hex.
+.define A 0b1010
+.stop the et x, (A &àÏ‡ÅF2
+    set y, 1 << 2)
+    jmp x!=y, (sta2t +0 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `::`, (Bne D 1 + 2 & 3
+; .
+.define A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `::`,  set y, En/hex.
+.define A 0b1010
+.stop the et x, (A &àÏ‡ÅF2
+    set y, 1 << 2)
+    jmp x!=y, (sta2t +0 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `::`, (B &)
+    set x, Dssi &)
+    set x, Dssion/hex.
+.define A 0b1010
+.define B (A +1)
+    jmp start

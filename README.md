@@ -19,7 +19,7 @@ Pico SDK, no RTOS.
   cover the chip around the block: `pio_gpio` (PADS_BANK0 pad registers and the
   IO_BANK0 FUNCSEL mux with output/input overrides), `pio_dma` (the full 12/16-
   channel DMA controller with chaining, IRQs, pacing timers and the CRC
-  sniffer), `pio_clock` (XOSC→PLL→clk_sys tree with tick↔time conversion), and
+  sniffer), `pio_clk` (XOSC→PLL→clk_sys tree with tick↔time conversion), and
   `pio_chip` (all blocks + shared pads + DMA + clock behind one tick call) — see
   Scope below.
 - **`pio_asm`** — a pioasm-compatible assembler: all mnemonics and operand forms
@@ -37,7 +37,8 @@ MIT-licensed.
 ## Layout
 
 ```
-lib/include/   public headers (pio_sim.h, pio_asm.h)
+lib/include/   public headers (pio_sim.h, pio_asm.h, pio_gpio.h, pio_dma.h,
+               pio_clk.h, pio_chip.h; pio.h includes them all)
 lib/src/       implementation (and any private headers)
 lib/config/    library configuration header (pio_sim_config.h: target-chip select)
 third_party/   Unity test framework (git submodule)
@@ -88,8 +89,8 @@ against the same feature surface the library was built with.
   `SET/OUT PINS` to a pin left as input has no pad effect). A pin with no PIO
   output, no external driver, and no pull is **high-impedance** and reads 0
   (true tri-state, not its last driven value).
-- **Output controls** — `pio_sim_sm_set_out_special` mirrors the SDK's
-  `sm_config_set_out_special`: `OUT_STICKY` plus inline OUT-enable use a chosen
+- **Output controls** — `sm_config_set_out_special` (the SDK name):
+  `OUT_STICKY` plus inline OUT-enable use a chosen
   OUT-data bit to gate the pin write — and under sticky, an enable of 0 *releases*
   the pins (clears the SM's output enable) so a lower-priority SM, an external
   level, or a pull shows through (the documented override pattern).
@@ -105,24 +106,26 @@ against the same feature surface the library was built with.
   (PIO0→PIO1→PIO2→PIO0). `pio_sim_group_init_shared` additionally points the
   blocks at one shared pad set so they drive and sample the same GPIOs. (Link two
   blocks directly with `pio_sim_set_irq_neighbors` for the IRQ ring alone.)
-- **FIFO status** — `pio_sim_tx_level`/`rx_level` report occupancy (FSTAT) and
-  `pio_sim_get_fdebug`/`clear_fdebug` expose the sticky TXSTALL/TXOVER/RXUNDER/
-  RXSTALL debug flags. In the RP2350 random-access RX modes (`.fifo txput`/`txget`)
-  the four entries are reached by index with `pio_sim_rxfifo_get`/`_put`, not the
-  FIFO pop/push.
+- **FIFO status** — `pio_sim_sm_get_tx_fifo_level`/`get_rx_fifo_level` report
+  occupancy (FSTAT) and `pio_sim_get_fdebug`/`clear_fdebug` expose the sticky
+  TXSTALL/TXOVER/RXUNDER/RXSTALL debug flags. Host access is
+  `pio_sim_sm_put`/`get` (SDK names); in the RP2350 random-access RX modes
+  (`.fifo txput`/`txget`) the four entries are reached by index with
+  `pio_sim_rxfifo_get`/`_put` instead.
 - **System interrupts** — the two PIO interrupt lines are modelled:
-  `pio_sim_set_irq_enable`/`set_irq_force` (INTE/INTF) over the INTR sources
-  (per-SM RX-not-empty, TX-not-full, and the low four SM IRQ flags), read back
-  with `pio_sim_get_ints` / `pio_sim_interrupt_line`.
+  `pio_sim_set_irqn_source_mask_enabled`/`set_irq_force` (INTE/INTF, toggle-with-
+  bool like the SDK) over the INTR sources (per-SM RX-not-empty, TX-not-full,
+  and the SM IRQ flags), read back with `pio_sim_get_ints` /
+  `pio_sim_interrupt_line`.
 - **Synchronised start** — `pio_sim_set_sm_mask_enabled` enables several SMs at
   once and phase-aligns their dividers (like `pio_enable_sm_mask_in_sync`).
-- **DMA pacing** — `pio_sim_dma_t` models a DMA channel servicing a FIFO, paced
-  by the PIO's DREQ (`pio_sim_dreq_tx`/`_rx`). `pio_sim_dma_init` is the simple
-  word-at-a-time form; `pio_sim_dma_init_ex` adds 8/16/32-bit transfer sizes,
-  fixed-address mode, an element ring, and chaining to a next channel.
-  `pio_sim_dma_step`/`step_many` move one element when the DREQ is asserted, and
-  `pio_sim_dma_run` ticks the PIO and services the channel (and its chain) until
-  done.
+- **DMA** — a full controller model in `pio_dma.h`: build a channel with the
+  SDK-shaped `channel_config_set_*` mutators, program it with
+  `pio_dma_channel_configure`, and advance it with `pio_dma_tick` (one transfer
+  per system tick). Endpoints are host memory or a PIO FIFO
+  (`pio_dma_addr_mem`/`_txf`/`_rxf`); DREQ pacing follows `pio_sim_dreq_tx`/`_rx`.
+  It covers chaining, null triggers, the `dma_irqn_*` completion IRQs, the CRC
+  sniffer, and fractional pacing timers — see the [Scope](#scope) section.
 
 The in-tree assembler also tracks the program-config directives in
 `pio_program_t`. `pio_asm_apply_program_config` applies the ones that map to SM
@@ -139,7 +142,7 @@ and the per-SM clock divider is rate-exact (the 16.8 fractional accumulator
 averages to `int + frac/256` cycles per SM step). The chip-level surroundings of
 the PIO block are modelled too:
 
-- **Clock tree** (`pio_clock.h`): XOSC → PLL_SYS → clk_sys divider with
+- **Clock tree** (`pio_clk.h`): XOSC → PLL_SYS → clk_sys divider with
   datasheet-validated parameters and exact integer tick↔ns/µs conversion. It
   does not change stepping — a tick is still one clk_sys cycle; the tree gives
   it a duration.
@@ -188,10 +191,12 @@ ctest --test-dir build --output-on-failure
 No CMake handy? The library is dependency-free, so a bare compiler run works too:
 
 ```sh
-gcc -std=c11 -Wall -Wextra -I lib/include -I lib/config -I third_party/unity/src \
-    lib/src/pio_sim.c lib/src/pio_dma.c lib/src/pio_asm.c \
-    tests/test_pio_sim.c third_party/unity/src/unity.c -o test_sim && ./test_sim
+gcc -std=c11 -Wall -Wextra -I lib/include -I lib/config -I lib/src -I third_party/unity/src \
+    -I tests -DUNITY_INCLUDE_CONFIG_H \
+    lib/src/*.c tests/test_pio_sim.c third_party/unity/src/unity.c -o test_sim && ./test_sim
 ```
+
+(`-I lib/src` is needed — the sources share a private `pio_sim_internal.h`.)
 
 CI builds gcc + clang across both platforms (`-DPIO_SIM_PLATFORM=RP2040|RP2350`),
 runs the suites under ASan/UBSan, lints with clang-tidy/clang-format, and
@@ -208,7 +213,7 @@ clang-format --dry-run --Werror lib/src/*.c lib/include/*.h tests/test_*.c
 
 # static analysis: needs a compile database for the include paths / feature defines
 cmake -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-clang-tidy -p build lib/src/pio_sim.c lib/src/pio_dma.c lib/src/pio_asm.c
+clang-tidy -p build lib/src/*.c
 ```
 
 ## Embedding
@@ -248,16 +253,21 @@ pio_sim_init(&pio);
 
 pio_program_t prog;
 pio_asm_assemble(".program blink\n set pins, 1 [1]\n set pins, 0 [1]\n", NULL, &prog);
-pio_asm_load_program(&pio, /*sm=*/0, /*offset=*/0, &prog);
-/* Loading only writes the instruction words. Directives that map to SM config
- * (.clock_div, .fifo, .mov_status, .out/.in/.set, side-set) take effect only
- * via pio_asm_apply_program_config: */
-pio_asm_apply_program_config(&pio, /*sm=*/0, &prog);
+
+/* Configure the SM with the pico-sdk pattern: build a pio_sm_config, then
+ * init. (sm_config_set_* mutators mirror the SDK exactly.) */
+pio_sm_config c = pio_get_default_sm_config();
+sm_config_set_set_pins(&c, /*base=*/0, /*count=*/1);
+pio_sim_sm_init(&pio, /*sm=*/0, /*pc=*/0, &c);
+pio_asm_load_program(&pio, 0, /*offset=*/0, &prog); /* loads words + wrap/side-set */
+/* Directives (.clock_div, .fifo, .mov_status, .out/.in/.set) take effect via: */
+pio_asm_apply_program_config(&pio, 0, &prog);
+pio_sim_sm_set_consecutive_pindirs(&pio, 0, 0, 1, true); /* drive pin 0 */
 pio_sim_sm_set_enabled(&pio, 0, true);
 
 for (int i = 0; i < 8; i++) pio_sim_tick(&pio);
 bool pin0 = pio_sim_get_pin(&pio, 0);
 ```
 
-See `pio_sim.h` and `pio_asm.h` for the full surface, and `tests/` for worked
-examples (instruction-level and assembler round-trips).
+See the headers (`pio.h` pulls in all of them) for the full surface, and
+`tests/` for worked examples (instruction-level and assembler round-trips).

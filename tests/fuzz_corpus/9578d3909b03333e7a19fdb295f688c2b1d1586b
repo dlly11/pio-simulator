@@ -1,0 +1,7 @@
+; WS28
+.program ws2812
+.siub 0
+.define ;;; maccill (conf
+.define ;;;;efi b 0
+.define ; 
+z% i-.pr li; 4$3c 

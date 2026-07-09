@@ -1,0 +1,17 @@
+;;;d
+art:
+    session/hex.
+.define A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.d + 2fine B (A + 6)
+.define C A*2 - 3
+et x, Dssion/hex.
+.define A 0b1010
+.define0
+.define B (A + 6)
+.define C A*2 - 3
+.defi Bz(Az+ 6)
+.define C A*2 -define A 0b10)
+    bmp x!=y, (start + 1)
+    jmp start

@@ -13,7 +13,7 @@
 
 #include "pio_asm.h"
 #include "pio_chip.h"
-#include "pio_clock.h"
+#include "pio_clk.h"
 #include "pio_dma.h"
 #include "pio_gpio.h"
 

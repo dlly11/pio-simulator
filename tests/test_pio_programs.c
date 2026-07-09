@@ -70,17 +70,17 @@ static void test_ws2812_bit_timing_waveform(void)
      * high-run lengths off the side-set (data) pin. */
     pio_program_t p;
     assemble("ws2812", "ws2812", &p);
-    TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 0, &p));
-    pio_asm_apply_program_config(&pio, 0, &p);
-
     const uint8_t pin = 0;
-    pio_sim_sm_set_sideset(&pio, 0, 1, false, false);
-    pio_sim_sm_set_sideset_base(&pio, 0, pin);
-    pio_sim_sm_set_pindirs(&pio, 0, pin, 1, true);
-    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_LEFT, true, 8); /* autopull, MSB first, 8-bit */
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_sideset_pins(&c, pin);
+    sm_config_set_out_shift(&c, false, true, 8); /* autopull, MSB first, 8-bit */
+    pio_sim_sm_init(&pio, 0, 0, &c);
+    TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 0, &p)); /* overlays wrap/side-set/pc */
+    pio_asm_apply_program_config(&pio, 0, &p);
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, pin, 1, true);
     pio_sim_sm_set_enabled(&pio, 0, true);
 
-    pio_sim_tx_push(&pio, 0, 0xA0U << 24); /* MSB-aligned 0b10100000 → bits 1,0,1,0,0,0,0,0 */
+    pio_sim_sm_put(&pio, 0, 0xA0U << 24); /* MSB-aligned 0b10100000 → bits 1,0,1,0,0,0,0,0 */
 
     uint8_t w[120];
     sample_pin(&pio, pin, w, 120);
@@ -113,19 +113,19 @@ static void test_uart_tx_frame_decodes(void)
 {
     pio_program_t p;
     assemble("uart_tx", "uart_tx", &p);
-    TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 0, &p));
-    pio_asm_apply_program_config(&pio, 0, &p);
-
     const uint8_t pin = 0; /* OUT base and side-set base both = TX pin */
-    pio_sim_sm_set_out_pins(&pio, 0, pin, 1);
-    pio_sim_sm_set_sideset(&pio, 0, 2, true, false); /* .side_set 1 opt → 1 data + 1 enable */
-    pio_sim_sm_set_sideset_base(&pio, 0, pin);
-    pio_sim_sm_set_pindirs(&pio, 0, pin, 1, true);
-    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, false, 32); /* LSB first, explicit pull */
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_out_pins(&c, pin, 1);
+    sm_config_set_sideset_pins(&c, pin);
+    sm_config_set_out_shift(&c, true, false, 32); /* LSB first, explicit pull */
+    pio_sim_sm_init(&pio, 0, 0, &c);
+    TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 0, &p)); /* overlays wrap/side-set/pc */
+    pio_asm_apply_program_config(&pio, 0, &p);
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, pin, 1, true);
     pio_sim_sm_set_enabled(&pio, 0, true);
 
     const uint8_t byte = 0x4B; /* 'K' */
-    pio_sim_tx_push(&pio, 0, byte);
+    pio_sim_sm_put(&pio, 0, byte);
 
     /* Frame layout, 8 cycles per bit: [pull idle-high][set start-low][8 data
      * bits LSB-first]. Sample each bit window at its centre (cycle 8*k+4). */
@@ -147,21 +147,21 @@ static void test_spi_tx_shifts_msb_first(void)
 {
     pio_program_t p;
     assemble("spi_tx", "spi_tx", &p);
-    TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 0, &p));
-    pio_asm_apply_program_config(&pio, 0, &p);
-
     const uint8_t data_pin = 0;
     const uint8_t clk_pin = 1;
-    pio_sim_sm_set_out_pins(&pio, 0, data_pin, 1);
-    pio_sim_sm_set_sideset(&pio, 0, 1, false, false);
-    pio_sim_sm_set_sideset_base(&pio, 0, clk_pin);
-    pio_sim_sm_set_pindirs(&pio, 0, data_pin, 1, true);
-    pio_sim_sm_set_pindirs(&pio, 0, clk_pin, 1, true);
-    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_LEFT, true, 8); /* autopull, MSB first */
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_out_pins(&c, data_pin, 1);
+    sm_config_set_sideset_pins(&c, clk_pin);
+    sm_config_set_out_shift(&c, false, true, 8); /* autopull, MSB first */
+    pio_sim_sm_init(&pio, 0, 0, &c);
+    TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 0, &p)); /* overlays wrap/side-set/pc */
+    pio_asm_apply_program_config(&pio, 0, &p);
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, data_pin, 1, true);
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, clk_pin, 1, true);
     pio_sim_sm_set_enabled(&pio, 0, true);
 
     const uint8_t byte = 0xB3; /* 1011 0011 */
-    pio_sim_tx_push(&pio, 0, (uint32_t)byte << 24);
+    pio_sim_sm_put(&pio, 0, (uint32_t)byte << 24);
 
     uint8_t data[64];
     uint8_t clk[64];
@@ -197,21 +197,20 @@ static void test_chip_dma_feeds_ws2812(void)
 
     pio_program_t prog;
     assemble("ws2812", "ws2812", &prog);
-    TEST_ASSERT_TRUE(pio_asm_load_program(p0, 0, 0, &prog));
-    pio_asm_apply_program_config(p0, 0, &prog);
-
     const uint8_t pin = 0;
-    pio_sim_sm_set_sideset(p0, 0, 1, false, false);
-    pio_sim_sm_set_sideset_base(p0, 0, pin);
-    pio_sim_sm_set_pindirs(p0, 0, pin, 1, true);
-    pio_sim_sm_set_out_shift(p0, 0, PIO_SHIFT_LEFT, true, 8);
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_sideset_pins(&c, pin);
+    sm_config_set_out_shift(&c, false, true, 8);
+    pio_sim_sm_init(p0, 0, 0, &c);
+    TEST_ASSERT_TRUE(pio_asm_load_program(p0, 0, 0, &prog)); /* overlays wrap/side-set/pc */
+    pio_asm_apply_program_config(p0, 0, &prog);
+    pio_sim_sm_set_consecutive_pindirs(p0, 0, pin, 1, true);
     pio_sim_sm_set_enabled(p0, 0, true);
 
     static uint32_t pixel[1] = {0x80U << 24}; /* MSB-first 0b10000000 → 1,0,0,0,0,0,0,0 */
-    pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.treq_sel = PIO_DMA_DREQ_PIO_TX(0, 0);
-    pio_dma_channel_configure(&chip.dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(pixel), 1,
+    pio_dma_channel_config_t dc = pio_dma_channel_get_default_config(0);
+    channel_config_set_dreq(&dc, PIO_DMA_DREQ_PIO_TX(0, 0));
+    pio_dma_channel_configure(&chip.dma, 0, &dc, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(pixel), 1,
                               true);
 
     uint8_t w[120];

@@ -1,0 +1,13 @@
+ delays, anl (confe, not in the program).
+.program ws2813
+.side_set 1
+
+.dg««««««««««««««««««««««.program ws2812
+.side_set 1
+
+.dop           12
+.side_set 1
+
+.d        side 0 [T2rogram ws2812
+.side_set 1
+l á- 1] ; short high pulse =>ap

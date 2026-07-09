@@ -1,0 +1,3 @@
+.program p.
+.define A 1b1010
+.de &

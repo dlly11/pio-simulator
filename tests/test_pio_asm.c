@@ -94,12 +94,14 @@ static void test_jmp_relocated_by_offset(void)
 
 static void config_swd_write(const pio_program_t *p)
 {
-    TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 0, p));
-    pio_sim_sm_set_out_pins(&pio, 0, PIN_SWDIO, 1);
-    pio_sim_sm_set_sideset_base(&pio, 0, PIN_SWCLK);
-    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, false, 32); /* LSB first */
-    pio_sim_sm_set_pindirs(&pio, 0, PIN_SWCLK, 1, true);
-    pio_sim_sm_set_pindirs(&pio, 0, PIN_SWDIO, 1, true);
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_out_pins(&c, PIN_SWDIO, 1);
+    sm_config_set_sideset_pins(&c, PIN_SWCLK);
+    sm_config_set_out_shift(&c, true, false, 32); /* LSB first */
+    pio_sim_sm_set_config(&pio, 0, &c);
+    TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 0, p)); /* overlays wrap/side-set/pc */
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, PIN_SWCLK, 1, true);
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, PIN_SWDIO, 1, true);
     pio_sim_sm_set_enabled(&pio, 0, true);
 }
 
@@ -110,8 +112,8 @@ static void test_swd_write_clocks_out_lsb_first(void)
     config_swd_write(&p);
 
     /* Shift out 4 bits 0b1010 (LSB first → 0,1,0,1). TX protocol: count-1, data. */
-    pio_sim_tx_push(&pio, 0, 3U);   /* bit_count - 1 */
-    pio_sim_tx_push(&pio, 0, 0x0A); /* data */
+    pio_sim_sm_put(&pio, 0, 3U);   /* bit_count - 1 */
+    pio_sim_sm_put(&pio, 0, 0x0A); /* data */
 
     /* Sample SWDIO on each rising SWCLK edge (the jmp side 1 cycle), as the
      * target would. Expected sequence LSB-first: 0,1,0,1. */
@@ -138,23 +140,25 @@ static void test_swd_read_captures_bits(void)
 {
     pio_program_t p;
     TEST_ASSERT_TRUE(pio_asm_assemble(SWD_READ, NULL, &p));
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_in_pins(&c, PIN_SWDIO);
+    sm_config_set_sideset_pins(&c, PIN_SWCLK);
+    sm_config_set_in_shift(&c, true, false, 32);
+    pio_sim_sm_set_config(&pio, 0, &c);
     TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 0, &p));
-    pio_sim_sm_set_in_base(&pio, 0, PIN_SWDIO);
-    pio_sim_sm_set_sideset_base(&pio, 0, PIN_SWCLK);
-    pio_sim_sm_set_in_shift(&pio, 0, PIO_SHIFT_RIGHT, false, 32);
-    pio_sim_sm_set_pindirs(&pio, 0, PIN_SWCLK, 1, true);
-    pio_sim_sm_set_pindirs(&pio, 0, PIN_SWDIO, 1, false); /* input */
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, PIN_SWCLK, 1, true);
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, PIN_SWDIO, 1, false); /* input */
     pio_sim_sm_set_enabled(&pio, 0, true);
 
     /* Hold SWDIO high; capture 3 bits → ISR collects 0b111, pushed right-shifted
      * so bit 0 lands at position (32 - 3). */
     pio_sim_set_pin(&pio, PIN_SWDIO, true);
-    pio_sim_tx_push(&pio, 0, 2U); /* 3 bits, count-1 */
+    pio_sim_sm_put(&pio, 0, 2U); /* 3 bits, count-1 */
 
     pio_sim_run_until_rx(&pio, 0, 200);
-    TEST_ASSERT_FALSE(pio_sim_rx_empty(&pio, 0));
+    TEST_ASSERT_FALSE(pio_sim_sm_is_rx_fifo_empty(&pio, 0));
     uint32_t w = 0;
-    TEST_ASSERT_TRUE(pio_sim_rx_pop(&pio, 0, &w));
+    TEST_ASSERT_TRUE(pio_sim_sm_get(&pio, 0, &w));
     TEST_ASSERT_EQUAL_HEX32(0x7U << 29, w); /* 3 ones, right-shifted into MSBs */
 }
 
@@ -384,6 +388,20 @@ static void test_shift_expression_out_of_range_rejected(void)
     /* An in-range shift still works. */
     TEST_ASSERT_TRUE(pio_asm_assemble(".program p\n.define A 1 << 4\n set x, A\n", NULL, &p));
     TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 16), p.insns[0]);
+}
+
+/* Arithmetic in a constant expression must not invoke signed-overflow UB: a
+ * huge product/sum/negation wraps in the unsigned domain (found by fuzzing —
+ * the sanitizer CI build turns any residual UB here into a failure). The result
+ * is masked to the instruction field, so wrapping is observationally fine. */
+static void test_expression_overflow_is_defined(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_TRUE(
+        pio_asm_assemble(".program p\n.define A 2777777777 * 3983219825\n set x, A\n", NULL, &p));
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program p\n set x, (9223372036854775807 + 1)\n", NULL, &p));
+    TEST_ASSERT_TRUE(
+        pio_asm_assemble(".program p\n set x, -(-9223372036854775807 - 1)\n", NULL, &p));
 }
 
 /* An optional side-set sets the enable bit only on instructions that name one. */
@@ -823,6 +841,7 @@ int main(void)
     RUN_TEST(test_delay_and_required_sideset);
     RUN_TEST(test_spaced_delay_expression);
     RUN_TEST(test_shift_expression_out_of_range_rejected);
+    RUN_TEST(test_expression_overflow_is_defined);
     RUN_TEST(test_optional_sideset);
     RUN_TEST(test_public_labels_and_verbatim);
     RUN_TEST(test_hex_comments_and_case);

@@ -1,0 +1,8 @@
+.program p
+ out x, 0 ; Eveout x, r[
+.depine public 
+
+.wrap_tarp
+ out x, 1 ;
+ out x, 1 ; Ever[
+.deven wh

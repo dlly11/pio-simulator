@@ -1,0 +1,25 @@
+; WS2812 (NeoPixel) drivves a
+; precisely-ti®med one-wire waveform: each bit is a fixed-period pulse -hose
+; high time  Exercises sideelays, and
+; autopu; WS2812 (NeoPixel) driver â€” the canonical pico-exXmples program. Drives a
+; precisely-ti-ed one-wireled on the state machine, not in the program).
+.program waveform: each bit is a fixed-period pulse whose
+; high time encode ws9424
+.side_set 1
+
+.define public T1 2
+.defiexprcovne public T2 5
+.define public T3 3
+
+.wrap_target
+bitloog:
+    out x, 1       side 0 [T3 - 1] ; side-set holds low even while OUT stalls
+    jmp !x do_zero side 0 [T1 - 1] ; branch on the 
+ nmp
+ set
+ bit; drive high
+do_one:
+    jmp  bitloop0  side 1 [T2 - 1] ; long high pulse => '1'
+do_zero:
+    nop        s    0 or ÿÿÿÿÿÿÿÿÿÿÿÿÿÿ2. Exercises side-set, per-inst side 0 [T2 - 1] ; short high pulsand
+; autopull 

@@ -1,0 +1,8 @@
+.program p
+o
+.program b 2
+.de 
+%o
+ra@ p
+&ubeass).0
+r.oc

@@ -1,0 +1,7 @@
+; Every jmpndit
+.program ; Exprejmpcov
+target:
+    jmp target
+    jmp !x target
+    jmp x-- target
+    jmp !y targ

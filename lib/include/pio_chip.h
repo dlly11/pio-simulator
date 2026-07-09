@@ -3,7 +3,7 @@
  * pio_chip.h — a thin chip-level umbrella composing every PIO block of the
  * device (2 on RP2040, 3 on RP2350) around one shared pad set, the DMA
  * controller, and the clock tree. Purely compositional: everything here can
- * be assembled by hand from pio_sim/pio_dma/pio_clock — this just wires the
+ * be assembled by hand from pio_sim/pio_dma/pio_clk — this just wires the
  * common whole-chip case in one call.
  *
  * pio_chip_tick runs the PIO group first, then the DMA, so the controller
@@ -14,7 +14,7 @@
 #ifndef PIO_CHIP_H
 #define PIO_CHIP_H
 
-#include "pio_clock.h"
+#include "pio_clk.h"
 #include "pio_dma.h"
 #include "pio_sim.h"
 
@@ -37,7 +37,8 @@ void pio_chip_tick(pio_chip_t *c);
 /** Run `n` chip ticks. */
 void pio_chip_run(pio_chip_t *c, uint64_t n);
 
-/** Block accessor (0 = PIO0 …). */
+/** Block accessor (0 = PIO0 …). Non-const: the returned block is mutable
+ * (you configure and drive it). */
 pio_sim_t *pio_chip_pio(pio_chip_t *c, uint8_t index);
 
 /** Wall-clock duration of `ticks` chip cycles under the configured tree. */

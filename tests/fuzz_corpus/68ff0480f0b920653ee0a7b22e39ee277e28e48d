@@ -1,0 +1,6 @@
+; WS pzogram).
+.program ws2595
+.sideA _set 1
+
+.define public T1 2
+ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP, 4       side 0 [T3 - 1] ; side-set hold 1] ; branch on the shifted-out bpulse => '0'

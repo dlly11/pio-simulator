@@ -22,11 +22,13 @@ void setUp(void)
 
 void tearDown(void) { (void)0; }
 
-/* Load a program at offset 0, set wrap to span it, enable SM0. */
+/* Load a program at offset 0, wrap over it, init + enable SM0. */
 static void load_prog(const uint16_t *prog, uint8_t n)
 {
     pio_sim_load(&pio, 0, prog, n);
-    pio_sim_sm_set_wrap(&pio, 0, 0, (uint8_t)(n - 1U));
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_wrap(&c, 0, (uint8_t)(n - 1U));
+    pio_sim_sm_init(&pio, 0, 0, &c);
     pio_sim_sm_set_enabled(&pio, 0, true);
 }
 
@@ -55,14 +57,14 @@ static void tick_all(int n)
 static void configure_echo_pair(uint32_t *in, uint32_t *out, uint32_t n)
 {
     pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.treq_sel = PIO_DMA_DREQ_PIO_TX(0, 0);
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(in), n, true);
 
-    pio_dma_channel_get_default_config(&c, 1);
-    c.incr_read = false;
-    c.incr_write = true;
-    c.treq_sel = PIO_DMA_DREQ_PIO_RX(0, 0);
+    c = pio_dma_channel_get_default_config(1);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_RX(0, 0));
     pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_mem(out), pio_dma_addr_rxf(0, 0), n, true);
 }
 
@@ -85,13 +87,13 @@ static void test_tx_dreq_pacing_respects_fifo_depth(void)
     /* No SM consuming: a TX-paced channel fills the 4-deep FIFO and stalls. */
     static uint32_t in[8] = {1, 2, 3, 4, 5, 6, 7, 8};
     pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.treq_sel = PIO_DMA_DREQ_PIO_TX(0, 0);
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(in), 8, true);
     tick_all(20);
     TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 0));
     TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_transfer_count(&dma, 0));
-    TEST_ASSERT_TRUE(pio_sim_tx_full(&pio, 0));
+    TEST_ASSERT_TRUE(pio_sim_sm_is_tx_fifo_full(&pio, 0));
 }
 
 static void test_size8_and_bswap(void)
@@ -100,15 +102,15 @@ static void test_size8_and_bswap(void)
     static uint8_t in8[4] = {0xAAU, 0xBBU, 0xCCU, 0xDDU};
     static uint8_t out8[4] = {0};
     pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.data_size = PIO_DMA_SIZE_8;
-    c.treq_sel = PIO_DMA_DREQ_PIO_TX(0, 0);
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(in8), 4, true);
-    pio_dma_channel_get_default_config(&c, 1);
-    c.data_size = PIO_DMA_SIZE_8;
-    c.incr_read = false;
-    c.incr_write = true;
-    c.treq_sel = PIO_DMA_DREQ_PIO_RX(0, 0);
+    c = pio_dma_channel_get_default_config(1);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_RX(0, 0));
     pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_mem(out8), pio_dma_addr_rxf(0, 0), 4, true);
     tick_all(100);
     TEST_ASSERT_EQUAL_HEX8(0xAAU, out8[0]);
@@ -117,9 +119,9 @@ static void test_size8_and_bswap(void)
     /* 32-bit byte swap, mem-to-mem. */
     static uint32_t src = 0x11223344U;
     static uint32_t dst = 0;
-    pio_dma_channel_get_default_config(&c, 2);
-    c.bswap = true;
-    c.incr_write = true;
+    c = pio_dma_channel_get_default_config(2);
+    channel_config_set_bswap(&c, true);
+    channel_config_set_write_increment(&c, true);
     pio_dma_channel_configure(&dma, 2, &c, pio_dma_addr_mem(&dst), pio_dma_addr_mem(&src), 1, true);
     (void)pio_dma_tick(&dma);
     TEST_ASSERT_EQUAL_HEX32(0x44332211U, dst);
@@ -132,15 +134,14 @@ static void test_ring_wraps_read_side(void)
     _Alignas(8) static uint32_t in[2] = {0x55U, 0x66U};
     static uint32_t out[4] = {0};
     pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.ring_size = 3; /* 2^3 bytes = two words */
-    c.ring_sel = false;
-    c.treq_sel = PIO_DMA_DREQ_PIO_TX(0, 0);
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_ring(&c, false, 3); /* wrap read addr, 2^3 bytes = two words */
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(in), 4, true);
-    pio_dma_channel_get_default_config(&c, 1);
-    c.incr_read = false;
-    c.incr_write = true;
-    c.treq_sel = PIO_DMA_DREQ_PIO_RX(0, 0);
+    c = pio_dma_channel_get_default_config(1);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_RX(0, 0));
     pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_mem(out), pio_dma_addr_rxf(0, 0), 4, true);
     tick_all(120);
     const uint32_t expect[4] = {0x55U, 0x66U, 0x55U, 0x66U};
@@ -158,17 +159,17 @@ static void test_chain_to_next_channel(void)
     pio_dma_channel_config_t c;
     /* ch0 sends a[], chains to ch2 which sends b[]. ch2 is programmed but not
      * triggered — the chain starts it. */
-    pio_dma_channel_get_default_config(&c, 2);
-    c.treq_sel = PIO_DMA_DREQ_PIO_TX(0, 0);
+    c = pio_dma_channel_get_default_config(2);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&dma, 2, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(b), 2, false);
-    pio_dma_channel_get_default_config(&c, 0);
-    c.treq_sel = PIO_DMA_DREQ_PIO_TX(0, 0);
-    c.chain_to = 2;
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
+    channel_config_set_chain_to(&c, 2);
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(a), 2, true);
-    pio_dma_channel_get_default_config(&c, 1);
-    c.incr_read = false;
-    c.incr_write = true;
-    c.treq_sel = PIO_DMA_DREQ_PIO_RX(0, 0);
+    c = pio_dma_channel_get_default_config(1);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_RX(0, 0));
     pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_mem(out), pio_dma_addr_rxf(0, 0), 4, true);
     tick_all(150);
     const uint32_t expect[4] = {0x11U, 0x22U, 0x33U, 0x44U};
@@ -195,10 +196,10 @@ static void test_irq_on_complete_and_ack(void)
     static uint32_t dst[2] = {0};
     cb_hits = 0;
     pio_dma_channel_set_callback(&dma, 3, count_cb, NULL);
-    pio_dma_set_irq_enabled(&dma, 0, 1U << 3U, true);
+    pio_dma_irqn_set_channel_enabled(&dma, 0, 3, true);
     pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 3);
-    c.incr_write = true;
+    c = pio_dma_channel_get_default_config(3);
+    channel_config_set_write_increment(&c, true);
     pio_dma_channel_configure(&dma, 3, &c, pio_dma_addr_mem(dst), pio_dma_addr_mem(src), 2, true);
     tick_all(4);
     TEST_ASSERT_EQUAL_UINT8(1U, cb_hits);
@@ -206,12 +207,13 @@ static void test_irq_on_complete_and_ack(void)
     TEST_ASSERT_EQUAL_HEX32(1U << 3U, pio_dma_get_intr(&dma));
     TEST_ASSERT_EQUAL_HEX32(1U << 3U, pio_dma_get_ints(&dma, 0));
     TEST_ASSERT_EQUAL_HEX32(0U, pio_dma_get_ints(&dma, 1)); /* not enabled there */
-    pio_dma_acknowledge_irq(&dma, 1U << 3U);
+    TEST_ASSERT_TRUE(pio_dma_irqn_get_channel_status(&dma, 0, 3));
+    pio_dma_irqn_acknowledge_channel(&dma, 0, 3);
     TEST_ASSERT_EQUAL_HEX32(0U, pio_dma_get_intr(&dma));
     /* INTF forces a line regardless of INTR. */
-    pio_dma_irq_force(&dma, 1, 1U << 5U, true);
+    pio_dma_irqn_force_channel(&dma, 1, 5, true);
     TEST_ASSERT_EQUAL_HEX32(1U << 5U, pio_dma_get_ints(&dma, 1));
-    pio_dma_irq_force(&dma, 1, 1U << 5U, false);
+    pio_dma_irqn_force_channel(&dma, 1, 5, false);
     TEST_ASSERT_EQUAL_HEX32(0U, pio_dma_get_ints(&dma, 1));
 }
 
@@ -222,9 +224,9 @@ static void test_irq_quiet_defers_to_null_trigger(void)
     cb_hits = 0;
     pio_dma_channel_set_callback(&dma, 0, count_cb, NULL);
     pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.irq_quiet = true;
-    c.incr_write = true;
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_irq_quiet(&c, true);
+    channel_config_set_write_increment(&c, true);
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), pio_dma_addr_mem(src), 1, true);
     tick_all(3);
     TEST_ASSERT_EQUAL_HEX32(7U, dst[0]);
@@ -266,16 +268,17 @@ static void test_sniffer_crc32_check_value(void)
     static const char msg[] = "123456789";
     static uint8_t dst[9];
     pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.data_size = PIO_DMA_SIZE_8;
-    c.incr_write = true;
-    c.sniff_en = true;
-    pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_CRC32R, false, true);
-    pio_dma_sniffer_set_data(&dma, 0xFFFFFFFFU);
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_sniff_enable(&c, true);
+    pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_CRC32R, false);
+    pio_dma_sniffer_set_output_invert_enabled(&dma, true);
+    pio_dma_sniffer_set_data_accumulator(&dma, 0xFFFFFFFFU);
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst),
                               pio_dma_addr_mem((void *)(uintptr_t)msg), 9, true);
     tick_all(12);
-    TEST_ASSERT_EQUAL_HEX32(0xCBF43926U, pio_dma_sniffer_get_data(&dma));
+    TEST_ASSERT_EQUAL_HEX32(0xCBF43926U, pio_dma_sniffer_get_data_accumulator(&dma));
 }
 
 static void test_sniffer_crc16_ccitt_check_value(void)
@@ -284,16 +287,16 @@ static void test_sniffer_crc16_ccitt_check_value(void)
     static const char msg[] = "123456789";
     static uint8_t dst[9];
     pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.data_size = PIO_DMA_SIZE_8;
-    c.incr_write = true;
-    c.sniff_en = true;
-    pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_CRC16, false, false);
-    pio_dma_sniffer_set_data(&dma, 0xFFFFU);
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_sniff_enable(&c, true);
+    pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_CRC16, false);
+    pio_dma_sniffer_set_data_accumulator(&dma, 0xFFFFU);
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst),
                               pio_dma_addr_mem((void *)(uintptr_t)msg), 9, true);
     tick_all(12);
-    TEST_ASSERT_EQUAL_HEX32(0x29B1U, pio_dma_sniffer_get_data(&dma));
+    TEST_ASSERT_EQUAL_HEX32(0x29B1U, pio_dma_sniffer_get_data_accumulator(&dma));
 }
 
 static void test_sniffer_sum_and_parity(void)
@@ -301,20 +304,21 @@ static void test_sniffer_sum_and_parity(void)
     static uint32_t src[3] = {1, 2, 3};
     static uint32_t dst[3];
     pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.incr_write = true;
-    c.sniff_en = true;
-    pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_SUM, false, false);
-    pio_dma_sniffer_set_data(&dma, 0);
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_sniff_enable(&c, true);
+    pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_SUM, false);
+    pio_dma_sniffer_set_data_accumulator(&dma, 0);
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), pio_dma_addr_mem(src), 3, true);
     tick_all(5);
-    TEST_ASSERT_EQUAL_HEX32(6U, pio_dma_sniffer_get_data(&dma));
+    TEST_ASSERT_EQUAL_HEX32(6U, pio_dma_sniffer_get_data_accumulator(&dma));
 
-    pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_EVEN, false, false);
-    pio_dma_sniffer_set_data(&dma, 0);
+    pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_EVEN, false);
+    pio_dma_sniffer_set_data_accumulator(&dma, 0);
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), pio_dma_addr_mem(src), 3, true);
     tick_all(5);
-    TEST_ASSERT_EQUAL_HEX32(1U ^ 2U ^ 3U, pio_dma_sniffer_get_data(&dma)); /* lane XOR */
+    TEST_ASSERT_EQUAL_HEX32(1U ^ 2U ^ 3U,
+                            pio_dma_sniffer_get_data_accumulator(&dma)); /* lane XOR */
 }
 
 static void test_pacing_timer_quarter_rate(void)
@@ -322,11 +326,11 @@ static void test_pacing_timer_quarter_rate(void)
     /* Timer 0 at X/Y = 1/4: one transfer every 4 ticks. */
     static uint32_t src[4] = {1, 2, 3, 4};
     static uint32_t dst[4] = {0};
-    pio_dma_timer_set(&dma, 0, 1, 4);
+    pio_dma_timer_set_fraction(&dma, 0, 1, 4);
     pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.incr_write = true;
-    c.treq_sel = PIO_DMA_TREQ_TIMER(0);
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_dreq(&c, PIO_DMA_TREQ_TIMER(0));
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), pio_dma_addr_mem(src), 4, true);
     for (int i = 0; i < 8; i++) {
         (void)pio_dma_tick(&dma);
@@ -347,12 +351,12 @@ static void test_one_transfer_per_tick_and_priority(void)
     static uint32_t dst_a[4] = {0};
     static uint32_t dst_b[4] = {0};
     pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.incr_write = true;
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_write_increment(&c, true);
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst_a), pio_dma_addr_mem(src), 4, true);
-    pio_dma_channel_get_default_config(&c, 1);
-    c.incr_write = true;
-    c.high_priority = true;
+    c = pio_dma_channel_get_default_config(1);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_high_priority(&c, true);
     pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_mem(dst_b), pio_dma_addr_mem(&src[4]), 4,
                               true);
     (void)pio_dma_tick(&dma); /* one element total */
@@ -396,17 +400,19 @@ static void test_cross_pio_transfer_in_group(void)
     const uint16_t sink[] = {pio_sim_encode_pull(false, true),
                              pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
     pio_sim_load(&p2, 0, sink, 2);
-    pio_sim_sm_set_wrap(&p2, 0, 0, 1);
+    pio_sm_config c2 = pio_get_default_sm_config();
+    sm_config_set_wrap(&c2, 0, 1);
+    pio_sim_sm_init(&p2, 0, 0, &c2);
     pio_sim_sm_set_enabled(&p2, 0, true);
 
     static uint32_t in[2] = {0xAB1U, 0xAB2U};
     pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.treq_sel = PIO_DMA_DREQ_PIO_TX(0, 0);
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(in), 2, true);
-    pio_dma_channel_get_default_config(&c, 1);
-    c.incr_read = false;
-    c.treq_sel = PIO_DMA_DREQ_PIO_RX(0, 0);
+    c = pio_dma_channel_get_default_config(1);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_RX(0, 0));
     pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_txf(1, 0), pio_dma_addr_rxf(0, 0), 2, true);
     for (int i = 0; i < 100; i++) {
         pio_sim_tick(&pio);
@@ -430,36 +436,40 @@ static void test_chip_loopback_dma_pin_dma(void)
     pio_sim_t *p1 = pio_chip_pio(&chip, 1);
 
     /* PIO0 SM0: pull a word, drive its LSB onto pin 0 (shift right = LSB first). */
-    pio_sim_sm_set_out_shift(p0, 0, PIO_SHIFT_RIGHT, false, 32);
-    pio_sim_sm_set_out_pins(p0, 0, 0, 1);
-    pio_sim_sm_set_pindirs(p0, 0, 0, 1, true);
+    pio_sm_config c0 = pio_get_default_sm_config();
+    sm_config_set_out_shift(&c0, true, false, 32);
+    sm_config_set_out_pins(&c0, 0, 1);
+    sm_config_set_wrap(&c0, 0, 2);
     const uint16_t src_prog[] = {pio_sim_encode_pull(false, true),
                                  pio_sim_encode_out(PIO_DST_PINS, 1),
                                  pio_sim_encode_jmp(PIO_COND_ALWAYS, 2)};
     pio_sim_load(p0, 0, src_prog, 3);
-    pio_sim_sm_set_wrap(p0, 0, 0, 2);
+    pio_sim_sm_init(p0, 0, 0, &c0);
+    pio_sim_sm_set_consecutive_pindirs(p0, 0, 0, 1, true);
     pio_sim_sm_set_enabled(p0, 0, true);
     pio_sim_gpio_set_function(p0, 0, PIO_GPIO_FUNC_PIO0); /* pad follows PIO0 */
 
     /* PIO1 SM0: wait for the rising pin, capture it, push once, park. */
-    pio_sim_sm_set_in_base(p1, 0, 0);
+    pio_sm_config c1 = pio_get_default_sm_config();
+    sm_config_set_in_pins(&c1, 0);
+    sm_config_set_wrap(&c1, 0, 3);
     const uint16_t cap_prog[] = {
         pio_sim_encode_wait(1, PIO_WAIT_PIN, 0), pio_sim_encode_in(PIO_SRC_PINS, 1),
         pio_sim_encode_push(false, true), pio_sim_encode_jmp(PIO_COND_ALWAYS, 3)};
     pio_sim_load(p1, 0, cap_prog, 4);
-    pio_sim_sm_set_wrap(p1, 0, 0, 3);
+    pio_sim_sm_init(p1, 0, 0, &c1);
     pio_sim_sm_set_enabled(p1, 0, true);
 
     static uint32_t word_in = 0x1U;
     static uint32_t word_out = 0;
     pio_dma_channel_config_t c;
-    pio_dma_channel_get_default_config(&c, 0);
-    c.treq_sel = PIO_DMA_DREQ_PIO_TX(0, 0);
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&chip.dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(&word_in),
                               1, true);
-    pio_dma_channel_get_default_config(&c, 1);
-    c.incr_write = true;
-    c.treq_sel = PIO_DMA_DREQ_PIO_RX(1, 0);
+    c = pio_dma_channel_get_default_config(1);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_RX(1, 0));
     pio_dma_channel_configure(&chip.dma, 1, &c, pio_dma_addr_mem(&word_out), pio_dma_addr_rxf(1, 0),
                               1, true);
 
@@ -474,9 +484,40 @@ static void test_chip_loopback_dma_pin_dma(void)
 #endif
 }
 
+/* Robustness (Part 1): a bogus ring size must not invoke shift UB. */
+static void test_ring_size_out_of_range_no_ub(void)
+{
+    static uint32_t src[4] = {1, 2, 3, 4};
+    static uint32_t dst[4] = {0};
+    pio_dma_channel_config_t c = pio_dma_channel_get_default_config(0);
+    channel_config_set_ring(&c, false, 64); /* > pointer width: guarded, no wrap */
+    channel_config_set_write_increment(&c, true);
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), pio_dma_addr_mem(src), 2, true);
+    (void)pio_dma_tick(&dma);
+    TEST_ASSERT_EQUAL_HEX32(1U, dst[0]); /* survived; behaves as no-wrap */
+}
+
+/* Robustness (Part 1): a NULL block slot must not be dereferenced. */
+static void test_null_block_slot_no_crash(void)
+{
+    pio_sim_t p0;
+    pio_sim_init(&p0);
+    pio_sim_t *blocks[] = {&p0, NULL};
+    pio_dma_t d;
+    pio_dma_init(&d, blocks, 2);
+    static uint32_t src[2] = {7, 8};
+    pio_dma_channel_config_t c = pio_dma_channel_get_default_config(0);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(1, 0)); /* endpoint on the NULL slot */
+    pio_dma_channel_configure(&d, 0, &c, pio_dma_addr_txf(1, 0), pio_dma_addr_mem(src), 2, true);
+    (void)pio_dma_tick(&d); /* must not crash; channel simply never becomes ready */
+    TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&d, 0));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_ring_size_out_of_range_no_ub);
+    RUN_TEST(test_null_block_slot_no_crash);
     RUN_TEST(test_dreq_paced_echo_roundtrip);
     RUN_TEST(test_tx_dreq_pacing_respects_fifo_depth);
     RUN_TEST(test_size8_and_bswap);
