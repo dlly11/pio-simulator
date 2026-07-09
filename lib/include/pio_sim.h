@@ -320,50 +320,13 @@ bool pio_sim_sm_is_stalled(const pio_sim_t *pio, uint8_t sm);
  * pio_enable_sm_mask_in_sync does) so equal-divider SMs run in lockstep. */
 void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled);
 
-/* ── Configuration (mirrors the pico-sdk sm_config_set_* surface) ──────────── */
-
-/** Program wrap. Both addresses are inclusive: the instruction at `top`
- * executes, then the PC wraps to `bottom` (unless `top` jumped). */
-void pio_sim_sm_set_wrap(pio_sim_t *pio, uint8_t sm, uint8_t bottom, uint8_t top);
-/** Side-set config. `bit_count` is the pico-sdk convention: data bits *plus*
- * the enable bit when `opt` is true (so `.side_set 2 opt` passes 3). */
-void pio_sim_sm_set_sideset(pio_sim_t *pio, uint8_t sm, uint8_t bit_count, bool opt, bool pindirs);
-void pio_sim_sm_set_sideset_base(pio_sim_t *pio, uint8_t sm, uint8_t base);
-void pio_sim_sm_set_out_pins(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count);
-void pio_sim_sm_set_set_pins(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count);
-void pio_sim_sm_set_in_base(pio_sim_t *pio, uint8_t sm, uint8_t base);
-
-/* Pin-count-only setters (mirror sm_config_set_*_pin_count): set the span width
- * without disturbing the base, as pioasm's .out/.set/.in directives do. */
-void pio_sim_sm_set_out_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count);
-void pio_sim_sm_set_set_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count);
-#if PIO_SIM_HAS_IN_PIN_COUNT
-/** RP2350: set the IN pin count. IN PINS / MOV x,PINS / WAIT PIN see only this
- * many low pins of the IN group; higher bits read as 0. `count` is 1..32 (32 =
- * unmasked, the default). */
-void pio_sim_sm_set_in_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count);
-#endif
-void pio_sim_sm_set_jmp_pin(pio_sim_t *pio, uint8_t sm, uint8_t pin);
-/** OUT shift config. A `threshold` of 0 (or > 32) means 32, as in the
- * hardware SHIFTCTRL field where 0 encodes a full 32-bit threshold. */
-void pio_sim_sm_set_out_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bool autopull,
-                              uint8_t threshold);
-/** IN shift config; `threshold` 0 (or > 32) means 32, as for out_shift. */
-void pio_sim_sm_set_in_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bool autopush,
-                             uint8_t threshold);
-/** Clock divider, 16.8 fixed point. `div_int` of 0 means 65536 (the hardware
- * encoding), regardless of `div_frac`. */
-void pio_sim_sm_set_clkdiv(pio_sim_t *pio, uint8_t sm, uint16_t div_int, uint8_t div_frac);
-
-/** Configure the EXECCTRL output special behaviours (mirrors the SDK's
- * sm_config_set_out_special). `sticky`: continuously re-assert the most recent
- * OUT/SET pin values every cycle. `inline_out_en`: use bit `out_en_sel` of the
- * OUT data as an output enable — when 0, that OUT does not drive the pins (and
- * under `sticky` stops holding them, so a lower-priority SM or external level
- * shows through). When several state machines drive one pin on the same cycle,
- * the highest-numbered SM wins. */
-void pio_sim_sm_set_out_special(pio_sim_t *pio, uint8_t sm, bool sticky, bool inline_out_en,
-                                uint8_t out_en_sel);
+/* ── Configuration ────────────────────────────────────────────────────────────
+ * The SDK config-struct pattern: build a pio_sm_config with
+ * pio_get_default_sm_config() and the sm_config_set_* mutators, then apply it
+ * with pio_sim_sm_init() (resets + sets PC) or pio_sim_sm_set_config() (no
+ * reset). The mutator names/signatures match the pico-sdk (they act on the
+ * config value only). The pio_sm_config type is declared after the
+ * pio_status_sel_t / pio_fifo_join_t enums it references, below. */
 
 /**
  * Reset the fractional clock-divider accumulator of every SM whose bit is set
@@ -414,12 +377,9 @@ typedef enum {
 #endif
 } pio_status_sel_t;
 
-/** Configure the MOV STATUS source: comparison against a FIFO level, or (on
- * RP2350) an IRQ flag. Clears any fixed-value override. */
-void pio_sim_sm_set_status_sel(pio_sim_t *pio, uint8_t sm, pio_status_sel_t sel, uint8_t n);
-
-/** Pin MOV STATUS to a fixed value (test override), bypassing the FIFO/IRQ
- * derivation. */
+/** Pin MOV STATUS to a fixed value (sim extension, no SDK analogue: a test
+ * override bypassing the FIFO/IRQ derivation). Runtime — not part of the
+ * config struct. */
 void pio_sim_sm_set_status_value(pio_sim_t *pio, uint8_t sm, uint32_t value);
 
 /* FIFO join: 0 = none (4+4), 1 = join TX (8 TX, 0 RX), 2 = join RX (8 RX, 0 TX).
@@ -438,12 +398,85 @@ typedef enum {
     PIO_FIFO_JOIN_RX_PUTGET = 5, /* RP2350: both put and get (SM scratch file)    */
 } pio_fifo_join_t;
 
-/** Configure the FIFO join mode for `sm`. Also clears both FIFOs (changing the
- * join reshapes the storage, as on hardware). */
-void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join);
+/** Runtime pindir write for a span of pins (SDK pio_sm_set_consecutive_pindirs):
+ * marks `count` pins from `base` as output (`is_out`) or input. Not part of the
+ * config struct — call it after pio_sim_sm_init as on hardware. */
+void pio_sim_sm_set_consecutive_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count,
+                                        bool is_out);
 
-/** Set the PIO output-enable (pindir) for a span of pins, as pindir config does. */
-void pio_sim_sm_set_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count, bool out);
+/* ── SM configuration value (pio_sm_config) ────────────────────────────────────
+ * Mirrors the pico-sdk pio_sm_config: an inert value you build with the
+ * sm_config_set_* mutators, then apply with pio_sim_sm_init / _set_config.
+ * The fields are internal — use the mutators. */
+typedef struct {
+    uint8_t out_base, out_count;
+    uint8_t set_base, set_count;
+    uint8_t in_base, in_count;
+    uint8_t sideset_base;
+    uint8_t sideset_total_bits; /* data bits + opt-enable bit (SDK convention) */
+    bool sideset_opt, sideset_pindirs;
+    uint8_t jmp_pin;
+    pio_shift_dir_t out_dir, in_dir;
+    bool autopull, autopush;
+    uint8_t pull_thresh, push_thresh;
+    uint16_t clkdiv_int;
+    uint8_t clkdiv_frac;
+    uint8_t wrap_bottom, wrap_top;
+    uint8_t fifo_join;  /* pio_fifo_join_t */
+    uint8_t status_sel; /* pio_status_sel_t */
+    uint8_t status_n;
+    bool out_sticky, out_inline_en;
+    uint8_t out_en_sel;
+} pio_sm_config;
+
+/** The reset-default config (SDK pio_get_default_sm_config): wrap over the
+ * whole instruction memory, shift left, thresholds 32, clkdiv 1.0, no
+ * autopush/pull, IN pin count unmasked. */
+pio_sm_config pio_get_default_sm_config(void);
+
+/* Config mutators — exact SDK names, acting on the config value only. */
+void sm_config_set_out_pins(pio_sm_config *c, uint8_t out_base, uint8_t out_count);
+void sm_config_set_out_pin_base(pio_sm_config *c, uint8_t out_base);
+void sm_config_set_out_pin_count(pio_sm_config *c, uint8_t out_count);
+void sm_config_set_set_pins(pio_sm_config *c, uint8_t set_base, uint8_t set_count);
+void sm_config_set_set_pin_base(pio_sm_config *c, uint8_t set_base);
+void sm_config_set_set_pin_count(pio_sm_config *c, uint8_t set_count);
+void sm_config_set_in_pins(pio_sm_config *c, uint8_t in_base);
+void sm_config_set_in_pin_base(pio_sm_config *c, uint8_t in_base);
+#if PIO_SIM_HAS_IN_PIN_COUNT
+/** RP2350: IN PINS / MOV x,PINS / WAIT PIN see only this many low pins; higher
+ * bits read 0. `count` 1..32 (32 = unmasked default). */
+void sm_config_set_in_pin_count(pio_sm_config *c, uint8_t in_count);
+#endif
+void sm_config_set_sideset_pins(pio_sm_config *c, uint8_t sideset_base);
+/** `bit_count` is the SDK convention: data bits + the enable bit when
+ * `optional` (so `.side_set 2 opt` passes 3). */
+void sm_config_set_sideset(pio_sm_config *c, uint8_t bit_count, bool optional, bool pindirs);
+/** Inclusive wrap: `wrap_target` is the bottom, `wrap` the top. */
+void sm_config_set_wrap(pio_sm_config *c, uint8_t wrap_target, uint8_t wrap);
+/** Clock divider 16.8 fixed point; `div_int` 0 encodes 65536. */
+void sm_config_set_clkdiv_int_frac8(pio_sm_config *c, uint16_t div_int, uint8_t div_frac8);
+/** Float convenience (SDK sm_config_set_clkdiv). */
+void sm_config_set_clkdiv(pio_sm_config *c, float div);
+/** `shift_right` matches the SDK bool; threshold 0 (or >32) means 32. */
+void sm_config_set_out_shift(pio_sm_config *c, bool shift_right, bool autopull,
+                             uint8_t pull_threshold);
+void sm_config_set_in_shift(pio_sm_config *c, bool shift_right, bool autopush,
+                            uint8_t push_threshold);
+void sm_config_set_fifo_join(pio_sm_config *c, pio_fifo_join_t join);
+void sm_config_set_mov_status(pio_sm_config *c, pio_status_sel_t status_sel, uint8_t status_n);
+void sm_config_set_jmp_pin(pio_sm_config *c, uint8_t pin);
+/** EXECCTRL output specials (SDK sm_config_set_out_special): `sticky`
+ * re-asserts driven pins every cycle; `has_enable_pin` uses OUT-data bit
+ * `enable_bit_index` as an inline output-enable. */
+void sm_config_set_out_special(pio_sm_config *c, bool sticky, bool has_enable_pin,
+                               uint8_t enable_bit_index);
+
+/** Apply `c` to `sm`, reset it, and set its PC to `initial_pc` (SDK
+ * pio_sm_init). */
+void pio_sim_sm_init(pio_sim_t *pio, uint8_t sm, uint8_t initial_pc, const pio_sm_config *c);
+/** Apply `c` to `sm` without resetting (SDK pio_sm_set_config). */
+void pio_sim_sm_set_config(pio_sim_t *pio, uint8_t sm, const pio_sm_config *c);
 
 /** Register the external device callback (NULL to clear). */
 void pio_sim_set_device(pio_sim_t *pio, void (*on_tick)(pio_sim_t *, void *), void *ctx);

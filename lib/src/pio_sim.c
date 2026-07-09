@@ -254,99 +254,116 @@ void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled)
 
 /* ── Configuration ─────────────────────────────────────────────────────────── */
 
-void pio_sim_sm_set_wrap(pio_sim_t *pio, uint8_t sm, uint8_t bottom, uint8_t top)
-{
-    pio->sm[SM_IDX(sm)].wrap_bottom = bottom;
-    pio->sm[SM_IDX(sm)].wrap_top = top;
-}
-
-void pio_sim_sm_set_sideset(pio_sim_t *pio, uint8_t sm, uint8_t bit_count, bool opt, bool pindirs)
-{
-    /* bit_count is the pico-sdk "bit_count" = data bits + (opt ? 1 : 0). */
-    pio->sm[SM_IDX(sm)].sideset_total_bits = bit_count;
-    pio->sm[SM_IDX(sm)].sideset_opt = opt;
-    pio->sm[SM_IDX(sm)].sideset_pindirs = pindirs;
-}
-
-void pio_sim_sm_set_sideset_base(pio_sim_t *pio, uint8_t sm, uint8_t base)
-{
-    pio->sm[SM_IDX(sm)].sideset_base = base;
-}
-
 /* Pin-span counts are at most 32 (the SM pin window): clamp so the pin-drive
- * loops below never shift a 32-bit value by ≥ 32. */
+ * loops never shift a 32-bit value by ≥ 32. */
 static uint8_t clamp_pin_count(uint8_t count) { return (count > 32U) ? 32U : count; }
 
-void pio_sim_sm_set_out_pins(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count)
+static uint8_t clamp_thresh(uint8_t threshold)
 {
-    pio->sm[SM_IDX(sm)].out_base = base;
-    pio->sm[SM_IDX(sm)].out_count = clamp_pin_count(count);
+    return ((threshold == 0U) || (threshold > 32U)) ? 32U : threshold;
 }
 
-void pio_sim_sm_set_set_pins(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count)
+pio_sm_config pio_get_default_sm_config(void)
 {
-    pio->sm[SM_IDX(sm)].set_base = base;
-    pio->sm[SM_IDX(sm)].set_count = clamp_pin_count(count);
+    pio_sm_config c;
+    (void)memset(&c, 0, sizeof(c));
+    c.wrap_bottom = 0;
+    c.wrap_top = PIO_SIM_INSN_COUNT - 1U;
+    c.out_dir = PIO_SHIFT_LEFT;
+    c.in_dir = PIO_SHIFT_LEFT;
+    c.pull_thresh = 32;
+    c.push_thresh = 32;
+    c.in_count = 32;  /* unmasked */
+    c.clkdiv_int = 1; /* divide by 1 (a 0 here would encode 65536) */
+    c.status_sel = (uint8_t)PIO_STATUS_TX_LEVEL;
+    return c;
 }
 
-void pio_sim_sm_set_in_base(pio_sim_t *pio, uint8_t sm, uint8_t base)
+void sm_config_set_out_pins(pio_sm_config *c, uint8_t out_base, uint8_t out_count)
 {
-    pio->sm[SM_IDX(sm)].in_base = base;
+    c->out_base = out_base;
+    c->out_count = clamp_pin_count(out_count);
 }
-
-void pio_sim_sm_set_out_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count)
+void sm_config_set_out_pin_base(pio_sm_config *c, uint8_t out_base) { c->out_base = out_base; }
+void sm_config_set_out_pin_count(pio_sm_config *c, uint8_t out_count)
 {
-    pio->sm[SM_IDX(sm)].out_count = clamp_pin_count(count);
+    c->out_count = clamp_pin_count(out_count);
 }
-
-void pio_sim_sm_set_set_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count)
+void sm_config_set_set_pins(pio_sm_config *c, uint8_t set_base, uint8_t set_count)
 {
-    pio->sm[SM_IDX(sm)].set_count = clamp_pin_count(count);
+    c->set_base = set_base;
+    c->set_count = clamp_pin_count(set_count);
 }
-
+void sm_config_set_set_pin_base(pio_sm_config *c, uint8_t set_base) { c->set_base = set_base; }
+void sm_config_set_set_pin_count(pio_sm_config *c, uint8_t set_count)
+{
+    c->set_count = clamp_pin_count(set_count);
+}
+void sm_config_set_in_pins(pio_sm_config *c, uint8_t in_base) { c->in_base = in_base; }
+void sm_config_set_in_pin_base(pio_sm_config *c, uint8_t in_base) { c->in_base = in_base; }
 #if PIO_SIM_HAS_IN_PIN_COUNT
-void pio_sim_sm_set_in_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count)
+void sm_config_set_in_pin_count(pio_sm_config *c, uint8_t in_count)
 {
-    /* count == 0 or > 32 → 32 (unmasked), matching the hardware field where the
-     * value 0 encodes "all 32 pins visible". */
-    pio->sm[SM_IDX(sm)].in_count = ((count == 0U) || (count > 32U)) ? 32U : count;
+    c->in_count = ((in_count == 0U) || (in_count > 32U)) ? 32U : in_count;
 }
 #endif
-
-void pio_sim_sm_set_jmp_pin(pio_sim_t *pio, uint8_t sm, uint8_t pin)
+void sm_config_set_sideset_pins(pio_sm_config *c, uint8_t sideset_base)
 {
-    pio->sm[SM_IDX(sm)].jmp_pin = pin;
+    c->sideset_base = sideset_base;
 }
-
-void pio_sim_sm_set_out_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bool autopull,
-                              uint8_t threshold)
+void sm_config_set_sideset(pio_sm_config *c, uint8_t bit_count, bool optional, bool pindirs)
 {
-    pio->sm[SM_IDX(sm)].out_dir = dir;
-    pio->sm[SM_IDX(sm)].autopull = autopull;
-    pio->sm[SM_IDX(sm)].pull_thresh = ((threshold == 0U) || (threshold > 32U)) ? 32U : threshold;
+    c->sideset_total_bits = bit_count;
+    c->sideset_opt = optional;
+    c->sideset_pindirs = pindirs;
 }
-
-void pio_sim_sm_set_in_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bool autopush,
-                             uint8_t threshold)
+void sm_config_set_wrap(pio_sm_config *c, uint8_t wrap_target, uint8_t wrap)
 {
-    pio->sm[SM_IDX(sm)].in_dir = dir;
-    pio->sm[SM_IDX(sm)].autopush = autopush;
-    pio->sm[SM_IDX(sm)].push_thresh = ((threshold == 0U) || (threshold > 32U)) ? 32U : threshold;
+    c->wrap_bottom = wrap_target;
+    c->wrap_top = wrap;
 }
-
-void pio_sim_sm_set_out_special(pio_sim_t *pio, uint8_t sm, bool sticky, bool inline_out_en,
-                                uint8_t out_en_sel)
+void sm_config_set_clkdiv_int_frac8(pio_sm_config *c, uint16_t div_int, uint8_t div_frac8)
 {
-    pio->sm[SM_IDX(sm)].out_sticky = sticky;
-    pio->sm[SM_IDX(sm)].out_inline_en = inline_out_en;
-    pio->sm[SM_IDX(sm)].out_en_sel = (uint8_t)(out_en_sel & 0x1FU);
+    c->clkdiv_int = div_int;
+    c->clkdiv_frac = div_frac8;
 }
-
-void pio_sim_sm_set_clkdiv(pio_sim_t *pio, uint8_t sm, uint16_t div_int, uint8_t div_frac)
+void sm_config_set_clkdiv(pio_sm_config *c, float div)
 {
-    /* div_int == 0 means a divider of 65536 in hardware. */
-    pio->sm[SM_IDX(sm)].clkdiv_int = div_int;
-    pio->sm[SM_IDX(sm)].clkdiv_frac = div_frac;
+    uint16_t whole = (uint16_t)div;
+    uint8_t frac = (uint8_t)((div - (float)whole) * 256.0F);
+    c->clkdiv_int = whole;
+    c->clkdiv_frac = frac;
+}
+void sm_config_set_out_shift(pio_sm_config *c, bool shift_right, bool autopull,
+                             uint8_t pull_threshold)
+{
+    c->out_dir = shift_right ? PIO_SHIFT_RIGHT : PIO_SHIFT_LEFT;
+    c->autopull = autopull;
+    c->pull_thresh = clamp_thresh(pull_threshold);
+}
+void sm_config_set_in_shift(pio_sm_config *c, bool shift_right, bool autopush,
+                            uint8_t push_threshold)
+{
+    c->in_dir = shift_right ? PIO_SHIFT_RIGHT : PIO_SHIFT_LEFT;
+    c->autopush = autopush;
+    c->push_thresh = clamp_thresh(push_threshold);
+}
+void sm_config_set_fifo_join(pio_sm_config *c, pio_fifo_join_t join)
+{
+    c->fifo_join = (uint8_t)join;
+}
+void sm_config_set_mov_status(pio_sm_config *c, pio_status_sel_t status_sel, uint8_t status_n)
+{
+    c->status_sel = (uint8_t)status_sel;
+    c->status_n = status_n;
+}
+void sm_config_set_jmp_pin(pio_sm_config *c, uint8_t pin) { c->jmp_pin = pin; }
+void sm_config_set_out_special(pio_sm_config *c, bool sticky, bool has_enable_pin,
+                               uint8_t enable_bit_index)
+{
+    c->out_sticky = sticky;
+    c->out_inline_en = has_enable_pin;
+    c->out_en_sel = (uint8_t)(enable_bit_index & 0x1FU);
 }
 
 void pio_sim_clkdiv_restart(pio_sim_t *pio, uint8_t sm_mask)
@@ -383,22 +400,16 @@ uint16_t pio_sim_sm_get_instr(const pio_sim_t *pio, uint8_t sm)
     return s->exec_pending ? s->exec_insn : pio->insn[s->pc];
 }
 
-void pio_sim_sm_set_status_sel(pio_sim_t *pio, uint8_t sm, pio_status_sel_t sel, uint8_t n)
-{
-    pio->sm[SM_IDX(sm)].status_sel = (uint8_t)sel;
-    pio->sm[SM_IDX(sm)].status_n = n;
-    pio->sm[SM_IDX(sm)].status_override = false;
-}
-
 void pio_sim_sm_set_status_value(pio_sim_t *pio, uint8_t sm, uint32_t value)
 {
     pio->sm[SM_IDX(sm)].status_value = value;
     pio->sm[SM_IDX(sm)].status_override = true;
 }
 
-void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join)
+/* Apply a FIFO-join mode to an SM: reshape the TX/RX capacities and clear both
+ * (changing the join reshapes the storage, as on hardware). */
+static void apply_fifo_join(pio_sm_t *s, pio_fifo_join_t join)
 {
-    pio_sm_t *s = &pio->sm[SM_IDX(sm)];
     s->fifo_join = (uint8_t)join;
     switch (join) {
     case PIO_FIFO_JOIN_TX:
@@ -434,12 +445,69 @@ void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join)
     fifo_clear(&s->rx);
 }
 
-void pio_sim_sm_set_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count, bool out)
+void pio_sim_sm_set_config(pio_sim_t *pio, uint8_t sm, const pio_sm_config *c)
+{
+    pio_sm_t *s = &pio->sm[SM_IDX(sm)];
+    s->wrap_bottom = c->wrap_bottom;
+    s->wrap_top = c->wrap_top;
+    s->out_base = c->out_base;
+    s->out_count = c->out_count;
+    s->set_base = c->set_base;
+    s->set_count = c->set_count;
+    s->in_base = c->in_base;
+    s->in_count = c->in_count;
+    s->sideset_base = c->sideset_base;
+    s->sideset_total_bits = c->sideset_total_bits;
+    s->sideset_opt = c->sideset_opt;
+    s->sideset_pindirs = c->sideset_pindirs;
+    s->jmp_pin = c->jmp_pin;
+    s->out_dir = c->out_dir;
+    s->in_dir = c->in_dir;
+    s->autopull = c->autopull;
+    s->autopush = c->autopush;
+    s->pull_thresh = c->pull_thresh;
+    s->push_thresh = c->push_thresh;
+    s->clkdiv_int = c->clkdiv_int;
+    s->clkdiv_frac = c->clkdiv_frac;
+    s->status_sel = c->status_sel;
+    s->status_n = c->status_n;
+    s->status_override = false;
+    s->out_sticky = c->out_sticky;
+    s->out_inline_en = c->out_inline_en;
+    s->out_en_sel = c->out_en_sel;
+    apply_fifo_join(s, (pio_fifo_join_t)c->fifo_join);
+}
+
+void pio_sim_sm_init(pio_sim_t *pio, uint8_t sm, uint8_t initial_pc, const pio_sm_config *c)
+{
+    pio_sim_sm_set_config(pio, sm, c);
+    pio_sm_t *s = &pio->sm[SM_IDX(sm)];
+    /* Reset the execution state (scratch, shift regs, delay, stall), as
+     * pio_sm_init does, then point the PC at initial_pc. FIFOs were already
+     * cleared by the join reshape in set_config. */
+    s->x = 0;
+    s->y = 0;
+    s->osr = 0;
+    s->isr = 0;
+    s->osr_count = 32;
+    s->isr_count = 0;
+    s->delay = 0;
+    s->stalled = false;
+    s->exec_pending = false;
+    s->exec_insn = 0;
+    s->clk_accum = 0;
+    s->fdebug = 0;
+    s->enabled = false;
+    s->pc = initial_pc;
+}
+
+void pio_sim_sm_set_consecutive_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count,
+                                        bool is_out)
 {
     pio_sm_t *s = &pio->sm[SM_IDX(sm)];
     for (uint8_t i = 0; i < count; i++) {
         uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
-        if (out) {
+        if (is_out) {
             s->out_pin_oe |= bit;
         } else {
             s->out_pin_oe &= ~bit;

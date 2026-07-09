@@ -94,12 +94,14 @@ static void test_jmp_relocated_by_offset(void)
 
 static void config_swd_write(const pio_program_t *p)
 {
-    TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 0, p));
-    pio_sim_sm_set_out_pins(&pio, 0, PIN_SWDIO, 1);
-    pio_sim_sm_set_sideset_base(&pio, 0, PIN_SWCLK);
-    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, false, 32); /* LSB first */
-    pio_sim_sm_set_pindirs(&pio, 0, PIN_SWCLK, 1, true);
-    pio_sim_sm_set_pindirs(&pio, 0, PIN_SWDIO, 1, true);
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_out_pins(&c, PIN_SWDIO, 1);
+    sm_config_set_sideset_pins(&c, PIN_SWCLK);
+    sm_config_set_out_shift(&c, true, false, 32); /* LSB first */
+    pio_sim_sm_set_config(&pio, 0, &c);
+    TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 0, p)); /* overlays wrap/side-set/pc */
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, PIN_SWCLK, 1, true);
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, PIN_SWDIO, 1, true);
     pio_sim_sm_set_enabled(&pio, 0, true);
 }
 
@@ -138,12 +140,14 @@ static void test_swd_read_captures_bits(void)
 {
     pio_program_t p;
     TEST_ASSERT_TRUE(pio_asm_assemble(SWD_READ, NULL, &p));
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_in_pins(&c, PIN_SWDIO);
+    sm_config_set_sideset_pins(&c, PIN_SWCLK);
+    sm_config_set_in_shift(&c, true, false, 32);
+    pio_sim_sm_set_config(&pio, 0, &c);
     TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 0, &p));
-    pio_sim_sm_set_in_base(&pio, 0, PIN_SWDIO);
-    pio_sim_sm_set_sideset_base(&pio, 0, PIN_SWCLK);
-    pio_sim_sm_set_in_shift(&pio, 0, PIO_SHIFT_RIGHT, false, 32);
-    pio_sim_sm_set_pindirs(&pio, 0, PIN_SWCLK, 1, true);
-    pio_sim_sm_set_pindirs(&pio, 0, PIN_SWDIO, 1, false); /* input */
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, PIN_SWCLK, 1, true);
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, PIN_SWDIO, 1, false); /* input */
     pio_sim_sm_set_enabled(&pio, 0, true);
 
     /* Hold SWDIO high; capture 3 bits → ISR collects 0b111, pushed right-shifted

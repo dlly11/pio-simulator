@@ -1736,12 +1736,18 @@ bool pio_asm_load_program(pio_sim_t *pio, uint8_t sm, uint8_t offset, const pio_
         relocated[i] = insn;
     }
     pio_sim_load(pio, offset, relocated, prog->count);
-    pio_sim_sm_set_wrap(pio, sm, (uint8_t)(offset + prog->wrap_bottom),
-                        (uint8_t)(offset + prog->wrap_top));
-    pio_sim_sm_set_sideset(pio, sm, prog->sideset_bits, prog->sideset_opt, prog->sideset_pindirs);
+    /* Apply the program's structural config (wrap, side-set) directly — the
+     * pio_sm_t is a public struct, and doing so avoids reshaping/clearing the
+     * FIFOs the way pio_sim_sm_set_config would. */
+    pio_sm_t *s = &pio->sm[sm % PIO_SIM_NUM_SM];
+    s->wrap_bottom = (uint8_t)(offset + prog->wrap_bottom);
+    s->wrap_top = (uint8_t)(offset + prog->wrap_top);
+    s->sideset_total_bits = prog->sideset_bits;
+    s->sideset_opt = prog->sideset_opt;
+    s->sideset_pindirs = prog->sideset_pindirs;
     /* Start at the program's first instruction (the SDK's pio_sm_init
      * convention), so any preamble before .wrap_target runs once. */
-    pio_sim_sm_set_pc(pio, sm, offset);
+    s->pc = offset;
     return true;
 }
 
@@ -1753,6 +1759,39 @@ bool pio_asm_load_program_at_origin(pio_sim_t *pio, uint8_t sm, const pio_progra
 
 void pio_asm_apply_program_config(pio_sim_t *pio, uint8_t sm, const pio_program_t *prog)
 {
+    /* Overlay the program's directive-derived config onto the SM's current
+     * config: seed a pio_sm_config from the live SM (the struct is public),
+     * apply the directives with the SDK mutators, then re-apply. */
+    const pio_sm_t *s = &pio->sm[sm % PIO_SIM_NUM_SM];
+    pio_sm_config c = pio_get_default_sm_config();
+    c.out_base = s->out_base;
+    c.out_count = s->out_count;
+    c.set_base = s->set_base;
+    c.set_count = s->set_count;
+    c.in_base = s->in_base;
+    c.in_count = s->in_count;
+    c.sideset_base = s->sideset_base;
+    c.sideset_total_bits = s->sideset_total_bits;
+    c.sideset_opt = s->sideset_opt;
+    c.sideset_pindirs = s->sideset_pindirs;
+    c.jmp_pin = s->jmp_pin;
+    c.out_dir = s->out_dir;
+    c.in_dir = s->in_dir;
+    c.autopull = s->autopull;
+    c.autopush = s->autopush;
+    c.pull_thresh = s->pull_thresh;
+    c.push_thresh = s->push_thresh;
+    c.clkdiv_int = s->clkdiv_int;
+    c.clkdiv_frac = s->clkdiv_frac;
+    c.wrap_bottom = s->wrap_bottom;
+    c.wrap_top = s->wrap_top;
+    c.fifo_join = s->fifo_join;
+    c.status_sel = s->status_sel;
+    c.status_n = s->status_n;
+    c.out_sticky = s->out_sticky;
+    c.out_inline_en = s->out_inline_en;
+    c.out_en_sel = s->out_en_sel;
+
     if (prog->has_clock_div) {
         /* 16.8 fixed-point, matching pico-sdk sm_config_set_clkdiv. */
         double d = prog->clock_div;
@@ -1765,28 +1804,29 @@ void pio_asm_apply_program_config(pio_sim_t *pio, uint8_t sm, const pio_program_
             frac = 0;
             whole++;
         }
-        pio_sim_sm_set_clkdiv(pio, sm, (uint16_t)whole, (uint8_t)frac);
+        sm_config_set_clkdiv_int_frac8(&c, (uint16_t)whole, (uint8_t)frac);
     }
     if (prog->has_fifo_join) {
-        pio_sim_sm_set_fifo_join(pio, sm, prog->fifo_join);
+        sm_config_set_fifo_join(&c, prog->fifo_join);
     }
     if (prog->has_mov_status) {
-        pio_sim_sm_set_status_sel(pio, sm, prog->mov_status_sel, prog->mov_status_n);
+        sm_config_set_mov_status(&c, prog->mov_status_sel, prog->mov_status_n);
     }
     if (prog->in_cfg.set) {
-        pio_sim_sm_set_in_shift(pio, sm, prog->in_cfg.dir, prog->in_cfg.autoshift,
-                                prog->in_cfg.threshold);
+        sm_config_set_in_shift(&c, prog->in_cfg.dir == PIO_SHIFT_RIGHT, prog->in_cfg.autoshift,
+                               prog->in_cfg.threshold);
 #if PIO_SIM_HAS_IN_PIN_COUNT
         /* RP2350 only; RP2040 has no IN pin count, so the .in count is ignored there. */
-        pio_sim_sm_set_in_pin_count(pio, sm, prog->in_cfg.count);
+        sm_config_set_in_pin_count(&c, prog->in_cfg.count);
 #endif
     }
     if (prog->out_cfg.set) {
-        pio_sim_sm_set_out_shift(pio, sm, prog->out_cfg.dir, prog->out_cfg.autoshift,
-                                 prog->out_cfg.threshold);
-        pio_sim_sm_set_out_pin_count(pio, sm, prog->out_cfg.count);
+        sm_config_set_out_shift(&c, prog->out_cfg.dir == PIO_SHIFT_RIGHT, prog->out_cfg.autoshift,
+                                prog->out_cfg.threshold);
+        sm_config_set_out_pin_count(&c, prog->out_cfg.count);
     }
     if (prog->set_cfg.set) {
-        pio_sim_sm_set_set_pin_count(pio, sm, prog->set_cfg.count);
+        sm_config_set_set_pin_count(&c, prog->set_cfg.count);
     }
+    pio_sim_sm_set_config(pio, sm, &c);
 }

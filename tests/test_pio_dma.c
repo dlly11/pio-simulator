@@ -22,11 +22,13 @@ void setUp(void)
 
 void tearDown(void) { (void)0; }
 
-/* Load a program at offset 0, set wrap to span it, enable SM0. */
+/* Load a program at offset 0, wrap over it, init + enable SM0. */
 static void load_prog(const uint16_t *prog, uint8_t n)
 {
     pio_sim_load(&pio, 0, prog, n);
-    pio_sim_sm_set_wrap(&pio, 0, 0, (uint8_t)(n - 1U));
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_wrap(&c, 0, (uint8_t)(n - 1U));
+    pio_sim_sm_init(&pio, 0, 0, &c);
     pio_sim_sm_set_enabled(&pio, 0, true);
 }
 
@@ -398,7 +400,9 @@ static void test_cross_pio_transfer_in_group(void)
     const uint16_t sink[] = {pio_sim_encode_pull(false, true),
                              pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
     pio_sim_load(&p2, 0, sink, 2);
-    pio_sim_sm_set_wrap(&p2, 0, 0, 1);
+    pio_sm_config c2 = pio_get_default_sm_config();
+    sm_config_set_wrap(&c2, 0, 1);
+    pio_sim_sm_init(&p2, 0, 0, &c2);
     pio_sim_sm_set_enabled(&p2, 0, true);
 
     static uint32_t in[2] = {0xAB1U, 0xAB2U};
@@ -432,24 +436,28 @@ static void test_chip_loopback_dma_pin_dma(void)
     pio_sim_t *p1 = pio_chip_pio(&chip, 1);
 
     /* PIO0 SM0: pull a word, drive its LSB onto pin 0 (shift right = LSB first). */
-    pio_sim_sm_set_out_shift(p0, 0, PIO_SHIFT_RIGHT, false, 32);
-    pio_sim_sm_set_out_pins(p0, 0, 0, 1);
-    pio_sim_sm_set_pindirs(p0, 0, 0, 1, true);
+    pio_sm_config c0 = pio_get_default_sm_config();
+    sm_config_set_out_shift(&c0, true, false, 32);
+    sm_config_set_out_pins(&c0, 0, 1);
+    sm_config_set_wrap(&c0, 0, 2);
     const uint16_t src_prog[] = {pio_sim_encode_pull(false, true),
                                  pio_sim_encode_out(PIO_DST_PINS, 1),
                                  pio_sim_encode_jmp(PIO_COND_ALWAYS, 2)};
     pio_sim_load(p0, 0, src_prog, 3);
-    pio_sim_sm_set_wrap(p0, 0, 0, 2);
+    pio_sim_sm_init(p0, 0, 0, &c0);
+    pio_sim_sm_set_consecutive_pindirs(p0, 0, 0, 1, true);
     pio_sim_sm_set_enabled(p0, 0, true);
     pio_sim_gpio_set_function(p0, 0, PIO_GPIO_FUNC_PIO0); /* pad follows PIO0 */
 
     /* PIO1 SM0: wait for the rising pin, capture it, push once, park. */
-    pio_sim_sm_set_in_base(p1, 0, 0);
+    pio_sm_config c1 = pio_get_default_sm_config();
+    sm_config_set_in_pins(&c1, 0);
+    sm_config_set_wrap(&c1, 0, 3);
     const uint16_t cap_prog[] = {
         pio_sim_encode_wait(1, PIO_WAIT_PIN, 0), pio_sim_encode_in(PIO_SRC_PINS, 1),
         pio_sim_encode_push(false, true), pio_sim_encode_jmp(PIO_COND_ALWAYS, 3)};
     pio_sim_load(p1, 0, cap_prog, 4);
-    pio_sim_sm_set_wrap(p1, 0, 0, 3);
+    pio_sim_sm_init(p1, 0, 0, &c1);
     pio_sim_sm_set_enabled(p1, 0, true);
 
     static uint32_t word_in = 0x1U;
