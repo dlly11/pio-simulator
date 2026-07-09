@@ -596,6 +596,26 @@ static void test_assemble_directives_and_apply(void)
 #endif
 }
 
+/* .clock_div encodes the divider fraction by truncating, exactly as
+ * sm_config_set_clkdiv (and the SDK) do — not rounding. 2.502 -> frac 128,
+ * where rounding would give 129 — so both config paths agree. */
+static void test_clock_div_matches_set_clkdiv_truncation(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program s\n.clock_div 2.502\n    nop\n", NULL, &p),
+                             p.error);
+    pio_sim_t pio;
+    pio_sim_init(&pio);
+    pio_asm_apply_program_config(&pio, 0, &p);
+
+    pio_sm_config cfg = pio_get_default_sm_config();
+    sm_config_set_clkdiv(&cfg, 2.502F);
+
+    TEST_ASSERT_EQUAL_UINT16(cfg.clkdiv_int, pio.sm[0].clkdiv_int);
+    TEST_ASSERT_EQUAL_UINT8(cfg.clkdiv_frac, pio.sm[0].clkdiv_frac);
+    TEST_ASSERT_EQUAL_UINT8(128U, pio.sm[0].clkdiv_frac);
+}
+
 #if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
 /* `.mov_status irq next|prev set N` selects the neighbouring block's flag. */
 static void test_mov_status_irq_next_prev_directive(void)
@@ -892,6 +912,7 @@ int main(void)
     RUN_TEST(test_assemble_comments_and_binary);
     RUN_TEST(test_assemble_expressions);
     RUN_TEST(test_assemble_directives_and_apply);
+    RUN_TEST(test_clock_div_matches_set_clkdiv_truncation);
 #if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
     RUN_TEST(test_mov_status_irq_next_prev_directive);
 #endif
