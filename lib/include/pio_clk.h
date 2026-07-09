@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * pio_clock.h — clk_sys clock-tree model: XOSC → PLL_SYS → clk_sys divider.
+ * pio_clk.h — clk_sys clock-tree model: XOSC → PLL_SYS → clk_sys divider.
  *
  * Behavioural contract: this module does NOT change how the simulator steps.
  * One pio_sim_tick() remains exactly one clk_sys cycle; the tree only assigns

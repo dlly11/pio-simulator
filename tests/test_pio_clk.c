@@ -1,8 +1,8 @@
-/* test_pio_clock.c — unit tests for the clk_sys clock-tree model. */
+/* test_pio_clk.c — unit tests for the clk_sys clock-tree model. */
 
 #include "unity.h"
 
-#include "pio_clock.h"
+#include "pio_clk.h"
 
 static pio_clk_tree_t clk;
 

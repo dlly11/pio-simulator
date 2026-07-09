@@ -19,7 +19,7 @@ Pico SDK, no RTOS.
   cover the chip around the block: `pio_gpio` (PADS_BANK0 pad registers and the
   IO_BANK0 FUNCSEL mux with output/input overrides), `pio_dma` (the full 12/16-
   channel DMA controller with chaining, IRQs, pacing timers and the CRC
-  sniffer), `pio_clock` (XOSC→PLL→clk_sys tree with tick↔time conversion), and
+  sniffer), `pio_clk` (XOSC→PLL→clk_sys tree with tick↔time conversion), and
   `pio_chip` (all blocks + shared pads + DMA + clock behind one tick call) — see
   Scope below.
 - **`pio_asm`** — a pioasm-compatible assembler: all mnemonics and operand forms
@@ -139,7 +139,7 @@ and the per-SM clock divider is rate-exact (the 16.8 fractional accumulator
 averages to `int + frac/256` cycles per SM step). The chip-level surroundings of
 the PIO block are modelled too:
 
-- **Clock tree** (`pio_clock.h`): XOSC → PLL_SYS → clk_sys divider with
+- **Clock tree** (`pio_clk.h`): XOSC → PLL_SYS → clk_sys divider with
   datasheet-validated parameters and exact integer tick↔ns/µs conversion. It
   does not change stepping — a tick is still one clk_sys cycle; the tree gives
   it a duration.

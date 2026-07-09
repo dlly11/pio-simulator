@@ -1,21 +1,15 @@
 /*
  * SPDX-License-Identifier: MIT
- * pio_clock.c — clk_sys clock-tree model (see pio_clock.h).
+ * pio_clk.c — clk_sys clock-tree model (see pio_clk.h).
  */
 
-#include "pio_clock.h"
+#include "pio_clk.h"
 
 #include <string.h>
 
-/* clk_sys fractional divider width: RP2040 CLK_SYS_DIV is 24.8, RP2350 is
- * 16.16 (RP2040 datasheet §2.15.7 / RP2350 datasheet §8.1.6). */
-#if PIO_SIM_PIO_VERSION >= 1
-#define CLK_DIV_FRAC_BITS 16U
-#define CLK_DIV_INT_MAX 0xFFFFU
-#else
-#define CLK_DIV_FRAC_BITS 8U
-#define CLK_DIV_INT_MAX 0xFFFFFFU
-#endif
+/* clk_sys fractional divider width comes from the platform config gate. */
+#define CLK_DIV_FRAC_BITS PIO_SIM_CLK_SYS_DIV_FRAC_BITS
+#define CLK_DIV_INT_MAX PIO_SIM_CLK_SYS_DIV_INT_MAX
 
 void pio_clk_init_default(pio_clk_tree_t *t)
 {

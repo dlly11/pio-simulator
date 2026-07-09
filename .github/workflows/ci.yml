@@ -134,7 +134,7 @@ jobs:
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       - name: Run clang-tidy on the library
         run: >
-          clang-tidy-21 -p build lib/src/pio_sim.c lib/src/pio_gpio.c lib/src/pio_clock.c
+          clang-tidy-21 -p build lib/src/pio_sim.c lib/src/pio_gpio.c lib/src/pio_clk.c
           lib/src/pio_dma.c lib/src/pio_chip.c lib/src/pio_asm.c
 
   format:
@@ -154,13 +154,13 @@ jobs:
           lib/src/pio_sim.c lib/include/pio_sim.h
           lib/src/pio_dma.c lib/include/pio_dma.h lib/src/pio_sim_internal.h
           lib/src/pio_gpio.c lib/include/pio_gpio.h
-          lib/src/pio_clock.c lib/include/pio_clock.h
+          lib/src/pio_clk.c lib/include/pio_clk.h
           lib/src/pio_chip.c lib/include/pio_chip.h
           lib/src/pio_asm.c lib/include/pio_asm.h
           lib/include/pio.h
           lib/config/pio_sim_config.h
           tests/test_pio_sim.c tests/test_pio_asm.c
-          tests/test_pio_gpio.c tests/test_pio_clock.c tests/test_pio_dma.c
+          tests/test_pio_gpio.c tests/test_pio_clk.c tests/test_pio_dma.c
           tests/test_pio_programs.c tests/fuzz_pio_asm.c
           tests/consumer/main.c
           tests/test_pio_asm_vs_pioasm.c
