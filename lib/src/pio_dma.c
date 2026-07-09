@@ -12,6 +12,7 @@
 
 #include "pio_sim_internal.h"
 
+#include <stddef.h>
 #include <string.h>
 
 /* PIO-side DREQ levels (kept in pio_sim.h for standalone use). */
@@ -303,10 +304,13 @@ static void dma_advance(pio_dma_addr_t *a, bool incr, uint8_t ring_size, bool ri
         return;
     }
     if (ring_applies && (ring_size != 0U)) {
-        uintptr_t addr = (uintptr_t)a->mem;
+        /* Address-aligned wrap, expressed as a signed pointer adjustment so
+         * there is no integer-to-pointer cast: move the cursor by the delta of
+         * its low bits within the window (negative when it wraps to the base). */
         uintptr_t mask = ((uintptr_t)1U << ring_size) - 1U;
-        addr = (addr & ~mask) | ((addr + bytes) & mask);
-        a->mem = (unsigned char *)addr;
+        uintptr_t low = (uintptr_t)a->mem & mask;
+        uintptr_t next = (low + bytes) & mask;
+        a->mem += (ptrdiff_t)next - (ptrdiff_t)low;
     } else {
         a->mem += bytes;
     }

@@ -83,7 +83,8 @@ static void test_out_shift_left_takes_top_bits(void)
     pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_LEFT, false, 32);
     const uint16_t prog[] = {
         pio_sim_encode_pull(false, true),
-        pio_sim_encode_out(PIO_DST_X, 4), /* top 4 bits of OSR */
+        /* top 4 bits of OSR */
+        pio_sim_encode_out(PIO_DST_X, 4),
     };
     load_prog(prog, 2);
     pio_sim_tx_push(&pio, 0, 0xC000000A);
@@ -602,7 +603,8 @@ static void test_pull_noblock_on_empty_copies_x(void)
 {
     const uint16_t prog[] = {
         pio_sim_encode_set(PIO_DST_X, 12),
-        pio_sim_encode_pull(false, false), /* noblock */
+        /* noblock */
+        pio_sim_encode_pull(false, false),
     };
     load_prog(prog, 2);
     pio_sim_run(&pio, 2);
