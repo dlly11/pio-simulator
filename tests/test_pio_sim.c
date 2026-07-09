@@ -862,6 +862,37 @@ static void test_fifo_join_rx_depth_8(void)
     TEST_ASSERT_TRUE(pio_sim_sm_is_tx_fifo_full(&pio, 0)); /* TX cap 0 → always full */
 }
 
+/* pio_sim_sm_set_config preserves queued FIFO words when the FIFO-join config
+ * is unchanged (matching the SDK / silicon: the FIFOs clear only as a side
+ * effect of an FJOIN change), but a join change clears both. */
+static void test_set_config_preserves_fifo_unless_join_changes(void)
+{
+    pio_sm_config c = pio_get_default_sm_config();
+    pio_sim_sm_init(&pio, 0, 0, &c);
+    TEST_ASSERT_TRUE(pio_sim_sm_put(&pio, 0, 0xABCDU));
+    TEST_ASSERT_FALSE(pio_sim_sm_is_tx_fifo_empty(&pio, 0));
+
+    /* Re-applying the same (unchanged-join) config must NOT drop the word. */
+    pio_sim_sm_set_config(&pio, 0, &c);
+    TEST_ASSERT_FALSE(pio_sim_sm_is_tx_fifo_empty(&pio, 0));
+
+    /* Changing the join clears both FIFOs (the SHIFTCTRL FJOIN side effect). */
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    pio_sim_sm_set_config(&pio, 0, &c);
+    TEST_ASSERT_TRUE(pio_sim_sm_is_tx_fifo_empty(&pio, 0));
+}
+
+/* pio_sim_sm_init clears the FIFOs unconditionally even when the join is
+ * unchanged (mirrors pio_sm_init's explicit pio_sm_clear_fifos call). */
+static void test_sm_init_clears_fifos_even_without_join_change(void)
+{
+    pio_sm_config c = pio_get_default_sm_config();
+    pio_sim_sm_init(&pio, 0, 0, &c);
+    TEST_ASSERT_TRUE(pio_sim_sm_put(&pio, 0, 0x11U));
+    pio_sim_sm_init(&pio, 0, 0, &c); /* same join, but init always clears */
+    TEST_ASSERT_TRUE(pio_sim_sm_is_tx_fifo_empty(&pio, 0));
+}
+
 /* ── Public accessor coverage ──────────────────────────────────────────────── */
 
 static void test_tx_empty_and_irq_clear_accessors(void)
@@ -1212,6 +1243,27 @@ static void test_clkdiv_restart_realigns_sms(void)
     pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].clk_accum); /* both fired on this tick */
     TEST_ASSERT_EQUAL_UINT32(pio.sm[0].clk_accum, pio.sm[1].clk_accum);
+}
+
+/* The single-SM clkdiv restart resets only that SM's phase (and masks the SM
+ * index), unlike the mask variant exercised above. */
+static void test_sm_clkdiv_restart_resets_one_sm(void)
+{
+    const uint16_t prog[] = {pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
+    pio_sim_load(&pio, 0, prog, 1);
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_wrap(&c, 0, 0);
+    sm_config_set_clkdiv_int_frac(&c, 4, 0);
+    for (uint8_t s = 0; s < 2U; s++) {
+        pio_sim_sm_init(&pio, s, 0, &c);
+    }
+    pio_sim_enable_sm_mask_in_sync(&pio, 0x3U);
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_EQUAL_UINT32(pio.sm[0].clk_accum, pio.sm[1].clk_accum);
+
+    pio_sim_sm_clkdiv_restart(&pio, 4); /* index 4 masks to SM0 */
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].clk_accum);
+    TEST_ASSERT_TRUE(pio.sm[1].clk_accum != 0U); /* SM1 untouched */
 }
 
 /* The clock divider free-runs while the SM is disabled: the accumulator advances
@@ -2024,6 +2076,8 @@ int main(void)
     RUN_TEST(test_wrap_returns_to_bottom);
 
     RUN_TEST(test_fifo_join_rx_depth_8);
+    RUN_TEST(test_set_config_preserves_fifo_unless_join_changes);
+    RUN_TEST(test_sm_init_clears_fifos_even_without_join_change);
     RUN_TEST(test_tx_empty_and_irq_clear_accessors);
 
     RUN_TEST(test_in_autopush_full_does_not_reshift);
@@ -2049,6 +2103,7 @@ int main(void)
     RUN_TEST(test_irq_rel_preserves_high_bit);
     RUN_TEST(test_wait_irq_rel);
     RUN_TEST(test_clkdiv_restart_realigns_sms);
+    RUN_TEST(test_sm_clkdiv_restart_resets_one_sm);
     RUN_TEST(test_clkdiv_freeruns_while_disabled);
 
 #if PIO_SIM_HAS_RXFIFO_MOV
