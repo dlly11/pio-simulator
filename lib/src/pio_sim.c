@@ -5,6 +5,8 @@
 
 #include "pio_sim.h"
 
+#include "pio_sim_internal.h"
+
 #include <string.h>
 
 /* ── FIFO ──────────────────────────────────────────────────────────────────── */
@@ -40,20 +42,14 @@ static bool fifo_pop(pio_fifo_t *f, uint32_t *v)
     return true;
 }
 
+/* Public-API state-machine index guard: out-of-range `sm` is masked into 0..3
+ * rather than indexing out of bounds — the same defensive convention as the
+ * `irq & 7U` and `line & 1U` masks elsewhere in the API. */
+#define SM_IDX(sm) ((sm) & (PIO_SIM_NUM_SM - 1U))
+
 /* ── Bit helpers ───────────────────────────────────────────────────────────── */
 
 static uint32_t mask_n(uint8_t n) { return (n >= 32U) ? 0xFFFFFFFFU : (((uint32_t)1U << n) - 1U); }
-
-static uint32_t reverse32(uint32_t v_in)
-{
-    uint32_t v = v_in;
-    v = ((v & 0x55555555U) << 1U) | ((v >> 1U) & 0x55555555U);
-    v = ((v & 0x33333333U) << 2U) | ((v >> 2U) & 0x33333333U);
-    v = ((v & 0x0F0F0F0FU) << 4U) | ((v >> 4U) & 0x0F0F0F0FU);
-    v = ((v & 0x00FF00FFU) << 8U) | ((v >> 8U) & 0x00FF00FFU);
-    v = (v << 16U) | (v >> 16U);
-    return v;
-}
 
 /* Map a state-machine pin "view" index to a physical GPIO. The PIO pin mux is a
  * 32-pin window (indices wrap mod 32); on RP2350 GPIOBASE then offsets the whole
@@ -69,33 +65,108 @@ static uint8_t phys_pin(const pio_sim_t *pio, uint8_t view)
 #endif
 }
 
-/* Resolved live pad level, by driver priority: a PIO output wins on the pins it
- * drives; else an external (host/device) driver; else a pull; else the pin floats
- * and reads 0 (true high-impedance). */
+/* Chip-side drive after the function mux and IO_BANK0 overrides, before the
+ * pad stage: PIO drive (already FUNCSEL-gated in resolve_pads) plus the
+ * selected peripheral's output on non-PIO pins, with OUTOVER/OEOVER applied. */
+void pio_pads_chip_drive(const pio_pads_t *p, uint64_t *oe_out, uint64_t *lvl_out)
+{
+    uint64_t pio_oe = p->pin_dirs;
+    uint64_t per_oe = p->periph_oe & p->periph_sel_mask & ~pio_oe;
+    uint64_t oe = pio_oe | per_oe;
+    uint64_t lvl = (p->pin_levels & pio_oe) | (p->periph_level & per_oe);
+    lvl = ((lvl ^ p->outover_inv) | p->outover_high) & ~p->outover_low;
+    oe = ((oe ^ p->oeover_inv) | p->oeover_high) & ~p->oeover_low;
+    /* Pad output-disable overrides everything the chip asks for. */
+    oe &= ~p->pad_od;
+#if PIO_SIM_HAS_PAD_ISO
+    /* Isolation freezes the pad at the drive latched when ISO was raised. */
+    oe = (oe & ~p->pad_iso) | (p->iso_oe & p->pad_iso);
+    lvl = (lvl & ~p->pad_iso) | (p->iso_levels & p->pad_iso);
+#endif
+    *oe_out = oe;
+    *lvl_out = lvl;
+}
+
+/* Resolved live pad level, by driver priority: the chip (PIO through the mux,
+ * or the selected peripheral) wins on pins it drives; else an external
+ * (off-chip) driver; else the pulls — up reads 1, down reads 0, both enabled
+ * is the bus keeper holding the last driven level; else the pin floats and
+ * reads 0 (true high-impedance). */
 static uint64_t pads_live(const pio_pads_t *p)
 {
-    uint64_t pio = p->pin_dirs;
-    uint64_t ext = p->ext_drive & ~pio;
-    uint64_t pull = p->pull_enable & ~pio & ~ext;
-    return (p->pin_levels & pio) | (p->ext_levels & ext) | (p->pull_level & pull);
+    uint64_t oe;
+    uint64_t lvl;
+    pio_pads_chip_drive(p, &oe, &lvl);
+    uint64_t ext = p->ext_drive & ~oe;
+    uint64_t undriven = ~oe & ~ext;
+    uint64_t keeper = p->pad_pue & p->pad_pde & undriven;
+    uint64_t pull_up = p->pad_pue & ~p->pad_pde & undriven;
+    return (lvl & oe) | (p->ext_levels & ext) | pull_up | (p->keep_state & keeper);
+}
+
+/* The input view the PIO logic sees, before the synchroniser: the wire level
+ * gated by the pad's input enable (IE=0 reads 0; RP2350 isolation also gates
+ * the input) and transformed by INOVER. */
+static uint64_t pads_input_view(const pio_pads_t *p)
+{
+    uint64_t v = pads_live(p) & p->pad_ie;
+#if PIO_SIM_HAS_PAD_ISO
+    v &= ~p->pad_iso;
+#endif
+    return ((v ^ p->inover_inv) | p->inover_high) & ~p->inover_low;
+}
+
+/* Bus keeper: latch the level of every driven pad so pue&pde can hold it once
+ * the driver lets go. Clocked once per system tick, with the synchroniser. */
+static void pads_update_keeper(pio_pads_t *p)
+{
+    uint64_t oe;
+    uint64_t lvl;
+    pio_pads_chip_drive(p, &oe, &lvl);
+    uint64_t driven = oe | p->ext_drive;
+    uint64_t level = (lvl & oe) | (p->ext_levels & p->ext_drive & ~oe);
+    p->keep_state = (p->keep_state & ~driven) | (level & driven);
+}
+
+/* Reset a pad set to the simulator's legacy-friendly defaults: every pin's
+ * input enabled, no pulls, and FUNCSEL at the sim-only LEGACY_ANY_PIO value so
+ * every owning block can drive every pin (the pre-mux behaviour). Datasheet
+ * reset values are opt-in via pio_sim_pads_reset_hw (pio_gpio.h). */
+void pio_pads_init_defaults(pio_pads_t *p)
+{
+    p->pad_ie = ~(uint64_t)0;
+    for (uint8_t i = 0; i < PIO_SIM_NUM_PINS; i++) {
+        p->funcsel[i] = 0xFFU; /* PIO_GPIO_FUNC_LEGACY_ANY_PIO */
+    }
+    for (uint8_t o = 0; o < PIO_SIM_NUM_PIO; o++) {
+        p->pio_func_mask[o] = ~(uint64_t)0;
+    }
+    p->periph_sel_mask = 0;
 }
 
 /* Recompute the pad's PIO drive (pin_dirs / pin_levels) from the per-SM output
- * registers of every block that owns the pad. Higher-numbered state machines (and
- * later owner blocks) take precedence on a shared pin — the hardware rule: when
- * multiple state machines output to a GPIO on the same cycle, the highest-numbered
- * one wins (RP2040 §3.5.6.1 / RP2350 PIO GPIO output priority). Called after every
- * PIO pin or pindir write, so the resolved state is always current. */
+ * registers of every block that owns the pad. Hardware collates the pin *writes*
+ * of each cycle: when multiple state machines write the same GPIO on the same
+ * cycle, the highest-numbered one wins (RP2040 §3.5.6.1 / RP2350 PIO GPIO output
+ * priority); a pin nobody writes this cycle holds its latched level, so on a
+ * later cycle any SM's write lands regardless of number. OUT_STICKY makes an SM
+ * re-assert its driven pins every cycle (see pio_sim_tick), which is what gives
+ * it continuous priority. Called after every pin/pindir write and once per tick. */
 static void resolve_pads(pio_pads_t *p)
 {
     uint64_t oe = 0;
-    uint64_t val = 0;
+    uint64_t val = p->pin_levels; /* unwritten pins keep their latched level */
     for (uint8_t o = 0; o < p->owner_count; o++) {
         const struct pio_sim *b = p->owners[o];
+        /* Function mux: owner slot o only reaches pins whose FUNCSEL selects
+         * FUNC_PIO<o> (or the legacy any-PIO default). */
+        uint64_t fmask = p->pio_func_mask[o];
         for (uint8_t s = 0; s < PIO_SIM_NUM_SM; s++) {
-            uint64_t soe = b->sm[s].out_pin_oe;
-            val = (val & ~soe) | (b->sm[s].out_pin_val & soe);
-            oe |= soe;
+            /* Later iterations overwrite earlier ones, so on a same-cycle
+             * conflict the highest-numbered SM (of the latest owner) wins. */
+            uint64_t written = b->sm[s].wrote_this_cycle & fmask;
+            val = (val & ~written) | (b->sm[s].out_pin_val & written);
+            oe |= b->sm[s].out_pin_oe & fmask;
         }
     }
     p->pin_dirs = oe;
@@ -129,6 +200,7 @@ void pio_sim_init(pio_sim_t *pio)
     pio->pads = &pio->pads_embedded;    /* own pads until joined to a shared group */
     pio->pads_embedded.owners[0] = pio; /* this block drives its own pads */
     pio->pads_embedded.owner_count = 1;
+    pio_pads_init_defaults(&pio->pads_embedded);
     for (uint8_t i = 0; i < PIO_SIM_NUM_SM; i++) {
         pio_sm_t *sm = &pio->sm[i];
         sm->enabled = false;
@@ -157,16 +229,16 @@ void pio_sim_load(pio_sim_t *pio, uint8_t offset, const uint16_t *insns, uint8_t
     }
 }
 
-void pio_sim_sm_restart(pio_sim_t *pio, uint8_t sm) { sm_reset_exec(&pio->sm[sm]); }
+void pio_sim_sm_restart(pio_sim_t *pio, uint8_t sm) { sm_reset_exec(&pio->sm[SM_IDX(sm)]); }
 
 void pio_sim_sm_set_enabled(pio_sim_t *pio, uint8_t sm, bool enabled)
 {
-    pio->sm[sm].enabled = enabled;
+    pio->sm[SM_IDX(sm)].enabled = enabled;
 }
 
-bool pio_sim_sm_is_enabled(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].enabled; }
+bool pio_sim_sm_is_enabled(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].enabled; }
 
-bool pio_sim_sm_is_stalled(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].stalled; }
+bool pio_sim_sm_is_stalled(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].stalled; }
 
 void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled)
 {
@@ -184,48 +256,52 @@ void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled)
 
 void pio_sim_sm_set_wrap(pio_sim_t *pio, uint8_t sm, uint8_t bottom, uint8_t top)
 {
-    pio->sm[sm].wrap_bottom = bottom;
-    pio->sm[sm].wrap_top = top;
+    pio->sm[SM_IDX(sm)].wrap_bottom = bottom;
+    pio->sm[SM_IDX(sm)].wrap_top = top;
 }
 
 void pio_sim_sm_set_sideset(pio_sim_t *pio, uint8_t sm, uint8_t bit_count, bool opt, bool pindirs)
 {
     /* bit_count is the pico-sdk "bit_count" = data bits + (opt ? 1 : 0). */
-    pio->sm[sm].sideset_total_bits = bit_count;
-    pio->sm[sm].sideset_opt = opt;
-    pio->sm[sm].sideset_pindirs = pindirs;
+    pio->sm[SM_IDX(sm)].sideset_total_bits = bit_count;
+    pio->sm[SM_IDX(sm)].sideset_opt = opt;
+    pio->sm[SM_IDX(sm)].sideset_pindirs = pindirs;
 }
 
 void pio_sim_sm_set_sideset_base(pio_sim_t *pio, uint8_t sm, uint8_t base)
 {
-    pio->sm[sm].sideset_base = base;
+    pio->sm[SM_IDX(sm)].sideset_base = base;
 }
+
+/* Pin-span counts are at most 32 (the SM pin window): clamp so the pin-drive
+ * loops below never shift a 32-bit value by ≥ 32. */
+static uint8_t clamp_pin_count(uint8_t count) { return (count > 32U) ? 32U : count; }
 
 void pio_sim_sm_set_out_pins(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count)
 {
-    pio->sm[sm].out_base = base;
-    pio->sm[sm].out_count = count;
+    pio->sm[SM_IDX(sm)].out_base = base;
+    pio->sm[SM_IDX(sm)].out_count = clamp_pin_count(count);
 }
 
 void pio_sim_sm_set_set_pins(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count)
 {
-    pio->sm[sm].set_base = base;
-    pio->sm[sm].set_count = count;
+    pio->sm[SM_IDX(sm)].set_base = base;
+    pio->sm[SM_IDX(sm)].set_count = clamp_pin_count(count);
 }
 
 void pio_sim_sm_set_in_base(pio_sim_t *pio, uint8_t sm, uint8_t base)
 {
-    pio->sm[sm].in_base = base;
+    pio->sm[SM_IDX(sm)].in_base = base;
 }
 
 void pio_sim_sm_set_out_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count)
 {
-    pio->sm[sm].out_count = count;
+    pio->sm[SM_IDX(sm)].out_count = clamp_pin_count(count);
 }
 
 void pio_sim_sm_set_set_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count)
 {
-    pio->sm[sm].set_count = count;
+    pio->sm[SM_IDX(sm)].set_count = clamp_pin_count(count);
 }
 
 #if PIO_SIM_HAS_IN_PIN_COUNT
@@ -233,41 +309,44 @@ void pio_sim_sm_set_in_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count)
 {
     /* count == 0 or > 32 → 32 (unmasked), matching the hardware field where the
      * value 0 encodes "all 32 pins visible". */
-    pio->sm[sm].in_count = ((count == 0U) || (count > 32U)) ? 32U : count;
+    pio->sm[SM_IDX(sm)].in_count = ((count == 0U) || (count > 32U)) ? 32U : count;
 }
 #endif
 
-void pio_sim_sm_set_jmp_pin(pio_sim_t *pio, uint8_t sm, uint8_t pin) { pio->sm[sm].jmp_pin = pin; }
+void pio_sim_sm_set_jmp_pin(pio_sim_t *pio, uint8_t sm, uint8_t pin)
+{
+    pio->sm[SM_IDX(sm)].jmp_pin = pin;
+}
 
 void pio_sim_sm_set_out_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bool autopull,
                               uint8_t threshold)
 {
-    pio->sm[sm].out_dir = dir;
-    pio->sm[sm].autopull = autopull;
-    pio->sm[sm].pull_thresh = ((threshold == 0U) || (threshold > 32U)) ? 32U : threshold;
+    pio->sm[SM_IDX(sm)].out_dir = dir;
+    pio->sm[SM_IDX(sm)].autopull = autopull;
+    pio->sm[SM_IDX(sm)].pull_thresh = ((threshold == 0U) || (threshold > 32U)) ? 32U : threshold;
 }
 
 void pio_sim_sm_set_in_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bool autopush,
                              uint8_t threshold)
 {
-    pio->sm[sm].in_dir = dir;
-    pio->sm[sm].autopush = autopush;
-    pio->sm[sm].push_thresh = ((threshold == 0U) || (threshold > 32U)) ? 32U : threshold;
+    pio->sm[SM_IDX(sm)].in_dir = dir;
+    pio->sm[SM_IDX(sm)].autopush = autopush;
+    pio->sm[SM_IDX(sm)].push_thresh = ((threshold == 0U) || (threshold > 32U)) ? 32U : threshold;
 }
 
 void pio_sim_sm_set_out_special(pio_sim_t *pio, uint8_t sm, bool sticky, bool inline_out_en,
                                 uint8_t out_en_sel)
 {
-    pio->sm[sm].out_sticky = sticky;
-    pio->sm[sm].out_inline_en = inline_out_en;
-    pio->sm[sm].out_en_sel = (uint8_t)(out_en_sel & 0x1FU);
+    pio->sm[SM_IDX(sm)].out_sticky = sticky;
+    pio->sm[SM_IDX(sm)].out_inline_en = inline_out_en;
+    pio->sm[SM_IDX(sm)].out_en_sel = (uint8_t)(out_en_sel & 0x1FU);
 }
 
 void pio_sim_sm_set_clkdiv(pio_sim_t *pio, uint8_t sm, uint16_t div_int, uint8_t div_frac)
 {
     /* div_int == 0 means a divider of 65536 in hardware. */
-    pio->sm[sm].clkdiv_int = div_int;
-    pio->sm[sm].clkdiv_frac = div_frac;
+    pio->sm[SM_IDX(sm)].clkdiv_int = div_int;
+    pio->sm[SM_IDX(sm)].clkdiv_frac = div_frac;
 }
 
 void pio_sim_clkdiv_restart(pio_sim_t *pio, uint8_t sm_mask)
@@ -279,32 +358,48 @@ void pio_sim_clkdiv_restart(pio_sim_t *pio, uint8_t sm_mask)
     }
 }
 
-void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc) { pio->sm[sm].pc = pc; }
+void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc) { pio->sm[SM_IDX(sm)].pc = pc; }
 
-uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].pc; }
+uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].pc; }
+
+uint32_t pio_sim_sm_get_x(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].x; }
+uint32_t pio_sim_sm_get_y(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].y; }
+uint32_t pio_sim_sm_get_isr(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].isr; }
+uint32_t pio_sim_sm_get_osr(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].osr; }
+
+uint8_t pio_sim_sm_get_isr_count(const pio_sim_t *pio, uint8_t sm)
+{
+    return pio->sm[SM_IDX(sm)].isr_count;
+}
+
+uint8_t pio_sim_sm_get_osr_count(const pio_sim_t *pio, uint8_t sm)
+{
+    return pio->sm[SM_IDX(sm)].osr_count;
+}
 
 uint16_t pio_sim_sm_get_instr(const pio_sim_t *pio, uint8_t sm)
 {
-    const pio_sm_t *s = &pio->sm[sm];
+    const pio_sm_t *s = &pio->sm[SM_IDX(sm)];
     return s->exec_pending ? s->exec_insn : pio->insn[s->pc];
 }
 
 void pio_sim_sm_set_status_sel(pio_sim_t *pio, uint8_t sm, pio_status_sel_t sel, uint8_t n)
 {
-    pio->sm[sm].status_sel = (uint8_t)sel;
-    pio->sm[sm].status_n = n;
-    pio->sm[sm].status_override = false;
+    pio->sm[SM_IDX(sm)].status_sel = (uint8_t)sel;
+    pio->sm[SM_IDX(sm)].status_n = n;
+    pio->sm[SM_IDX(sm)].status_override = false;
 }
 
 void pio_sim_sm_set_status_value(pio_sim_t *pio, uint8_t sm, uint32_t value)
 {
-    pio->sm[sm].status_value = value;
-    pio->sm[sm].status_override = true;
+    pio->sm[SM_IDX(sm)].status_value = value;
+    pio->sm[SM_IDX(sm)].status_override = true;
 }
 
 void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join)
 {
-    pio_sm_t *s = &pio->sm[sm];
+    pio_sm_t *s = &pio->sm[SM_IDX(sm)];
+    s->fifo_join = (uint8_t)join;
     switch (join) {
     case PIO_FIFO_JOIN_TX:
         s->tx.cap = PIO_SIM_FIFO_MAX;
@@ -316,6 +411,7 @@ void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join)
         break;
     case PIO_FIFO_JOIN_RX_PUT:
     case PIO_FIFO_JOIN_RX_GET:
+    case PIO_FIFO_JOIN_RX_PUTGET:
 #if PIO_SIM_HAS_RXFIFO_MOV
         /* RP2350 random-access RX: a 4-entry register file addressed by the
          * MOV-RX-FIFO instructions; the TX FIFO is disabled. */
@@ -325,6 +421,7 @@ void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join)
         /* RP2040: these modes do not exist; behave as the default 4+4 split. */
         s->tx.cap = PIO_SIM_FIFO_DEPTH;
         s->rx.cap = PIO_SIM_FIFO_DEPTH;
+        s->fifo_join = (uint8_t)PIO_FIFO_JOIN_NONE;
 #endif
         break;
     case PIO_FIFO_JOIN_NONE:
@@ -333,17 +430,13 @@ void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join)
         s->rx.cap = PIO_SIM_FIFO_DEPTH;
         break;
     }
-    s->tx.head = 0;
-    s->tx.tail = 0;
-    s->tx.count = 0;
-    s->rx.head = 0;
-    s->rx.tail = 0;
-    s->rx.count = 0;
+    fifo_clear(&s->tx);
+    fifo_clear(&s->rx);
 }
 
 void pio_sim_sm_set_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count, bool out)
 {
-    pio_sm_t *s = &pio->sm[sm];
+    pio_sm_t *s = &pio->sm[SM_IDX(sm)];
     for (uint8_t i = 0; i < count; i++) {
         uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
         if (out) {
@@ -359,6 +452,12 @@ void pio_sim_set_device(pio_sim_t *pio, void (*on_tick)(pio_sim_t *, void *), vo
 {
     pio->on_tick = on_tick;
     pio->device_ctx = ctx;
+}
+
+void pio_sim_set_trace(pio_sim_t *pio, pio_sim_trace_fn fn, void *ctx)
+{
+    pio->on_insn = fn;
+    pio->trace_ctx = ctx;
 }
 
 #if PIO_SIM_HAS_IRQ_PREVNEXT
@@ -380,18 +479,20 @@ uint8_t pio_sim_get_gpio_base(const pio_sim_t *pio) { return pio->gpio_base; }
 
 void pio_sim_sync_settle(pio_sim_t *pio)
 {
-    uint64_t live = pads_live(pio->pads);
-    pio->pads->in_sync[0] = live;
-    pio->pads->in_sync[1] = live;
+    uint64_t view = pads_input_view(pio->pads);
+    pio->pads->in_sync[0] = view;
+    pio->pads->in_sync[1] = view;
 }
 
 void pio_sim_set_pull_level(pio_sim_t *pio, uint64_t mask, bool level)
 {
-    pio->pads->pull_enable |= mask;
+    /* Thin alias over the PADS_BANK0 pull bits: up = PUE, down = PDE. */
     if (level) {
-        pio->pads->pull_level |= mask;
+        pio->pads->pad_pue |= mask;
+        pio->pads->pad_pde &= ~mask;
     } else {
-        pio->pads->pull_level &= ~mask;
+        pio->pads->pad_pde |= mask;
+        pio->pads->pad_pue &= ~mask;
     }
 }
 
@@ -401,19 +502,25 @@ void pio_sim_set_input_sync_bypass(pio_sim_t *pio, uint64_t mask) { pio->pads->s
 
 bool pio_sim_tx_full(const pio_sim_t *pio, uint8_t sm)
 {
-    return pio->sm[sm].tx.count >= pio->sm[sm].tx.cap;
+    return pio->sm[SM_IDX(sm)].tx.count >= pio->sm[SM_IDX(sm)].tx.cap;
 }
-bool pio_sim_tx_empty(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].tx.count == 0U; }
+bool pio_sim_tx_empty(const pio_sim_t *pio, uint8_t sm)
+{
+    return pio->sm[SM_IDX(sm)].tx.count == 0U;
+}
 bool pio_sim_rx_full(const pio_sim_t *pio, uint8_t sm)
 {
-    return pio->sm[sm].rx.count >= pio->sm[sm].rx.cap;
+    return pio->sm[SM_IDX(sm)].rx.count >= pio->sm[SM_IDX(sm)].rx.cap;
 }
-bool pio_sim_rx_empty(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].rx.count == 0U; }
+bool pio_sim_rx_empty(const pio_sim_t *pio, uint8_t sm)
+{
+    return pio->sm[SM_IDX(sm)].rx.count == 0U;
+}
 
 bool pio_sim_tx_push(pio_sim_t *pio, uint8_t sm, uint32_t word)
 {
-    if (!fifo_push(&pio->sm[sm].tx, word)) {
-        pio->sm[sm].fdebug |= PIO_FDEBUG_TXOVER; /* host wrote a full TX FIFO */
+    if (!fifo_push(&pio->sm[SM_IDX(sm)].tx, word)) {
+        pio->sm[SM_IDX(sm)].fdebug |= PIO_FDEBUG_TXOVER; /* host wrote a full TX FIFO */
         return false;
     }
     return true;
@@ -421,8 +528,8 @@ bool pio_sim_tx_push(pio_sim_t *pio, uint8_t sm, uint32_t word)
 
 bool pio_sim_rx_pop(pio_sim_t *pio, uint8_t sm, uint32_t *word)
 {
-    if (!fifo_pop(&pio->sm[sm].rx, word)) {
-        pio->sm[sm].fdebug |= PIO_FDEBUG_RXUNDER; /* host read an empty RX FIFO */
+    if (!fifo_pop(&pio->sm[SM_IDX(sm)].rx, word)) {
+        pio->sm[SM_IDX(sm)].fdebug |= PIO_FDEBUG_RXUNDER; /* host read an empty RX FIFO */
         return false;
     }
     return true;
@@ -430,30 +537,30 @@ bool pio_sim_rx_pop(pio_sim_t *pio, uint8_t sm, uint32_t *word)
 
 void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm)
 {
-    fifo_clear(&pio->sm[sm].tx);
-    fifo_clear(&pio->sm[sm].rx);
+    fifo_clear(&pio->sm[SM_IDX(sm)].tx);
+    fifo_clear(&pio->sm[SM_IDX(sm)].rx);
 }
 
 #if PIO_SIM_HAS_RXFIFO_MOV
 uint32_t pio_sim_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index)
 {
-    return pio->sm[sm].rx.buf[index & 0x3U];
+    return pio->sm[SM_IDX(sm)].rx.buf[index & 0x3U];
 }
 
 void pio_sim_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word)
 {
-    pio->sm[sm].rx.buf[index & 0x3U] = word;
+    pio->sm[SM_IDX(sm)].rx.buf[index & 0x3U] = word;
 }
 #endif
 
-uint8_t pio_sim_tx_level(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].tx.count; }
-uint8_t pio_sim_rx_level(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].rx.count; }
+uint8_t pio_sim_tx_level(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].tx.count; }
+uint8_t pio_sim_rx_level(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].rx.count; }
 
-uint8_t pio_sim_get_fdebug(const pio_sim_t *pio, uint8_t sm) { return pio->sm[sm].fdebug; }
+uint8_t pio_sim_get_fdebug(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].fdebug; }
 
 void pio_sim_clear_fdebug(pio_sim_t *pio, uint8_t sm, uint8_t mask)
 {
-    pio->sm[sm].fdebug &= (uint8_t)~mask;
+    pio->sm[SM_IDX(sm)].fdebug &= (uint8_t)~mask;
 }
 
 /* ── Pin access ────────────────────────────────────────────────────────────── */
@@ -481,7 +588,13 @@ void pio_sim_release_pin(pio_sim_t *pio, uint8_t pin)
 
 bool pio_sim_pin_is_pio_output(const pio_sim_t *pio, uint8_t pin)
 {
-    return (pio->pads->pin_dirs & ((uint64_t)1U << (pin % PIO_SIM_NUM_PINS))) != 0U;
+    /* The PIO's resolved OE as it reaches the pad: output-disable (and RP2350
+     * isolation) block the drive even though the SM's OE register stays set. */
+    uint64_t oe = pio->pads->pin_dirs & ~pio->pads->pad_od;
+#if PIO_SIM_HAS_PAD_ISO
+    oe &= ~pio->pads->pad_iso;
+#endif
+    return (oe & ((uint64_t)1U << (pin % PIO_SIM_NUM_PINS))) != 0U;
 }
 
 /* Level a state machine samples for an input pin (physical GPIO): the second
@@ -491,15 +604,17 @@ static bool pio_input_level(const pio_sim_t *pio, uint8_t pin)
 {
     const pio_pads_t *p = pio->pads;
     uint64_t bit = (uint64_t)1U << (pin % PIO_SIM_NUM_PINS);
-    uint64_t synced = (p->in_sync[1] & ~p->sync_bypass) | (pads_live(p) & p->sync_bypass);
+    uint64_t synced = (p->in_sync[1] & ~p->sync_bypass) | (pads_input_view(p) & p->sync_bypass);
     return (synced & bit) != 0U;
 }
 
-/* An OUT/SET/MOV PINS or side-set write updates this SM's pin output register, then
- * re-resolves the pad. The pin only drives the pad where this SM's pindir (oe) is
- * also set. */
+/* An OUT/SET/MOV PINS or side-set write updates this SM's pin output register,
+ * records the pins as written this cycle (they compete for same-cycle priority),
+ * then re-resolves the pad. The pin only drives the pad where this SM's pindir
+ * (oe) is also set. */
 static void drive_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count, uint32_t value)
 {
+    count = clamp_pin_count(count);
     for (uint8_t i = 0; i < count; i++) {
         uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
         if (((value >> i) & 1U) != 0U) {
@@ -507,6 +622,7 @@ static void drive_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count
         } else {
             sm->out_pin_val &= ~bit;
         }
+        sm->wrote_this_cycle |= bit;
     }
     resolve_pads(pio->pads);
 }
@@ -515,6 +631,7 @@ static void drive_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count
  * (pindir) register, then re-resolves the pad. */
 static void drive_pindirs(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count, uint32_t value)
 {
+    count = clamp_pin_count(count);
     for (uint8_t i = 0; i < count; i++) {
         uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
         if (((value >> i) & 1U) != 0U) {
@@ -532,7 +649,9 @@ static void drive_pindirs(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t co
 static void release_out_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count)
 {
     for (uint8_t i = 0; i < count; i++) {
-        sm->out_pin_oe &= ~((uint64_t)1U << phys_pin(pio, (uint8_t)(base + i)));
+        uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
+        sm->out_pin_oe &= ~bit;
+        sm->wrote_this_cycle &= ~bit; /* released pins no longer compete */
     }
     resolve_pads(pio->pads);
 }
@@ -540,6 +659,7 @@ static void release_out_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t
 static uint32_t read_in_pins(const pio_sim_t *pio, uint8_t base, uint8_t count)
 {
     uint32_t v = 0;
+    count = clamp_pin_count(count);
     for (uint8_t i = 0; i < count; i++) {
         uint8_t pin = phys_pin(pio, (uint8_t)(base + i));
         if (pio_input_level(pio, pin)) {
@@ -575,7 +695,12 @@ uint32_t pio_sim_get_irq_raw(const pio_sim_t *pio)
             intr |= PIO_INTR_SM_TXNFULL(sm);
         }
     }
-    for (uint8_t i = 0; i < 4U; i++) { /* only the low four flags route to the line */
+#if PIO_SIM_HAS_INTR_IRQ8
+    uint8_t irq_route_count = PIO_SIM_NUM_IRQ; /* RP2350: all 8 flags route */
+#else
+    uint8_t irq_route_count = 4U; /* RP2040: only the low four flags route */
+#endif
+    for (uint8_t i = 0; i < irq_route_count; i++) {
         if ((pio->irq & (1U << i)) != 0U) {
             intr |= PIO_INTR_SM_IRQ(i);
         }
@@ -695,6 +820,18 @@ static uint32_t read_status(const pio_sim_t *pio, const pio_sm_t *sm)
 #if PIO_SIM_HAS_IRQ_STATUS
         cond = pio_sim_irq_get(pio, (uint8_t)(sm->status_n & 7U));
         break;
+#if PIO_SIM_HAS_IRQ_PREVNEXT
+    case PIO_STATUS_IRQ_SET_PREV:
+        /* Unlinked neighbour reads clear, matching irq_target_block's NULL
+         * convention for prev/next IRQ instructions. */
+        cond =
+            (pio->irq_prev != NULL) && pio_sim_irq_get(pio->irq_prev, (uint8_t)(sm->status_n & 7U));
+        break;
+    case PIO_STATUS_IRQ_SET_NEXT:
+        cond =
+            (pio->irq_next != NULL) && pio_sim_irq_get(pio->irq_next, (uint8_t)(sm->status_n & 7U));
+        break;
+#endif
 #else
         /* RP2040: no IRQ status source; fall through to TX-level behaviour. */
         /* fallthrough */
@@ -914,7 +1051,7 @@ static void out_store(pio_sim_t *pio, pio_sm_t *sm, uint8_t dest, uint32_t val, 
                       uint8_t *next_pc, bool *set_pc)
 {
     switch (dest) {
-    case PIO_SRC_PINS: {
+    case PIO_OUT_DST_PINS: {
         /* Inline OUT enable: bit out_en_sel of the OUT data gates the write. When
          * it is 0, the OUT does not write the pins (they hold); under OUT_STICKY it
          * also releases the OUT span (clears this SM's output enable). */
@@ -926,28 +1063,28 @@ static void out_store(pio_sim_t *pio, pio_sm_t *sm, uint8_t dest, uint32_t val, 
         }
         break;
     }
-    case PIO_SRC_X:
+    case PIO_OUT_DST_X:
         sm->x = val;
         break;
-    case PIO_SRC_Y:
+    case PIO_OUT_DST_Y:
         sm->y = val;
         break;
-    case PIO_DST_PINDIRS:
+    case PIO_OUT_DST_PINDIRS:
         drive_pindirs(pio, sm, sm->out_base, sm->out_count, val);
         break;
-    case PIO_DST_PC:
+    case PIO_OUT_DST_PC:
         *set_pc = true;
         *next_pc = (uint8_t)(val & 0x1FU);
         break;
-    case PIO_DST_ISR:
+    case PIO_OUT_DST_ISR:
         sm->isr = val;
         sm->isr_count = count;
         break;
-    case PIO_DST_OSR: /* OUT EXEC */
+    case PIO_OUT_DST_EXEC:
         sm->exec_pending = true;
         sm->exec_insn = (uint16_t)val;
         break;
-    case PIO_SRC_NULL:
+    case PIO_OUT_DST_NULL:
     default:
         break;
     }
@@ -961,10 +1098,12 @@ static bool exec_out(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand, uint8_t *nex
         count = 32;
     }
     if (sm->autopull && (sm->osr_count >= sm->pull_thresh)) {
-        if (!osr_refill(sm)) {
-            sm->fdebug |= PIO_FDEBUG_TXSTALL; /* autopull blocked by empty TX */
-            return true;                      /* TX empty: stall */
-        }
+        /* The background refill at the top of this cycle already ran, so an
+         * exhausted OSR here means TX was empty: stall. The OUT then completes
+         * on a later cycle — at least one after a word arrives — matching the
+         * §3.5.4.1 rule that an OUT cannot fill and shift the OSR same-cycle. */
+        sm->fdebug |= PIO_FDEBUG_TXSTALL;
+        return true;
     }
     uint32_t out_val;
     if (sm->out_dir == PIO_SHIFT_RIGHT) {
@@ -979,16 +1118,13 @@ static bool exec_out(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand, uint8_t *nex
         sm->osr_count = 32;
     }
     out_store(pio, sm, dest, out_val, count, next_pc, set_pc);
-    /* Eager autopull: refill the OSR the moment it reaches the threshold (end of
-     * this OUT), so a following MOV / JMP !OSRE sees the freshly pulled word, as
-     * on hardware (which prefetches). If TX is empty, leave the OSR empty — the
-     * next OUT's start-of-instruction check stalls and flags TXSTALL. (The
-     * datasheet notes the exact refill timing is pipeline-dependent; this models
-     * the common end-of-OUT refill.) Autopush is already eager: exec_in drains
-     * the ISR at the end of the IN that crosses its threshold. */
-    if (sm->autopull && (sm->osr_count >= sm->pull_thresh)) {
-        (void)osr_refill(sm);
-    }
+    /* No in-instruction refill: the background autopull at the top of the next
+     * SM cycle (sm_cycle) tops the OSR up before any following instruction
+     * executes, so back-to-back OUTs still stream one word per cycle from a
+     * fed FIFO, and JMP !OSRE / PULL-as-barrier observe the refreshed state.
+     * Autopush is unchanged and deliberately eager: exec_in drains the ISR at
+     * the end of the IN that crosses its threshold, matching the datasheet
+     * pseudo-code (stall-before-shift when RX is full). */
     return false;
 }
 
@@ -1018,6 +1154,13 @@ static bool exec_pushpull(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
     if (cond && (sm->osr_count < sm->pull_thresh)) {
         return false; /* ifempty but not empty enough → nop */
     }
+    /* With autopull enabled, a PULL is a no-op while the OSR still holds data
+     * (shift count below threshold): autopull already keeps the OSR topped up,
+     * so PULL acts as a barrier rather than popping — and losing — another TX
+     * word (RP2040 datasheet §3.5.4.2). */
+    if (sm->autopull && (sm->osr_count < sm->pull_thresh)) {
+        return false;
+    }
     if (pio_sim_tx_empty(pio, sm_idx)) {
         sm->fdebug |= PIO_FDEBUG_TXSTALL; /* PULL blocked/substituted on empty TX */
         if (block) {
@@ -1033,21 +1176,31 @@ static bool exec_pushpull(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
 }
 
 #if PIO_SIM_HAS_RXFIFO_MOV
-/* RP2350 indexed RX-FIFO MOV (shares the PUSH/PULL opcode; selected when the
- * low five operand bits are non-zero with bit 4 set). bit 7 chooses direction
+/* RP2350 indexed RX-FIFO MOV (shares the PUSH/PULL opcode; selected when
+ * operand bit 4 is set). bit 7 chooses direction
  * (0: rxfifo[idx] <- ISR, 1: OSR <- rxfifo[idx]); bit 3 selects the index
  * source (1: literal in bits [1:0], 0: scratch register Y). The RX FIFO is
  * treated as a 4-entry register file; see PIO_FIFO_JOIN_RX_PUT/GET. */
 static void exec_mov_rxfifo(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
 {
     pio_sm_t *sm = &pio->sm[sm_idx];
-    bool from_rx = (operand & 0x80U) != 0U;
-    bool idx_literal = (operand & 0x08U) != 0U;
+    bool from_rx = (operand & PIO_MOV_RXFIFO_GET) != 0U;
+    bool idx_literal = (operand & PIO_MOV_RXFIFO_IDX) != 0U;
     uint8_t idx = idx_literal ? (uint8_t)(operand & 0x3U) : (uint8_t)(sm->y & 0x3U);
     if (from_rx) {
+        /* SM get is only valid with FJOIN_RX_GET set (GET or PUTGET mode). */
+        if ((sm->fifo_join != (uint8_t)PIO_FIFO_JOIN_RX_GET) &&
+            (sm->fifo_join != (uint8_t)PIO_FIFO_JOIN_RX_PUTGET)) {
+            return;
+        }
         sm->osr = sm->rx.buf[idx];
         sm->osr_count = 0;
     } else {
+        /* SM put is only valid with FJOIN_RX_PUT set (PUT or PUTGET mode). */
+        if ((sm->fifo_join != (uint8_t)PIO_FIFO_JOIN_RX_PUT) &&
+            (sm->fifo_join != (uint8_t)PIO_FIFO_JOIN_RX_PUTGET)) {
+            return;
+        }
         sm->rx.buf[idx] = sm->isr;
         sm->isr = 0;
         sm->isr_count = 0;
@@ -1064,38 +1217,38 @@ static void exec_mov(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand, uint8_t *nex
     if (mov_op == PIO_MOV_INVERT) {
         v = ~v;
     } else if (mov_op == PIO_MOV_REVERSE) {
-        v = reverse32(v);
+        v = pio_reverse32(v);
     } else {
         /* PIO_MOV_NONE: value unchanged. */
     }
     switch (dest) {
-    case PIO_DST_PINS:
+    case PIO_MOV_DST_PINS:
         drive_pins(pio, sm, sm->out_base, sm->out_count, v);
         break;
-    case PIO_DST_X:
+    case PIO_MOV_DST_X:
         sm->x = v;
         break;
-    case PIO_DST_Y:
+    case PIO_MOV_DST_Y:
         sm->y = v;
         break;
 #if PIO_SIM_HAS_MOV_PINDIRS
-    case 3U: /* RP2350: MOV dest 3 == PINDIRS (drives the OUT pin dirs) */
+    case PIO_MOV_DST_PINDIRS: /* RP2350 only: drives the OUT pin dirs */
         drive_pindirs(pio, sm, sm->out_base, sm->out_count, v);
         break;
 #endif
-    case PIO_DST_EXEC: /* MOV dest 4 == EXEC */
+    case PIO_MOV_DST_EXEC:
         sm->exec_pending = true;
         sm->exec_insn = (uint16_t)v;
         break;
-    case PIO_DST_PC:
+    case PIO_MOV_DST_PC:
         *set_pc = true;
         *next_pc = (uint8_t)(v & 0x1FU);
         break;
-    case PIO_DST_ISR:
+    case PIO_MOV_DST_ISR:
         sm->isr = v;
         sm->isr_count = 0;
         break;
-    case PIO_DST_OSR:
+    case PIO_MOV_DST_OSR:
         sm->osr = v;
         sm->osr_count = 0;
         break;
@@ -1193,9 +1346,9 @@ static bool exec_one(pio_sim_t *pio, uint8_t sm_idx, uint16_t insn, uint8_t *nex
         break;
     case PIO_OP_PUSHPULL:
 #if PIO_SIM_HAS_RXFIFO_MOV
-        /* RP2350 indexed RX-FIFO MOV reuses this opcode (arg2 != 0); plain
-         * PUSH/PULL have the low five operand bits clear. */
-        if ((operand & 0x1FU) != 0U) {
+        /* RP2350 indexed RX-FIFO MOV reuses this opcode; operand bit 4 is the
+         * discriminator (plain PUSH/PULL encode it as 0). */
+        if ((operand & PIO_MOV_RXFIFO_BIT) != 0U) {
             exec_mov_rxfifo(pio, sm_idx, operand);
         } else {
             stalled = exec_pushpull(pio, sm_idx, operand);
@@ -1243,6 +1396,19 @@ static void sm_cycle(pio_sim_t *pio, uint8_t sm_idx)
 {
     pio_sm_t *sm = &pio->sm[sm_idx];
 
+    /* Background autopull: hardware tops the OSR up from TX on any cycle where
+     * the shift count has reached the threshold — stall and delay cycles
+     * included — independently of what instruction is executing (RP2040
+     * datasheet §3.5.4.1). Running it before this cycle's instruction also
+     * enforces the documented rule that an OUT cannot fill the OSR and shift
+     * from it on the same cycle: an OUT that finds the OSR exhausted stalls at
+     * least one cycle while the refill lands. (The datasheet notes the exact
+     * refill point is pipeline-dependent and not to be relied upon; this
+     * models the documented rules at one-tick granularity.) */
+    if (sm->autopull && (sm->osr_count >= sm->pull_thresh)) {
+        (void)osr_refill(sm);
+    }
+
     if (sm->delay > 0U) {
         sm->delay--;
         return;
@@ -1269,6 +1435,10 @@ static void sm_cycle(pio_sim_t *pio, uint8_t sm_idx)
         return; /* retry same instruction next cycle */
     }
     sm->stalled = false;
+    if (pio->on_insn != NULL) {
+        /* PC not yet advanced: report the committed word's fetch address. */
+        pio->on_insn(pio, sm_idx, sm->pc, insn, pio->trace_ctx);
+    }
 
     /* An injected instruction does not advance PC or wrap on its own (unless it
      * was a jmp/out-pc). It clears the pending flag once executed. */
@@ -1295,6 +1465,12 @@ static void sm_cycle(pio_sim_t *pio, uint8_t sm_idx)
 
 void pio_sim_tick(pio_sim_t *pio)
 {
+    /* Open a fresh write window: a pin write is a one-shot event of the cycle
+     * it happens in, so last tick's writes must not keep competing for the
+     * same-cycle priority collation in resolve_pads. */
+    for (uint8_t i = 0; i < PIO_SIM_NUM_SM; i++) {
+        pio->sm[i].wrote_this_cycle = 0;
+    }
     for (uint8_t i = 0; i < PIO_SIM_NUM_SM; i++) {
         pio_sm_t *sm = &pio->sm[i];
         /* Clock divider: accumulate 1.0 (in 8-bit frac units = 256) each system
@@ -1302,18 +1478,26 @@ void pio_sim_tick(pio_sim_t *pio)
          * divider free-runs even while the SM is disabled (only execution is gated
          * by enable) — matching hardware, which is why pio_enable_sm_mask_in_sync
          * must restart the dividers to align them rather than rely on enable timing. */
-        uint32_t div_units = ((uint32_t)sm->clkdiv_int << 8U) | sm->clkdiv_frac;
-        if (div_units == 0U) {
-            div_units = (65536U << 8U); /* div_int == 0 → 65536 */
-        }
+        /* div_int == 0 encodes 65536 regardless of the fractional part. */
+        uint32_t div_int = (sm->clkdiv_int == 0U) ? 65536U : (uint32_t)sm->clkdiv_int;
+        uint32_t div_units = (div_int << 8U) | sm->clkdiv_frac;
         sm->clk_accum += 256U;
         if (sm->clk_accum >= div_units) {
             sm->clk_accum -= div_units;
             if (sm->enabled) {
                 sm_cycle(pio, i);
+                if (sm->out_sticky) {
+                    /* OUT_STICKY: re-assert every driven pin each cycle, keeping
+                     * this SM in the priority contest even without a new write. */
+                    sm->wrote_this_cycle |= sm->out_pin_oe;
+                }
             }
         }
     }
+    /* Re-resolve once with every SM's final write set for this tick, so sticky
+     * re-assertions and the cross-SM priority collation land before the device
+     * hook and the input synchroniser observe the pads. */
+    resolve_pads(pio->pads);
     if (pio->on_tick != NULL) {
         pio->on_tick(pio, pio->device_ctx);
     }
@@ -1321,8 +1505,9 @@ void pio_sim_tick(pio_sim_t *pio)
      * pads are shared across a group the group clocks them once instead, so a
      * block only clocks the synchroniser of pads it owns. */
     if (pio->pads == &pio->pads_embedded) {
+        pads_update_keeper(pio->pads);
         pio->pads->in_sync[1] = pio->pads->in_sync[0];
-        pio->pads->in_sync[0] = pads_live(pio->pads);
+        pio->pads->in_sync[0] = pads_input_view(pio->pads);
     }
     pio->cycle++;
 }
@@ -1347,9 +1532,25 @@ uint64_t pio_sim_run_until_rx(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks)
 uint64_t pio_sim_run_until_tx_empty(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks)
 {
     uint64_t t = 0;
-    /* Drain when both the FIFO is empty and the SM is not mid-transfer holding
-     * a pulled word (best-effort: callers pad with a margin). */
+    /* FIFO-empty only: the SM may still hold (and be shifting) a word it
+     * already pulled into the OSR — use pio_sim_run_until_tx_drained to wait
+     * for that word too. */
     while ((t < max_ticks) && !pio_sim_tx_empty(pio, sm)) {
+        pio_sim_tick(pio);
+        t++;
+    }
+    return t;
+}
+
+uint64_t pio_sim_run_until_tx_drained(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks)
+{
+    /* The pico-sdk idiom: clear the sticky TXSTALL flag, then run until it
+     * sets again — the SM stalling on an empty TX means the FIFO is empty AND
+     * the OSR's last word has been fully consumed. Requires the program to
+     * keep OUTing/PULLing (as streaming programs do); bounded by max_ticks. */
+    pio_sim_clear_fdebug(pio, sm, PIO_FDEBUG_TXSTALL);
+    uint64_t t = 0;
+    while ((t < max_ticks) && ((pio_sim_get_fdebug(pio, sm) & PIO_FDEBUG_TXSTALL) == 0U)) {
         pio_sim_tick(pio);
         t++;
     }
@@ -1382,6 +1583,7 @@ void pio_sim_group_init_shared(pio_sim_group_t *g, pio_sim_t *const *blocks, uin
 {
     pio_sim_group_init(g, blocks, count);
     (void)memset(&g->pads, 0, sizeof(g->pads));
+    pio_pads_init_defaults(&g->pads);
     g->shared = true;
     for (uint8_t i = 0; i < g->count; i++) {
         g->blk[i]->pads = &g->pads;    /* all blocks now drive/sample the same wires */
@@ -1392,14 +1594,28 @@ void pio_sim_group_init_shared(pio_sim_group_t *g, pio_sim_t *const *blocks, uin
 
 void pio_sim_group_tick(pio_sim_group_t *g)
 {
+    /* Open the write window for the whole group before any block runs: with
+     * shared pads, resolve_pads at the end of block A's tick scans every
+     * owner's SMs, so block B's flags from the previous tick must already be
+     * cleared or B's stale writes would wrongly win same-cycle priority in the
+     * pad state block A's on_tick hook observes. (Each block's own tick
+     * re-clears its own flags — harmless.) Remaining sequential-model caveat:
+     * block A's on_tick still runs before later blocks have executed this
+     * tick, so it sees their *previous* outputs, one tick stale. */
+    for (uint8_t i = 0; i < g->count; i++) {
+        for (uint8_t s = 0; s < PIO_SIM_NUM_SM; s++) {
+            g->blk[i]->sm[s].wrote_this_cycle = 0;
+        }
+    }
     for (uint8_t i = 0; i < g->count; i++) {
         pio_sim_tick(g->blk[i]);
     }
     if (g->shared) {
         /* Blocks skip the synchroniser of pads they don't own, so clock the one
          * shared pipeline here — exactly once per system tick. */
+        pads_update_keeper(&g->pads);
         g->pads.in_sync[1] = g->pads.in_sync[0];
-        g->pads.in_sync[0] = pads_live(&g->pads);
+        g->pads.in_sync[0] = pads_input_view(&g->pads);
     }
 }
 
@@ -1417,113 +1633,20 @@ void pio_sim_group_enable_sm_mask_sync(pio_sim_group_t *g, const uint8_t *masks)
     }
 }
 
-/* ── DMA pacing ────────────────────────────────────────────────────────────── */
-
-bool pio_sim_dreq_tx(const pio_sim_t *pio, uint8_t sm) { return !pio_sim_tx_full(pio, sm); }
-bool pio_sim_dreq_rx(const pio_sim_t *pio, uint8_t sm) { return !pio_sim_rx_empty(pio, sm); }
-
-void pio_sim_dma_init(pio_sim_dma_t *dma, pio_sim_t *pio, uint8_t sm, pio_dma_dir_t dir,
-                      uint32_t *buf, uint32_t count)
-{
-    pio_sim_dma_init_ex(dma, pio, sm, dir, buf, count, PIO_DMA_SIZE_32, true, 0, NULL);
-}
-
-void pio_sim_dma_init_ex(pio_sim_dma_t *dma, pio_sim_t *pio, uint8_t sm, pio_dma_dir_t dir,
-                         void *buf, uint32_t count, pio_dma_size_t size, bool incr, uint32_t ring,
-                         pio_sim_dma_t *chain)
-{
-    dma->pio = pio;
-    dma->sm = sm;
-    dma->dir = dir;
-    dma->buf = buf;
-    dma->count = count;
-    dma->pos = 0;
-    dma->size = size;
-    dma->incr = incr;
-    dma->ring = ring;
-    dma->chain = chain;
-}
-
-bool pio_sim_dma_done(const pio_sim_dma_t *dma) { return dma->pos >= dma->count; }
-
-static size_t dma_elem_bytes(pio_dma_size_t size) { return (size_t)1U << (unsigned)size; }
-
-/* Element index this transfer addresses, honouring increment and ring wrap. */
-static uint32_t dma_index(const pio_sim_dma_t *dma)
-{
-    uint32_t idx = dma->incr ? dma->pos : 0U;
-    if (dma->ring != 0U) {
-        idx %= dma->ring;
-    }
-    return idx;
-}
-
-static uint32_t dma_read_elem(const pio_sim_dma_t *dma, uint32_t idx)
-{
-    const unsigned char *b = (const unsigned char *)dma->buf;
-    size_t es = dma_elem_bytes(dma->size);
-    uint32_t v = 0;
-    (void)memcpy(&v, &b[(size_t)idx * es], es); /* low `es` bytes (host-endian) */
-    return v;
-}
-
-static void dma_write_elem(pio_sim_dma_t *dma, uint32_t idx, uint32_t v)
-{
-    unsigned char *b = (unsigned char *)dma->buf;
-    size_t es = dma_elem_bytes(dma->size);
-    (void)memcpy(&b[(size_t)idx * es], &v, es);
-}
-
-bool pio_sim_dma_step(pio_sim_dma_t *dma)
-{
-    if (pio_sim_dma_done(dma)) {
-        return false;
-    }
-    if (dma->dir == PIO_DMA_TO_SM) {
-        if (!pio_sim_dreq_tx(dma->pio, dma->sm)) {
-            return false; /* TX DREQ not asserted: FIFO full */
-        }
-        (void)pio_sim_tx_push(dma->pio, dma->sm, dma_read_elem(dma, dma_index(dma)));
-    } else {
-        uint32_t word;
-        if (!pio_sim_dreq_rx(dma->pio, dma->sm)) {
-            return false; /* RX DREQ not asserted: FIFO empty */
-        }
-        (void)pio_sim_rx_pop(dma->pio, dma->sm, &word);
-        dma_write_elem(dma, dma_index(dma), word);
-    }
-    dma->pos++;
-    return true;
-}
-
-void pio_sim_dma_step_many(pio_sim_dma_t *const *chans, uint8_t n)
-{
-    for (uint8_t i = 0; i < n; i++) {
-        (void)pio_sim_dma_step(chans[i]);
-    }
-}
-
-uint64_t pio_sim_dma_run(pio_sim_dma_t *dma, uint64_t max_ticks)
-{
-    uint64_t t = 0;
-    pio_sim_dma_t *cur = dma;
-    while ((cur != NULL) && (t < max_ticks)) {
-        (void)pio_sim_dma_step(cur); /* service the FIFO, then advance the SM */
-        pio_sim_tick(cur->pio);
-        t++;
-        if (pio_sim_dma_done(cur)) {
-            cur = cur->chain; /* follow the chain, if any */
-        }
-    }
-    return t;
-}
-
 /* ── sm_exec ───────────────────────────────────────────────────────────────── */
 
 void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn)
 {
-    /* Execute immediately, out of band, like pio_sm_exec(). Side-set and delay
-     * still apply; PC is untouched unless the instruction writes it. */
+    /* Execute immediately, out of band, like pio_sm_exec(). Side-set still
+     * applies but the delay field is IGNORED — matching silicon, where delay
+     * cycles on a forced (SMx_INSTR-written) instruction do not occur (RP2040
+     * datasheet §3.4.5.2; contrast OUT/MOV EXEC, whose injected instruction
+     * does execute its delay — see sm_cycle's from_exec path). PC is untouched
+     * unless the instruction writes it. Clear any stall latched by the SM's
+     * own program first: the injected instruction is a fresh first
+     * presentation, so first-cycle side effects (e.g. `irq n wait` raising its
+     * flag) must fire — otherwise the wait could never be satisfied. */
+    pio->sm[SM_IDX(sm)].stalled = false;
     uint8_t next_pc = 0;
     bool set_pc = false;
     uint8_t delay = 0;
@@ -1531,17 +1654,20 @@ void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn)
     (void)delay; /* a forced instruction executes immediately; its delay field
                   * is ignored (side-set still applies). */
     if (committed) {
+        if (pio->on_insn != NULL) {
+            pio->on_insn(pio, SM_IDX(sm), pio->sm[SM_IDX(sm)].pc, insn, pio->trace_ctx);
+        }
         if (set_pc) {
-            pio->sm[sm].pc = next_pc;
+            pio->sm[SM_IDX(sm)].pc = next_pc;
         }
     } else {
         /* A stalling instruction injected via exec latches as pending so the
          * SM retries it on its next cycle. Mark it stalled too, so a parking
          * instruction (e.g. `irq ... wait`) treats the next cycle as a retry and
          * does not re-trigger its first-cycle side effect (re-raising the flag). */
-        pio->sm[sm].exec_pending = true;
-        pio->sm[sm].exec_insn = insn;
-        pio->sm[sm].stalled = true;
+        pio->sm[SM_IDX(sm)].exec_pending = true;
+        pio->sm[SM_IDX(sm)].exec_insn = insn;
+        pio->sm[SM_IDX(sm)].stalled = true;
     }
 }
 
@@ -1594,24 +1720,25 @@ uint16_t pio_sim_encode_irq(bool clear, bool wait, uint8_t index)
 #if PIO_SIM_HAS_RXFIFO_MOV
 uint16_t pio_sim_encode_mov_to_rxfifo(uint8_t index)
 {
-    /* op=100, bit4 (mov-rx discriminator) + bit3 (literal index) + index[1:0] */
-    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | 0x10U | 0x08U | (index & 0x3U));
+    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_BIT | PIO_MOV_RXFIFO_IDX |
+                      (index & 0x3U));
 }
 
 uint16_t pio_sim_encode_mov_from_rxfifo(uint8_t index)
 {
-    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | 0x80U | 0x10U | 0x08U | (index & 0x3U));
+    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_GET | PIO_MOV_RXFIFO_BIT |
+                      PIO_MOV_RXFIFO_IDX | (index & 0x3U));
 }
 
 uint16_t pio_sim_encode_mov_to_rxfifo_y(void)
 {
-    /* bit3 clear → index taken from scratch register Y */
-    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | 0x10U);
+    /* PIO_MOV_RXFIFO_IDX clear → index taken from scratch register Y */
+    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_BIT);
 }
 
 uint16_t pio_sim_encode_mov_from_rxfifo_y(void)
 {
-    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | 0x80U | 0x10U);
+    return (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | PIO_MOV_RXFIFO_GET | PIO_MOV_RXFIFO_BIT);
 }
 #endif /* PIO_SIM_HAS_RXFIFO_MOV */
 

@@ -16,6 +16,18 @@
  * runs one SM cycle when it elapses. An SM cycle either consumes a pending
  * delay, retries a stalled instruction, or fetches and executes one
  * instruction (committing side-set, then arming any post-instruction delay).
+ *
+ * API contract:
+ *  - `sm` selects a state machine (0..3). Out-of-range values are masked into
+ *    range (sm & 3), like the `irq & 7` and `line & 1` masks — not reported.
+ *  - The library is not thread-safe: drive a pio_sim_t (and anything sharing
+ *    its pads) from one thread.
+ *  - Lifetimes: a pio_sim_group_t must outlive its member blocks' use — group
+ *    init repoints each block's `pads` into the group (a later pio_sim_init on
+ *    a member resets that member to its own pads). A pio_sim_dma_t's `buf` and
+ *    `chain` targets must outlive the transfer.
+ *  - The structs are transparent for test convenience; prefer the accessors,
+ *    and never write pin/pad fields directly (see the pio_sm_t note).
  */
 
 #ifndef PIO_SIM_H
@@ -72,8 +84,8 @@ typedef struct {
     uint32_t y;
     uint32_t osr;
     uint32_t isr;
-    uint8_t osr_count; /* bits shifted out (0 = full, 32 = empty)  */
-    uint8_t isr_count; /* bits shifted in  (0 = empty, 32 = full)  */
+    uint8_t osr_count; /* bits consumed from the OSR: 0 = full (fresh word), 32 = exhausted */
+    uint8_t isr_count; /* bits accumulated in the ISR: 0 = empty, 32 = full                 */
 
     /* Shift configuration */
     pio_shift_dir_t out_dir;
@@ -101,12 +113,17 @@ typedef struct {
     bool sideset_opt;
     bool sideset_pindirs;
 
-    /* Per-SM output registers (the SM's continuously-driven pin output + pindir).
-     * out_pin_val holds the value of pins it has written via OUT/SET/MOV PINS or
-     * side-set; out_pin_oe marks the pins it drives as outputs (its pindir
-     * register). The pad resolves these across all driving SMs by priority. */
+    /* Per-SM output registers. out_pin_val latches the value of pins written via
+     * OUT/SET/MOV PINS or side-set; out_pin_oe marks the pins driven as outputs
+     * (the pindir register); wrote_this_cycle records which pins were actually
+     * written during the current SM cycle. The pad applies each cycle's writes
+     * with highest-SM-wins priority (hardware collates only *simultaneous*
+     * writes — see resolve_pads); unwritten pins hold their latched level.
+     * Mutate these only through the API / instructions, never directly, or the
+     * resolved pad state desynchronises. */
     uint64_t out_pin_val;
     uint64_t out_pin_oe;
+    uint64_t wrote_this_cycle;
 
     /* EXECCTRL output controls (sm_config_set_out_special). out_inline_en uses bit
      * out_en_sel of the OUT data as an output enable; when it is 0 the OUT does not
@@ -142,6 +159,7 @@ typedef struct {
 
     pio_fifo_t tx;
     pio_fifo_t rx;
+    uint8_t fifo_join; /* pio_fifo_join_t: gates the SM-side RX put/get MOVs */
 } pio_sm_t;
 
 /* ── Pad model ─────────────────────────────────────────────────────────────────
@@ -149,6 +167,7 @@ typedef struct {
  * PIO_SIM_NUM_PINS, so 64-bit to cover RP2350's 48). Normally each PIO block owns
  * its own pads; a multi-PIO group can point several blocks at one shared
  * pio_pads_t so they drive and sample the same wires. */
+struct pio_sim; /* owners[] below points back at the blocks sharing these pads */
 typedef struct {
     /* Resolved PIO drive: recomputed from the owning state machines' per-SM output
      * registers on every pin/pindir write (see resolve_pads). pin_dirs marks pins
@@ -164,15 +183,45 @@ typedef struct {
     uint64_t in_sync[2];
 
     /* External drive: pins the host/device drives via pio_sim_set_pin (and clears
-     * with pio_sim_release_pin). Used for pins the PIO does not drive. */
+     * with pio_sim_release_pin). Models an *off-chip* driver on the wire — a
+     * peripheral inside the chip drives through the function mux instead (see
+     * periph_oe/periph_level and pio_gpio.h). */
     uint64_t ext_drive;
     uint64_t ext_levels;
 
-    /* Pull model: pins selected in pull_enable read their pull_level bit when no
-     * block (and no external driver) is driving them, modelling pull-ups/downs and
-     * open-drain buses. A pin with no driver and no pull floats and reads 0. */
-    uint64_t pull_enable;
-    uint64_t pull_level;
+    /* ── Pad registers (PADS_BANK0, digital-relevant fields; see pio_gpio.h) ──
+     * pad_pue/pad_pde model the pull resistors (both set = bus keeper, which
+     * holds the last driven level in keep_state). pad_od forces the pad off;
+     * pad_ie=0 makes the PIO read the pin as 0 (host pio_sim_get_pin still
+     * returns the wire). DRIVE/SLEWFAST/SCHMITT are stored in pad_cfg but do
+     * not affect the digital simulation. */
+    uint64_t pad_ie;     /* input enable (reset: all-ones)          */
+    uint64_t pad_od;     /* output disable                          */
+    uint64_t pad_pue;    /* pull-up enable                          */
+    uint64_t pad_pde;    /* pull-down enable                        */
+    uint64_t keep_state; /* bus-keeper latch: last driven level     */
+#if PIO_SIM_HAS_PAD_ISO
+    uint64_t pad_iso;    /* RP2350 isolation: freezes output, gates input */
+    uint64_t iso_levels; /* output level latched when ISO was set   */
+    uint64_t iso_oe;     /* output enable latched when ISO was set  */
+#endif
+    uint8_t pad_cfg[PIO_SIM_NUM_PINS]; /* stored-only: DRIVE[1:0]|SLEW<<2|SCHMITT<<3 */
+
+    /* ── IO_BANK0 function mux (see pio_gpio.h) ──
+     * funcsel routes each pad's output/OE: a PIO block only drives pins whose
+     * FUNCSEL selects it (owner slot i = FUNC_PIOi); other functions drive via
+     * periph_oe/periph_level. Inputs are always visible to the PIO regardless
+     * of funcsel, matching silicon. The default 0xFF (LEGACY_ANY_PIO) is a
+     * simulator-only value letting every owner drive, preserving the pre-mux
+     * behaviour. The *over masks implement OUTOVER/OEOVER/INOVER. */
+    uint8_t funcsel[PIO_SIM_NUM_PINS];
+    uint64_t pio_func_mask[PIO_SIM_NUM_PIO]; /* pins routed to owner slot i (cache) */
+    uint64_t periph_sel_mask;                /* pins routed to a non-PIO function   */
+    uint64_t periph_oe;                      /* selected peripheral's output enable per pin */
+    uint64_t periph_level;                   /* selected peripheral's output level per pin  */
+    uint64_t outover_inv, outover_low, outover_high; /* OUTOVER per-pin masks */
+    uint64_t oeover_inv, oeover_low, oeover_high;    /* OEOVER  per-pin masks */
+    uint64_t inover_inv, inover_low, inover_high;    /* INOVER  per-pin masks */
 
     /* Per-pin INPUT_SYNC_BYPASS: bits set here skip the two-cycle synchroniser. */
     uint64_t sync_bypass;
@@ -217,6 +266,14 @@ typedef struct pio_sim {
      * It may read pin_levels / pin_dirs and drive pins the PIO has released. */
     void (*on_tick)(struct pio_sim *pio, void *ctx);
     void *device_ctx;
+
+    /* Per-instruction trace hook (see pio_sim_set_trace): fires when an
+     * instruction *commits* — never on stall or delay cycles — including
+     * instructions injected via OUT/MOV EXEC or pio_sim_sm_exec. `pc` is the
+     * address the word was fetched from (the parked PC for injected words);
+     * read pio->sm[sm] through the pointer for the post-execute registers. */
+    void (*on_insn)(const struct pio_sim *pio, uint8_t sm, uint8_t pc, uint16_t insn, void *ctx);
+    void *trace_ctx;
 
     uint64_t cycle; /* system clocks elapsed */
 
@@ -265,7 +322,11 @@ void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled);
 
 /* ── Configuration (mirrors the pico-sdk sm_config_set_* surface) ──────────── */
 
+/** Program wrap. Both addresses are inclusive: the instruction at `top`
+ * executes, then the PC wraps to `bottom` (unless `top` jumped). */
 void pio_sim_sm_set_wrap(pio_sim_t *pio, uint8_t sm, uint8_t bottom, uint8_t top);
+/** Side-set config. `bit_count` is the pico-sdk convention: data bits *plus*
+ * the enable bit when `opt` is true (so `.side_set 2 opt` passes 3). */
 void pio_sim_sm_set_sideset(pio_sim_t *pio, uint8_t sm, uint8_t bit_count, bool opt, bool pindirs);
 void pio_sim_sm_set_sideset_base(pio_sim_t *pio, uint8_t sm, uint8_t base);
 void pio_sim_sm_set_out_pins(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count);
@@ -283,10 +344,15 @@ void pio_sim_sm_set_set_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count);
 void pio_sim_sm_set_in_pin_count(pio_sim_t *pio, uint8_t sm, uint8_t count);
 #endif
 void pio_sim_sm_set_jmp_pin(pio_sim_t *pio, uint8_t sm, uint8_t pin);
+/** OUT shift config. A `threshold` of 0 (or > 32) means 32, as in the
+ * hardware SHIFTCTRL field where 0 encodes a full 32-bit threshold. */
 void pio_sim_sm_set_out_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bool autopull,
                               uint8_t threshold);
+/** IN shift config; `threshold` 0 (or > 32) means 32, as for out_shift. */
 void pio_sim_sm_set_in_shift(pio_sim_t *pio, uint8_t sm, pio_shift_dir_t dir, bool autopush,
                              uint8_t threshold);
+/** Clock divider, 16.8 fixed point. `div_int` of 0 means 65536 (the hardware
+ * encoding), regardless of `div_frac`. */
 void pio_sim_sm_set_clkdiv(pio_sim_t *pio, uint8_t sm, uint16_t div_int, uint8_t div_frac);
 
 /** Configure the EXECCTRL output special behaviours (mirrors the SDK's
@@ -307,12 +373,26 @@ void pio_sim_sm_set_out_special(pio_sim_t *pio, uint8_t sm, bool sticky, bool in
  * ticks (e.g. the etm_4bit_lo/hi pair or the cross-SM JTAG programs).
  */
 void pio_sim_clkdiv_restart(pio_sim_t *pio, uint8_t sm_mask);
+/** Set the program counter directly. Does not restart the SM or clear a
+ * latched stall/pending exec — use pio_sim_sm_restart for a full reset. */
 void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc);
 
 /** Current program counter of state machine `sm`. Mirrors the SDK's
  * pio_sm_get_pc; useful to observe where an SM has parked (e.g. on a stalled
  * WAIT) without reaching into the struct. */
 uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm);
+
+/** Scratch / shift register accessors: the state after the last tick. The
+ * struct fields are public too; these mirror the get_pc/get_instr style so
+ * callers need not depend on the struct layout. */
+uint32_t pio_sim_sm_get_x(const pio_sim_t *pio, uint8_t sm);
+uint32_t pio_sim_sm_get_y(const pio_sim_t *pio, uint8_t sm);
+uint32_t pio_sim_sm_get_isr(const pio_sim_t *pio, uint8_t sm);
+uint32_t pio_sim_sm_get_osr(const pio_sim_t *pio, uint8_t sm);
+/** Shift counts: bits accumulated in the ISR / consumed from the OSR (see the
+ * isr_count/osr_count fields for the exact convention). */
+uint8_t pio_sim_sm_get_isr_count(const pio_sim_t *pio, uint8_t sm);
+uint8_t pio_sim_sm_get_osr_count(const pio_sim_t *pio, uint8_t sm);
 
 /** Instruction word state machine `sm` would execute next: an instruction injected
  * via OUT/MOV EXEC or pio_sim_sm_exec if one is pending, else the word at its PC.
@@ -324,6 +404,14 @@ typedef enum {
     PIO_STATUS_TX_LEVEL = 0, /* all-ones while TX FIFO level < N            */
     PIO_STATUS_RX_LEVEL = 1, /* all-ones while RX FIFO level < N            */
     PIO_STATUS_IRQ_SET = 2,  /* RP2350: all-ones while IRQ flag N is set    */
+#if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
+    /* RP2350 selects the IRQ flag's PIO block via EXECCTRL STATUS_N[4:3]
+     * (0 = this PIO, 1 = prev, 2 = next); modelled as distinct selectors here.
+     * The block links come from pio_sim_set_irq_neighbors / group init; an
+     * unlinked neighbour reads the flag as clear. */
+    PIO_STATUS_IRQ_SET_PREV = 3, /* all-ones while IRQ flag N of the prev PIO is set */
+    PIO_STATUS_IRQ_SET_NEXT = 4, /* all-ones while IRQ flag N of the next PIO is set */
+#endif
 } pio_status_sel_t;
 
 /** Configure the MOV STATUS source: comparison against a FIFO level, or (on
@@ -335,17 +423,23 @@ void pio_sim_sm_set_status_sel(pio_sim_t *pio, uint8_t sm, pio_status_sel_t sel,
 void pio_sim_sm_set_status_value(pio_sim_t *pio, uint8_t sm, uint32_t value);
 
 /* FIFO join: 0 = none (4+4), 1 = join TX (8 TX, 0 RX), 2 = join RX (8 RX, 0 TX).
- * RP2350 adds two random-access RX modes (4-entry register file addressed by
- * the MOV-RX-FIFO instructions): PUT (SM writes, system reads) and GET (system
- * writes, SM reads). */
+ * RP2350 adds the random-access RX modes (4-entry register file addressed by
+ * the MOV-RX-FIFO instructions): PUT (SM writes, system reads), GET (system
+ * writes, SM reads), and PUTGET (both FJOIN_RX_PUT and FJOIN_RX_GET: the SM has
+ * random-access put *and* get — a scratchpad). The direction restrictions are
+ * enforced: an SM put is a no-op outside PUT/PUTGET, an SM get outside
+ * GET/PUTGET. */
 typedef enum {
     PIO_FIFO_JOIN_NONE = 0,
     PIO_FIFO_JOIN_TX = 1,
     PIO_FIFO_JOIN_RX = 2,
-    PIO_FIFO_JOIN_RX_PUT = 3, /* RP2350: SM writes RX via `mov rxfifo[], isr`  */
-    PIO_FIFO_JOIN_RX_GET = 4, /* RP2350: SM reads RX via `mov osr, rxfifo[]`   */
+    PIO_FIFO_JOIN_RX_PUT = 3,    /* RP2350: SM writes RX via `mov rxfifo[], isr`  */
+    PIO_FIFO_JOIN_RX_GET = 4,    /* RP2350: SM reads RX via `mov osr, rxfifo[]`   */
+    PIO_FIFO_JOIN_RX_PUTGET = 5, /* RP2350: both put and get (SM scratch file)    */
 } pio_fifo_join_t;
 
+/** Configure the FIFO join mode for `sm`. Also clears both FIFOs (changing the
+ * join reshapes the storage, as on hardware). */
 void pio_sim_sm_set_fifo_join(pio_sim_t *pio, uint8_t sm, pio_fifo_join_t join);
 
 /** Set the PIO output-enable (pindir) for a span of pins, as pindir config does. */
@@ -353,6 +447,17 @@ void pio_sim_sm_set_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t co
 
 /** Register the external device callback (NULL to clear). */
 void pio_sim_set_device(pio_sim_t *pio, void (*on_tick)(pio_sim_t *, void *), void *ctx);
+
+/** Per-instruction trace callback type. `pc` is the fetch address of the
+ * committed word (parked PC for injected instructions); `insn` the executed
+ * word. The SM's post-execute registers are readable via `pio->sm[sm]`. */
+typedef void (*pio_sim_trace_fn)(const pio_sim_t *pio, uint8_t sm, uint8_t pc, uint16_t insn,
+                                 void *ctx);
+
+/** Install (or clear, with NULL) the per-instruction trace hook. It fires once
+ * per committed instruction on any SM of this block — stall retries and delay
+ * cycles do not fire it. */
+void pio_sim_set_trace(pio_sim_t *pio, pio_sim_trace_fn fn, void *ctx);
 
 #if PIO_SIM_HAS_IRQ_PREVNEXT
 /** RP2350: link the neighbouring PIO blocks addressed by `irq/wait ... prev|next`.
@@ -414,7 +519,7 @@ void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm);
  * writes via `mov rxfifo[], isr` and the host reads with pio_sim_rxfifo_get; in
  * GET mode the host writes with pio_sim_rxfifo_put and the SM reads via
  * `mov osr, rxfifo[]`. These — not pio_sim_rx_pop/tx_push — are the host access
- * path for those modes. */
+ * path for those modes. `index` is masked to the 4-entry file (index & 3). */
 uint32_t pio_sim_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index);
 void pio_sim_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word);
 #endif
@@ -450,17 +555,19 @@ bool pio_sim_pin_is_pio_output(const pio_sim_t *pio, uint8_t pin);
 
 /* ── IRQ access ────────────────────────────────────────────────────────────── */
 
+/** Read SM IRQ flag `irq` (masked to the 8 flags: irq & 7). */
 bool pio_sim_irq_get(const pio_sim_t *pio, uint8_t irq);
+/** Clear SM IRQ flag `irq` (masked: irq & 7) — the host-side acknowledge. */
 void pio_sim_irq_clear(pio_sim_t *pio, uint8_t irq);
 
 /* ── System interrupt lines (IRQ0 / IRQ1) ──────────────────────────────────────
  * The PIO raises two system interrupt lines from a set of sources (the INTR
- * register): per-SM RX-FIFO-not-empty, per-SM TX-FIFO-not-full, and the low four
- * SM IRQ flags. Each line gates the sources with its own enable (INTE) and OR-in
- * force (INTF) mask. */
+ * register): per-SM RX-FIFO-not-empty, per-SM TX-FIFO-not-full, and the SM IRQ
+ * flags — the low four on RP2040, all eight on RP2350. Each line gates the
+ * sources with its own enable (INTE) and OR-in force (INTF) mask. */
 #define PIO_INTR_SM_RXNEMPTY(sm) ((uint32_t)1U << (sm))       /* bits 0..3  */
 #define PIO_INTR_SM_TXNFULL(sm) ((uint32_t)1U << (4U + (sm))) /* bits 4..7  */
-#define PIO_INTR_SM_IRQ(i) ((uint32_t)1U << (8U + (i)))       /* bits 8..11 */
+#define PIO_INTR_SM_IRQ(i) ((uint32_t)1U << (8U + (i)))       /* bits 8..11 (v0) / 8..15 (v1) */
 
 /** Raw interrupt source word (INTR), independent of the enable/force masks. */
 uint32_t pio_sim_get_irq_raw(const pio_sim_t *pio);
@@ -492,10 +599,22 @@ void pio_sim_run(pio_sim_t *pio, uint64_t n);
 uint64_t pio_sim_run_until_rx(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks);
 
 /**
- * Run until the TX FIFO of `sm` has drained (empty) or `max_ticks` elapse.
- * Returns the number of ticks run.
+ * Run until the TX FIFO of `sm` is empty or `max_ticks` elapse. Returns the
+ * number of ticks run. FIFO-level only: the SM may still be shifting out a
+ * word it already pulled into the OSR — use pio_sim_run_until_tx_drained to
+ * wait for that word as well.
  */
 uint64_t pio_sim_run_until_tx_empty(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks);
+
+/**
+ * Run until state machine `sm` stalls on an empty TX FIFO or `max_ticks`
+ * elapse — the pico-sdk idiom for "all data actually shifted out": it clears
+ * the sticky FDEBUG TXSTALL flag, ticks until it sets again (TX empty *and*
+ * the OSR's last word consumed), and returns the number of ticks run. The
+ * program must keep OUTing/PULLing for the stall to occur, as streaming
+ * programs do; otherwise the call runs the full max_ticks.
+ */
+uint64_t pio_sim_run_until_tx_drained(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks);
 
 /* ── Multi-PIO group ───────────────────────────────────────────────────────────
  * A device has more than one PIO block (RP2040: 2, RP2350: 3 — PIO_SIM_NUM_PIO).
@@ -533,71 +652,14 @@ void pio_sim_group_run(pio_sim_group_t *g, uint64_t n);
  * blocks — the multi-PIO analogue of an in-block synchronised start. */
 void pio_sim_group_enable_sm_mask_sync(pio_sim_group_t *g, const uint8_t *masks);
 
-/* ── DMA pacing ────────────────────────────────────────────────────────────────
- * A lightweight model of a DMA channel servicing a state machine's FIFO, paced
- * by the PIO's data-request (DREQ) signals: a TX DREQ is asserted whenever the
- * TX FIFO has room, an RX DREQ whenever the RX FIFO has data. Each step moves at
- * most one element when the relevant DREQ is asserted, as a real DMA channel
- * does. pio_sim_dma_init is the simple word-at-a-time form; pio_sim_dma_init_ex
- * adds 8/16/32-bit transfer sizes, fixed-address mode, an element ring, and
- * chaining to a next channel. It is still not a full DMA controller (no
- * interrupts, no address generators beyond increment/ring). */
+/* ── DMA data requests ─────────────────────────────────────────────────────────
+ * The PIO-side DREQ levels. The full DMA controller model (channels, chaining,
+ * IRQs, sniffer, pacing timers) lives in pio_dma.h. */
 
 /** TX DREQ: true when the SM's TX FIFO can accept another word. */
 bool pio_sim_dreq_tx(const pio_sim_t *pio, uint8_t sm);
 /** RX DREQ: true when the SM's RX FIFO holds a word to read. */
 bool pio_sim_dreq_rx(const pio_sim_t *pio, uint8_t sm);
-
-typedef enum {
-    PIO_DMA_TO_SM = 0,   /* host buffer -> TX FIFO (paced by TX DREQ)  */
-    PIO_DMA_FROM_SM = 1, /* RX FIFO -> host buffer (paced by RX DREQ)  */
-} pio_dma_dir_t;
-
-typedef enum {
-    PIO_DMA_SIZE_8 = 0,  /* byte transfers     */
-    PIO_DMA_SIZE_16 = 1, /* halfword transfers */
-    PIO_DMA_SIZE_32 = 2, /* word transfers     */
-} pio_dma_size_t;
-
-typedef struct pio_sim_dma {
-    pio_sim_t *pio;
-    uint8_t sm;
-    pio_dma_dir_t dir;
-    void *buf; /* source (TO_SM) or destination (FROM_SM) element array */
-    uint32_t count;
-    uint32_t pos;              /* transfers completed */
-    pio_dma_size_t size;       /* element size (default word)              */
-    bool incr;                 /* advance the buffer pointer (else fixed)  */
-    uint32_t ring;             /* wrap the element index modulo `ring` (0: no wrap) */
-    struct pio_sim_dma *chain; /* started when this channel completes; NULL: none */
-} pio_sim_dma_t;
-
-/** Set up a simple channel: `count` 32-bit words between `buf` and SM `sm`'s
- * FIFO, incrementing, no ring, no chain. */
-void pio_sim_dma_init(pio_sim_dma_t *dma, pio_sim_t *pio, uint8_t sm, pio_dma_dir_t dir,
-                      uint32_t *buf, uint32_t count);
-
-/** Full configuration: element `size`, address increment on/off, an element-wise
- * ring wrap (0 = none), and an optional `chain` channel started on completion. */
-void pio_sim_dma_init_ex(pio_sim_dma_t *dma, pio_sim_t *pio, uint8_t sm, pio_dma_dir_t dir,
-                         void *buf, uint32_t count, pio_dma_size_t size, bool incr, uint32_t ring,
-                         pio_sim_dma_t *chain);
-
-/** True once all `count` transfers have completed. */
-bool pio_sim_dma_done(const pio_sim_dma_t *dma);
-
-/** Move one element if the channel's DREQ is asserted and it is not done. Returns
- * true if an element moved. Call once per system tick. */
-bool pio_sim_dma_step(pio_sim_dma_t *dma);
-
-/** Step several channels once each (for multiple DMAs around one tick loop). */
-void pio_sim_dma_step_many(pio_sim_dma_t *const *chans, uint8_t n);
-
-/** Convenience: tick `dma->pio` while servicing the channel (and any chained
- * channels) until done or `max_ticks` elapse. Returns the number of ticks run.
- * For several independent channels or a multi-PIO group, call pio_sim_dma_step
- * yourself around your own tick loop instead. */
-uint64_t pio_sim_dma_run(pio_sim_dma_t *dma, uint64_t max_ticks);
 
 /* ── Instruction encoding helpers (match pico-sdk pio_encode_*) ────────────── */
 
@@ -630,7 +692,12 @@ uint16_t pio_sim_encode_wait_jmppin(uint8_t polarity, uint8_t index);
 #endif
 uint16_t pio_sim_encode_nop(void);
 
-/** Execute one instruction immediately on `sm` (like pio_sm_exec). */
+/** Execute one instruction immediately on `sm` (like pio_sm_exec / an
+ * SMx_INSTR write). Side-set applies, but the instruction's delay field is
+ * ignored — as on silicon, where forced instructions skip their delay cycles
+ * (RP2040 datasheet §3.4.5.2). Instructions injected via OUT/MOV EXEC *do*
+ * execute their delay. PC only changes if the instruction writes it; a
+ * stalling instruction latches and is retried on the SM's own cycles. */
 void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn);
 
 /* Side-set / delay field positions and operand encodings. */
@@ -662,15 +729,46 @@ void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn);
 #define PIO_SRC_ISR 6U
 #define PIO_SRC_OSR 7U
 
+/* Generic destination aliases (OUT/SET numbering); kept for compatibility.
+ * OUT and MOV number some destinations differently — use the per-instruction
+ * families below where the instruction matters. */
 #define PIO_DST_PINS 0U
 #define PIO_DST_X 1U
 #define PIO_DST_Y 2U
 #define PIO_DST_NULL 3U
 #define PIO_DST_PINDIRS 4U
-#define PIO_DST_EXEC 4U /* MOV dest EXEC == 4; OUT dest EXEC == 7 (see encode) */
+#define PIO_DST_EXEC 4U /* MOV numbering — same value as PIO_DST_PINDIRS */
 #define PIO_DST_PC 5U
 #define PIO_DST_ISR 6U
 #define PIO_DST_OSR 7U
+
+/* OUT instruction destinations. */
+#define PIO_OUT_DST_PINS 0U
+#define PIO_OUT_DST_X 1U
+#define PIO_OUT_DST_Y 2U
+#define PIO_OUT_DST_NULL 3U
+#define PIO_OUT_DST_PINDIRS 4U
+#define PIO_OUT_DST_PC 5U
+#define PIO_OUT_DST_ISR 6U
+#define PIO_OUT_DST_EXEC 7U
+
+/* MOV instruction destinations (PINDIRS is RP2350-only; EXEC differs from OUT). */
+#define PIO_MOV_DST_PINS 0U
+#define PIO_MOV_DST_X 1U
+#define PIO_MOV_DST_Y 2U
+#define PIO_MOV_DST_PINDIRS 3U
+#define PIO_MOV_DST_EXEC 4U
+#define PIO_MOV_DST_PC 5U
+#define PIO_MOV_DST_ISR 6U
+#define PIO_MOV_DST_OSR 7U
+
+#if PIO_SIM_HAS_RXFIFO_MOV
+/* Indexed RX-FIFO MOV operand bits (RP2350; shares the PUSH/PULL opcode).
+ * Plain PUSH/PULL encode operand bit 4 as 0, so it discriminates the two. */
+#define PIO_MOV_RXFIFO_BIT 0x10U /* 1 = indexed RX-FIFO MOV, 0 = PUSH/PULL     */
+#define PIO_MOV_RXFIFO_GET 0x80U /* 1 = OSR <- rxfifo[idx], 0 = rxfifo[idx] <- ISR */
+#define PIO_MOV_RXFIFO_IDX 0x08U /* 1 = literal index in bits [1:0], 0 = Y     */
+#endif
 
 /* WAIT sources */
 #define PIO_WAIT_GPIO 0U

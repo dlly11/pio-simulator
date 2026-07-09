@@ -5,15 +5,22 @@ on:
     branches: [main, master]
   pull_request:
 
+# One run per ref: a push on top of an in-flight run (or a same-repo PR
+# doubling a branch push) cancels the stale jobs instead of stacking 9 more.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false # a gcc failure shouldn't hide the clang result (and vice versa)
       matrix:
         cc: [gcc, clang]
         platform: [RP2350, RP2040]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - name: Install toolchain
@@ -27,15 +34,23 @@ jobs:
 
   sanitizers:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [RP2350, RP2040] # exercise the v0-gated paths under ASan/UBSan too
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - name: Install toolchain
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build clang
       - name: Configure (ASan + UBSan)
+        # Clang's ASan/UBSan give the most actionable diagnostics; pin it rather
+        # than inheriting the runner's default cc.
         run: >
           cmake -B build-san -G Ninja
+          -DCMAKE_C_COMPILER=clang
+          -DPIO_SIM_PLATFORM=${{ matrix.platform }}
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
       - name: Build
         run: cmake --build build-san
@@ -48,16 +63,17 @@ jobs:
   differential:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         platform: [RP2350, RP2040]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - name: Install toolchain
         run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ bison flex
       - name: Checkout pinned Pico SDK (for pioasm)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: raspberrypi/pico-sdk
           ref: '2.1.0'
@@ -85,33 +101,43 @@ jobs:
   clang-tidy:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         platform: [RP2350, RP2040]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - name: Install toolchain
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build clang-tidy
+        # Pin the clang-tidy major version: the unversioned apt package tracks
+        # the distro default and check behavior drifts between releases.
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build clang-tidy-18
       - name: Configure (export compile_commands.json)
         run: >
           cmake -B build -G Ninja
           -DPIO_SIM_PLATFORM=${{ matrix.platform }}
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       - name: Run clang-tidy on the library
-        run: clang-tidy -p build lib/src/pio_sim.c lib/src/pio_asm.c
+        run: >
+          clang-tidy-18 -p build lib/src/pio_sim.c lib/src/pio_gpio.c lib/src/pio_clock.c
+          lib/src/pio_dma.c lib/src/pio_chip.c lib/src/pio_asm.c
 
   format:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install clang-format
         run: sudo apt-get update && sudo apt-get install -y clang-format
       - name: Check formatting
         run: >
           clang-format --dry-run --Werror
           lib/src/pio_sim.c lib/include/pio_sim.h
+          lib/src/pio_dma.c lib/include/pio_dma.h lib/src/pio_sim_internal.h
+          lib/src/pio_gpio.c lib/include/pio_gpio.h
+          lib/src/pio_clock.c lib/include/pio_clock.h
+          lib/src/pio_chip.c lib/include/pio_chip.h
           lib/src/pio_asm.c lib/include/pio_asm.h
           lib/config/pio_sim_config.h
           tests/test_pio_sim.c tests/test_pio_asm.c
+          tests/test_pio_gpio.c tests/test_pio_clock.c tests/test_pio_dma.c
           tests/test_pio_asm_vs_pioasm.c

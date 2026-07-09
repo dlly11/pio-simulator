@@ -82,7 +82,9 @@ static void test_out_shift_left_takes_top_bits(void)
 {
     pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_LEFT, false, 32);
     const uint16_t prog[] = {
-        pio_sim_encode_pull(false, true), pio_sim_encode_out(PIO_DST_X, 4), /* top 4 bits of OSR */
+        pio_sim_encode_pull(false, true),
+        /* top 4 bits of OSR */
+        pio_sim_encode_out(PIO_DST_X, 4),
     };
     load_prog(prog, 2);
     pio_sim_tx_push(&pio, 0, 0xC000000A);
@@ -105,21 +107,203 @@ static void test_out_autopull_refills(void)
 
 /* Eager autopull: the OUT that empties the OSR refills it immediately, so the
  * next instruction sees a full OSR (the prefetched word) — not an empty one. */
-static void test_out_autopull_eager_refill(void)
+static void test_out_autopull_background_refill(void)
 {
+    /* Autopull is a background refill at the top of each SM cycle: the OUT
+     * that exhausts the OSR leaves it exhausted at end of tick; the refill
+     * lands before the next cycle's instruction executes, so a following MOV
+     * from OSR reads the fresh word and streaming never stalls. */
     pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, true, 32);
     const uint16_t prog[] = {
-        pio_sim_encode_out(PIO_DST_NULL, 32), /* discard; triggers refill */
+        pio_sim_encode_out(PIO_DST_NULL, 32), /* discard; exhausts the OSR */
         pio_sim_encode_mov(PIO_DST_X, PIO_MOV_NONE, PIO_SRC_OSR),
     };
     load_prog(prog, 2);
     pio_sim_tx_push(&pio, 0, 0xAAAAAAAAU);
     pio_sim_tx_push(&pio, 0, 0xBBBBBBBBU);
-    pio_sim_run(&pio, 1);                                /* OUT outputs 0xAAAA…, refills 0xBBBB… */
-    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].osr_count);    /* OSR full again (not empty) */
-    TEST_ASSERT_EQUAL_HEX32(0xBBBBBBBBU, pio.sm[0].osr); /* prefetched word visible */
-    pio_sim_run(&pio, 1);                                /* mov x, osr reads the new word */
+    pio_sim_run(&pio, 1); /* OUT shifts 0xAAAA… out; OSR exhausted at end of tick */
+    TEST_ASSERT_EQUAL_UINT8(32U, pio.sm[0].osr_count);
+    pio_sim_run(&pio, 1); /* background refill, then mov x, osr reads the new word */
     TEST_ASSERT_EQUAL_HEX32(0xBBBBBBBBU, pio.sm[0].x);
+    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].osr_count); /* refilled, nothing consumed */
+    TEST_ASSERT_FALSE((pio_sim_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
+}
+
+static void test_out_autopull_streams_word_per_cycle(void)
+{
+    /* With a fed FIFO, back-to-back `out null, 32` sustains one word per SM
+     * cycle with no TXSTALL: the background refill lands before each OUT. */
+    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, true, 32);
+    const uint16_t prog[] = {pio_sim_encode_out(PIO_DST_NULL, 32),
+                             pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
+    load_prog(prog, 2);
+    pio_sim_sm_set_wrap(&pio, 0, 0, 0); /* single-instruction loop */
+    for (uint8_t i = 0; i < 4U; i++) {
+        pio_sim_tx_push(&pio, 0, i);
+    }
+    pio_sim_run(&pio, 4); /* 4 OUT cycles consume all 4 words */
+    TEST_ASSERT_TRUE(pio_sim_tx_empty(&pio, 0));
+    TEST_ASSERT_EQUAL_UINT8(32U, pio.sm[0].osr_count); /* last word fully shifted */
+    TEST_ASSERT_FALSE((pio_sim_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
+}
+
+static void test_out_autopull_empty_then_fed_stalls_one_extra_cycle(void)
+{
+    /* An OUT that finds OSR exhausted and TX empty stalls with TXSTALL; after
+     * a word is pushed it cannot complete the same cycle the refill happens —
+     * the OUT commits on the following SM cycle (§3.5.4.1). */
+    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, true, 32);
+    const uint16_t prog[] = {pio_sim_encode_out(PIO_DST_X, 32),
+                             pio_sim_encode_jmp(PIO_COND_ALWAYS, 1)};
+    load_prog(prog, 2);
+    pio_sim_run(&pio, 2); /* OSR empty at reset + TX empty: OUT stalls */
+    TEST_ASSERT_TRUE(pio_sim_sm_is_stalled(&pio, 0));
+    TEST_ASSERT_TRUE((pio_sim_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
+    pio_sim_tx_push(&pio, 0, 0x12345678U);
+    pio_sim_run(&pio, 1); /* refill lands this cycle; the OUT retries and commits */
+    TEST_ASSERT_EQUAL_HEX32(0x12345678U, pio.sm[0].x);
+    TEST_ASSERT_EQUAL_UINT8(1U, pio_sim_sm_get_pc(&pio, 0)); /* moved on */
+}
+
+static void test_register_accessors_read_back(void)
+{
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_X, 5),
+        pio_sim_encode_set(PIO_DST_Y, 9),
+        pio_sim_encode_in(PIO_SRC_X, 4),
+    };
+    load_prog(prog, 3);
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_EQUAL_UINT32(5U, pio_sim_sm_get_x(&pio, 0));
+    TEST_ASSERT_EQUAL_UINT32(9U, pio_sim_sm_get_y(&pio, 0));
+    TEST_ASSERT_EQUAL_UINT32(5U, pio_sim_sm_get_isr(&pio, 0)); /* shifted left 4, in 5 */
+    TEST_ASSERT_EQUAL_UINT8(4U, pio_sim_sm_get_isr_count(&pio, 0));
+    TEST_ASSERT_EQUAL_UINT8(32U, pio_sim_sm_get_osr_count(&pio, 0)); /* untouched: exhausted */
+    TEST_ASSERT_EQUAL_UINT32(0U, pio_sim_sm_get_osr(&pio, 0));
+}
+
+static uint8_t trace_pcs[8];
+static uint16_t trace_insns[8];
+static uint8_t trace_count;
+
+static void trace_record(const pio_sim_t *p, uint8_t sm, uint8_t pc, uint16_t insn, void *ctx)
+{
+    (void)p;
+    (void)sm;
+    (void)ctx;
+    if (trace_count < 8U) {
+        trace_pcs[trace_count] = pc;
+        trace_insns[trace_count] = insn;
+    }
+    trace_count++;
+}
+
+static void test_trace_hook_fires_on_commit_only(void)
+{
+    /* 3-instruction program: a pull that stalls (TX empty) must not trace
+     * until it commits; a delay cycle must not trace either. */
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_X, 3),
+        (uint16_t)(pio_sim_encode_set(PIO_DST_Y, 1) | (1U << 8U)), /* [1] delay */
+        pio_sim_encode_pull(false, true),
+    };
+    load_prog(prog, 3);
+    trace_count = 0;
+    pio_sim_set_trace(&pio, trace_record, NULL);
+
+    pio_sim_run(&pio, 5);                     /* set x; set y [1]; delay; pull stalls twice */
+    TEST_ASSERT_EQUAL_UINT8(2U, trace_count); /* stall + delay cycles: no trace */
+    TEST_ASSERT_EQUAL_UINT8(0U, trace_pcs[0]);
+    TEST_ASSERT_EQUAL_HEX16(prog[0], trace_insns[0]);
+    TEST_ASSERT_EQUAL_UINT8(1U, trace_pcs[1]);
+    TEST_ASSERT_EQUAL_HEX16(prog[1], trace_insns[1]);
+
+    pio_sim_tx_push(&pio, 0, 42U);
+    pio_sim_run(&pio, 1); /* pull commits now */
+    TEST_ASSERT_EQUAL_UINT8(3U, trace_count);
+    TEST_ASSERT_EQUAL_UINT8(2U, trace_pcs[2]);
+    TEST_ASSERT_EQUAL_HEX16(prog[2], trace_insns[2]);
+
+    /* Forced instructions trace too, with the parked PC. */
+    pio_sim_sm_exec(&pio, 0, pio_sim_encode_set(PIO_DST_X, 1));
+    TEST_ASSERT_EQUAL_UINT8(4U, trace_count);
+
+    pio_sim_set_trace(&pio, NULL, NULL);
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_UINT8(4U, trace_count); /* cleared: no more callbacks */
+}
+
+static void test_run_until_tx_drained_waits_for_osr(void)
+{
+    /* Stream two words out a pin with autopull: run_until_tx_empty returns
+     * while the last word is still shifting from the OSR; _drained returns
+     * only once the SM stalls on truly exhausted data. */
+    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, true, 32);
+    pio_sim_sm_set_out_pins(&pio, 0, 0, 1);
+    pio_sim_sm_set_pindirs(&pio, 0, 0, 1, true);
+    const uint16_t prog[] = {pio_sim_encode_out(PIO_DST_PINS, 1),
+                             pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
+    load_prog(prog, 2);
+    pio_sim_sm_set_wrap(&pio, 0, 0, 0);
+    pio_sim_tx_push(&pio, 0, 0xFFFFFFFFU);
+    pio_sim_tx_push(&pio, 0, 0xFFFFFFFFU);
+
+    uint64_t t_empty = pio_sim_run_until_tx_empty(&pio, 0, 1000);
+    TEST_ASSERT_TRUE(pio_sim_tx_empty(&pio, 0));
+    TEST_ASSERT_TRUE(t_empty < 40U); /* FIFO empty well before 64 bits are out */
+
+    uint64_t t_drained = pio_sim_run_until_tx_drained(&pio, 0, 1000);
+    TEST_ASSERT_TRUE(t_drained < 1000U);            /* did stall, not time out */
+    TEST_ASSERT_TRUE((t_empty + t_drained) >= 64U); /* all 64 bits shifted */
+    TEST_ASSERT_EQUAL_UINT8(32U, pio_sim_sm_get_osr_count(&pio, 0));
+}
+
+static void test_autopull_background_refill_without_out(void)
+{
+    /* The refill is not tied to OUT: after a push, an SM parked on non-OUT
+     * instructions still tops up its OSR, so JMP !OSRE sees a full OSR and a
+     * PULL acts as a no-op barrier instead of popping a second word. */
+    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, true, 32);
+    const uint16_t prog[] = {
+        pio_sim_encode_jmp(PIO_COND_NOTOSRE, 2), /* taken once the OSR holds data */
+        pio_sim_encode_jmp(PIO_COND_ALWAYS, 0),  /* else keep polling */
+        pio_sim_encode_pull(false, true),        /* barrier: OSR already full */
+        pio_sim_encode_jmp(PIO_COND_ALWAYS, 3),  /* park */
+    };
+    load_prog(prog, 4);
+    pio_sim_run(&pio, 2); /* OSR exhausted at reset + TX empty: still polling */
+    TEST_ASSERT_EQUAL_UINT8(0U, pio_sim_sm_get_pc(&pio, 0));
+    pio_sim_tx_push(&pio, 0, 0xCAFEF00DU);
+    pio_sim_tx_push(&pio, 0, 0xDEADBEEFU);
+    /* Background refill pulls 0xCAFEF00D before the jmp executes — no OUT ran. */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_HEX32(0xCAFEF00DU, pio.sm[0].osr);
+    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].osr_count);
+    TEST_ASSERT_EQUAL_UINT8(2U, pio_sim_sm_get_pc(&pio, 0)); /* !OSRE taken */
+    pio_sim_run(&pio, 1); /* pull: no-op barrier — must not pop 0xDEADBEEF */
+    TEST_ASSERT_EQUAL_HEX32(0xCAFEF00DU, pio.sm[0].osr);
+    TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].tx.count);
+    TEST_ASSERT_EQUAL_UINT8(3U, pio_sim_sm_get_pc(&pio, 0));
+}
+
+/* With autopull enabled, PULL is a no-op (a barrier) while the OSR is full —
+ * it must not pop and discard another TX word (RP2040 §3.5.4.2). */
+static void test_pull_noop_when_autopull_osr_full(void)
+{
+    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, true, 32);
+    const uint16_t prog[] = {
+        pio_sim_encode_out(PIO_DST_X, 32), /* autopulls word A into OSR, X <- A */
+        pio_sim_encode_pull(false, true),  /* OSR already refilled with B: no-op */
+        pio_sim_encode_mov(PIO_DST_Y, PIO_MOV_NONE, PIO_SRC_OSR),
+    };
+    load_prog(prog, 3);
+    pio_sim_tx_push(&pio, 0, 0xAAAAAAAAU);
+    pio_sim_tx_push(&pio, 0, 0xBBBBBBBBU);
+    pio_sim_tx_push(&pio, 0, 0xCCCCCCCCU);
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_EQUAL_HEX32(0xAAAAAAAAU, pio.sm[0].x);
+    TEST_ASSERT_EQUAL_HEX32(0xBBBBBBBBU, pio.sm[0].y);      /* PULL did not clobber OSR */
+    TEST_ASSERT_EQUAL_UINT8(1U, pio_sim_tx_level(&pio, 0)); /* C still queued */
 }
 
 /* Under OUT_STICKY, an OUT whose inline-enable bit is 0 *releases* the pins (clears
@@ -205,28 +389,102 @@ static void test_multi_sm_pin_priority_and_override(void)
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 4)); /* SM1 released -> SM0 high shows */
 }
 
-/* Higher-priority SM wins even across cycles: SM1 drives pin 5 low and holds it,
- * SM0 drives it high a cycle later — SM1 still wins (a temporal last-writer model
- * would show high). */
-static void test_multi_sm_priority_across_cycles(void)
+/* Shared helper for the pin-arbitration tests: SM0 and SM1 both own pin 5. */
+static void setup_two_sms_on_pin5(void)
 {
+    for (uint8_t s = 0; s < 2; s++) {
+        pio_sim_sm_set_set_pins(&pio, s, 5, 1);
+        pio_sim_sm_set_pindirs(&pio, s, 5, 1, true);
+    }
+}
+
+/* Hardware collates only *simultaneous* writes: when SM0 and SM1 write pin 5 on
+ * the same cycle, the higher-numbered SM1 wins (RP2040 §3.5.6.1). */
+static void test_pin_priority_same_cycle_higher_sm_wins(void)
+{
+    const uint16_t sm1prog[] = {pio_sim_encode_set(PIO_DST_PINS, 0)}; /* low  */
+    const uint16_t sm0prog[] = {pio_sim_encode_set(PIO_DST_PINS, 1)}; /* high */
+    pio_sim_load(&pio, 0, sm1prog, 1);
+    pio_sim_load(&pio, 10, sm0prog, 1);
+    setup_two_sms_on_pin5();
+    pio_sim_sm_set_wrap(&pio, 1, 0, 0);
+    pio_sim_sm_set_pc(&pio, 1, 0);
+    pio_sim_sm_set_wrap(&pio, 0, 10, 10);
+    pio_sim_sm_set_pc(&pio, 0, 10);
+    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
+    pio_sim_run(&pio, 1);                        /* both write pin 5 this cycle */
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* SM1 (higher) wins -> low */
+}
+
+/* Without OUT_STICKY a pin write is a one-shot event: SM1 writes pin 5 low, and
+ * on a *later* cycle SM0 writes it high with no competing write — SM0's write
+ * lands (last writer), regardless of SM numbers. */
+static void test_pin_no_sticky_last_writer_wins(void)
+{
+    /* SM1 writes low on cycle 1 then parks on a jmp loop (no further writes);
+     * SM0 nops through cycle 1 and writes high on cycle 2. */
     const uint16_t sm1prog[] = {pio_sim_encode_set(PIO_DST_PINS, 0),
                                 pio_sim_encode_jmp(PIO_COND_ALWAYS, 1)};
     const uint16_t sm0prog[] = {pio_sim_encode_nop(), pio_sim_encode_set(PIO_DST_PINS, 1),
                                 pio_sim_encode_jmp(PIO_COND_ALWAYS, 12)};
     pio_sim_load(&pio, 0, sm1prog, 2);  /* SM1 at 0..1 */
     pio_sim_load(&pio, 10, sm0prog, 3); /* SM0 at 10..12 */
-    for (uint8_t s = 0; s < 2; s++) {
-        pio_sim_sm_set_set_pins(&pio, s, 5, 1);
-        pio_sim_sm_set_pindirs(&pio, s, 5, 1, true);
-    }
+    setup_two_sms_on_pin5();
     pio_sim_sm_set_wrap(&pio, 1, 1, 1);
     pio_sim_sm_set_pc(&pio, 1, 0);
     pio_sim_sm_set_wrap(&pio, 0, 12, 12);
     pio_sim_sm_set_pc(&pio, 0, 10);
     pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
-    pio_sim_run(&pio, 3);                        /* SM1 drove low (cyc1); SM0 drove high (cyc2) */
-    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* SM1 priority holds it low */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* cycle 1: SM1's low landed */
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 5)); /* cycle 2: SM0's uncontested high wins */
+}
+
+/* OUT_STICKY re-asserts the SM's driven pins every cycle, so a sticky SM1 keeps
+ * winning the per-cycle collation against SM0's later write even while parked. */
+static void test_out_sticky_retains_priority_each_cycle(void)
+{
+    const uint16_t sm1prog[] = {pio_sim_encode_set(PIO_DST_PINS, 0),
+                                pio_sim_encode_jmp(PIO_COND_ALWAYS, 1)};
+    const uint16_t sm0prog[] = {pio_sim_encode_nop(), pio_sim_encode_set(PIO_DST_PINS, 1),
+                                pio_sim_encode_jmp(PIO_COND_ALWAYS, 12)};
+    pio_sim_load(&pio, 0, sm1prog, 2);
+    pio_sim_load(&pio, 10, sm0prog, 3);
+    setup_two_sms_on_pin5();
+    pio_sim_sm_set_out_special(&pio, 1, true, false, 0); /* SM1 sticky */
+    pio_sim_sm_set_wrap(&pio, 1, 1, 1);
+    pio_sim_sm_set_pc(&pio, 1, 0);
+    pio_sim_sm_set_wrap(&pio, 0, 12, 12);
+    pio_sim_sm_set_pc(&pio, 0, 10);
+    pio_sim_set_sm_mask_enabled(&pio, 0x3U, true);
+    pio_sim_run(&pio, 3); /* SM0's high on cycle 2 collides with SM1's sticky low */
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* sticky SM1 still wins */
+}
+
+/* Pin-span counts clamp to 32 (the SM pin window), so an oversized count can
+ * never shift a 32-bit value out of range. */
+static void test_out_count_clamped_to_32(void)
+{
+    pio_sim_sm_set_out_pins(&pio, 0, 0, 40);
+    TEST_ASSERT_EQUAL_UINT8(32U, pio.sm[0].out_count);
+    pio_sim_sm_set_set_pins(&pio, 0, 0, 33);
+    TEST_ASSERT_EQUAL_UINT8(32U, pio.sm[0].set_count);
+    pio_sim_sm_set_out_pin_count(&pio, 0, 255);
+    TEST_ASSERT_EQUAL_UINT8(32U, pio.sm[0].out_count);
+    pio_sim_sm_set_set_pin_count(&pio, 0, 64);
+    TEST_ASSERT_EQUAL_UINT8(32U, pio.sm[0].set_count);
+    /* And a MOV PINS across the full clamped span executes without tripping
+     * undefined shifts (UBSan-guarded in CI). */
+    pio_sim_sm_set_pindirs(&pio, 0, 0, 32, true);
+    const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 21),
+                             pio_sim_encode_mov(PIO_DST_PINS, PIO_MOV_NONE, PIO_SRC_X)};
+    load_prog(prog, 2);
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 0));
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 1));
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 2));
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 31));
 }
 
 /* True high-impedance: a PIO output released to input (no pull) floats and reads 0,
@@ -268,6 +526,28 @@ static void test_out_exec_injects_instruction(void)
     pio_sim_tx_push(&pio, 0, injected);
     pio_sim_run(&pio, 3); /* pull, out-exec arms, injected runs */
     TEST_ASSERT_EQUAL_UINT32(9U, pio.sm[0].y);
+}
+
+static void test_out_exec_injected_instruction_honors_delay(void)
+{
+    /* Unlike a forced pio_sim_sm_exec instruction, an instruction injected via
+     * OUT EXEC executes its delay field (RP2040 datasheet §3.4.5.2). */
+    pio_sim_sm_set_out_shift(&pio, 0, PIO_SHIFT_RIGHT, false, 32);
+    uint16_t injected = (uint16_t)(pio_sim_encode_set(PIO_DST_X, 7) | (2U << 8U)); /* [2] */
+    const uint16_t prog[] = {
+        pio_sim_encode_pull(false, true),
+        pio_sim_encode_out(PIO_DST_OSR, 16), /* dest OSR == EXEC path (7) */
+        pio_sim_encode_set(PIO_DST_Y, 5),
+    };
+    load_prog(prog, 3);
+    pio_sim_tx_push(&pio, 0, injected);
+    pio_sim_run(&pio, 3); /* pull, out-exec arms, injected `set x,7 [2]` runs */
+    TEST_ASSERT_EQUAL_UINT32(7U, pio.sm[0].x);
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y); /* delay holds the SM… */
+    pio_sim_run(&pio, 2);                      /* …for two more cycles */
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y);
+    pio_sim_run(&pio, 1); /* delay elapsed: set y executes */
+    TEST_ASSERT_EQUAL_UINT32(5U, pio.sm[0].y);
 }
 
 /* ── IN / autopush ─────────────────────────────────────────────────────────── */
@@ -322,7 +602,9 @@ static void test_pull_blocks_until_tx(void)
 static void test_pull_noblock_on_empty_copies_x(void)
 {
     const uint16_t prog[] = {
-        pio_sim_encode_set(PIO_DST_X, 12), pio_sim_encode_pull(false, false), /* noblock */
+        pio_sim_encode_set(PIO_DST_X, 12),
+        /* noblock */
+        pio_sim_encode_pull(false, false),
     };
     load_prog(prog, 2);
     pio_sim_run(&pio, 2);
@@ -520,6 +802,19 @@ static void test_clkdiv_fractional_cadence(void)
     TEST_ASSERT_EQUAL_UINT8(4U, pio_sim_sm_get_pc(&pio, 0)); /* avg 2.5 over 10 ticks */
 }
 
+/* div_int == 0 encodes a divider of 65536 (plus the fraction) — it must not
+ * collapse to full speed when div_frac is non-zero. */
+static void test_clkdiv_int0_frac_is_65536(void)
+{
+    const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 1)};
+    load_prog(prog, 1);
+    pio_sim_sm_set_clkdiv(&pio, 0, 0, 128); /* 65536.5 */
+    pio_sim_run(&pio, 65536);
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].x); /* not yet: divider is 65536.5 */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].x); /* fires on tick 65537 */
+}
+
 static void test_wrap_returns_to_bottom(void)
 {
     /* Two-instruction loop incrementing y via set; wrap top=1 -> bottom=0. */
@@ -636,6 +931,28 @@ static void test_sm_exec_irq_wait_does_not_rearm(void)
     pio_sim_run(&pio, 1);       /* retry must NOT re-raise; the wait commits */
     TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, 0));
     pio_sim_run(&pio, 1); /* program resumes: set y, 1 */
+    TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);
+}
+
+/* An `irq n wait` injected while the SM is already stalled (e.g. parked on a
+ * blocking PULL) must still raise its flag on first presentation — the stale
+ * program stall must not suppress it, or the wait deadlocks forever. */
+static void test_sm_exec_irq_wait_from_stalled_sm(void)
+{
+    const uint16_t prog[] = {pio_sim_encode_pull(false, true), pio_sim_encode_set(PIO_DST_Y, 1)};
+    load_prog(prog, 2);
+    pio_sim_run(&pio, 1); /* PULL stalls on the empty TX FIFO */
+    TEST_ASSERT_TRUE(pio_sim_sm_is_stalled(&pio, 0));
+
+    pio_sim_sm_exec(&pio, 0, pio_sim_encode_irq(false, true, 1)); /* irq 1 ; wait */
+    TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 1)); /* raised despite the prior stall */
+
+    pio_sim_irq_clear(&pio, 1); /* acknowledge: the injected wait can commit */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_FALSE(pio.sm[0].exec_pending);
+
+    pio_sim_tx_push(&pio, 0, 0x123U); /* program resumes on its own PULL */
+    pio_sim_run(&pio, 2);
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);
 }
 
@@ -870,7 +1187,8 @@ static void test_clkdiv_freeruns_while_disabled(void)
 #if PIO_SIM_HAS_RXFIFO_MOV
 static void test_mov_rxfifo_roundtrip(void)
 {
-    pio_sim_sm_set_fifo_join(&pio, 0, PIO_FIFO_JOIN_RX_PUT);
+    /* PUTGET (both FJOIN bits): the SM may randomly put *and* get. */
+    pio_sim_sm_set_fifo_join(&pio, 0, PIO_FIFO_JOIN_RX_PUTGET);
     const uint16_t prog[] = {
         pio_sim_encode_mov_to_rxfifo(2),
         pio_sim_encode_mov_from_rxfifo(2),
@@ -889,6 +1207,7 @@ static void test_mov_rxfifo_roundtrip(void)
 
 static void test_mov_rxfifo_y_indexed(void)
 {
+    pio_sim_sm_set_fifo_join(&pio, 0, PIO_FIFO_JOIN_RX_PUT);
     const uint16_t prog[] = {
         pio_sim_encode_set(PIO_DST_Y, 3),
         pio_sim_encode_mov_to_rxfifo_y(),
@@ -920,6 +1239,48 @@ static void test_rxfifo_host_index_access(void)
     load_prog(get, 1);
     pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_HEX32(0x0BADC0DEU, pio.sm[0].osr);
+}
+/* The RX register-file direction restrictions are enforced: an SM get is a
+ * no-op outside GET/PUTGET mode, an SM put a no-op outside PUT/PUTGET mode. */
+static void test_rxfifo_mode_enforced(void)
+{
+    /* PUT mode: an SM get must not load the OSR. */
+    pio_sim_sm_set_fifo_join(&pio, 0, PIO_FIFO_JOIN_RX_PUT);
+    pio.sm[0].rx.buf[1] = 0x11111111U;
+    pio.sm[0].osr = 0x0U;
+    const uint16_t get[] = {pio_sim_encode_mov_from_rxfifo(1)};
+    load_prog(get, 1);
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_HEX32(0x0U, pio.sm[0].osr); /* get rejected in PUT mode */
+
+    /* GET mode: an SM put must not write the register file. */
+    pio_sim_init(&pio);
+    pio_sim_sm_set_fifo_join(&pio, 0, PIO_FIFO_JOIN_RX_GET);
+    pio.sm[0].isr = 0x22222222U;
+    const uint16_t put[] = {pio_sim_encode_mov_to_rxfifo(1)};
+    load_prog(put, 1);
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_HEX32(0x0U, pio.sm[0].rx.buf[1]);  /* put rejected in GET mode */
+    TEST_ASSERT_EQUAL_HEX32(0x22222222U, pio.sm[0].isr); /* ISR untouched */
+}
+
+/* Operand bit 4 discriminates the indexed RX-FIFO MOV from PUSH/PULL: a
+ * PUSH/PULL word with only reserved low bits set must still execute as a
+ * PUSH/PULL, not be misrouted to the RX register file. */
+static void test_mov_rxfifo_discriminator_bit4(void)
+{
+    pio_sim_sm_set_in_shift(&pio, 0, PIO_SHIFT_LEFT, false, 32);
+    const uint16_t prog[] = {
+        pio_sim_encode_in(PIO_SRC_X, 1),
+        (uint16_t)(((uint32_t)PIO_OP_PUSHPULL << 13U) | 0x20U | 0x01U), /* push block + rsvd bit0 */
+    };
+    load_prog(prog, 2);
+    pio.sm[0].x = 1;
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_FALSE(pio_sim_rx_empty(&pio, 0)); /* pushed as a normal PUSH */
+    uint32_t w = 0;
+    TEST_ASSERT_TRUE(pio_sim_rx_pop(&pio, 0, &w));
+    TEST_ASSERT_EQUAL_UINT32(1U, w);
 }
 #endif /* PIO_SIM_HAS_RXFIFO_MOV */
 
@@ -1102,6 +1463,40 @@ static void test_irq_next_signals_neighbour_block(void)
     TEST_ASSERT_EQUAL_HEX32(0x1U, nbr.sm[0].x);
     TEST_ASSERT_FALSE(pio_sim_irq_get(&nbr, 5));
 }
+
+#if PIO_SIM_HAS_IRQ_STATUS
+static void test_mov_status_irq_prev_next_blocks(void)
+{
+    /* STATUS_SEL=IRQ with STATUS_N[4:3] prev/next reads the neighbouring PIO
+     * block's flag; the local flag must not leak in, and an unlinked
+     * neighbour reads as clear. */
+    pio_sim_t nbr;
+    pio_sim_init(&nbr);
+    pio_sim_set_irq_neighbors(&pio, &nbr, &nbr); /* nbr is both prev and next */
+
+    pio_sim_sm_set_status_sel(&pio, 0, PIO_STATUS_IRQ_SET_NEXT, 3);
+    const uint16_t prog[] = {pio_sim_encode_mov(PIO_DST_X, PIO_MOV_NONE, PIO_SRC_STATUS),
+                             pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
+    load_prog(prog, 2);
+    pio_sim_sm_set_wrap(&pio, 0, 0, 1);
+
+    pio.irq |= (uint8_t)(1U << 3U); /* LOCAL flag: must not affect prev/next */
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_EQUAL_HEX32(0x0U, pio.sm[0].x);
+
+    nbr.irq |= (uint8_t)(1U << 3U); /* neighbour flag: selects all-ones */
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFU, pio.sm[0].x);
+
+    pio_sim_sm_set_status_sel(&pio, 0, PIO_STATUS_IRQ_SET_PREV, 3);
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFU, pio.sm[0].x);
+
+    pio_sim_set_irq_neighbors(&pio, NULL, NULL); /* unlinked: reads clear */
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_EQUAL_HEX32(0x0U, pio.sm[0].x);
+}
+#endif
 #endif /* PIO_SIM_HAS_IRQ_PREVNEXT */
 
 /* ── multi-PIO group ───────────────────────────────────────────────────────── */
@@ -1177,6 +1572,69 @@ static void test_group_shared_pads(void)
     TEST_ASSERT_TRUE((b.sm[0].x & 1U) != 0U);
 }
 
+/* Regression: with shared pads, a block's previous-tick pin writes must not
+ * compete for same-cycle priority during a later block's tick of the next
+ * cycle. B (the later, higher-priority owner) writes GPIO 0 high on tick 1
+ * only; A writes it low on tick 2. A's on_tick hook — which fires after A's
+ * own resolve but before B's tick — must see A's write win on tick 2, because
+ * B wrote nothing that cycle. */
+static uint8_t group_seen_levels[8];
+static uint8_t group_seen_count;
+
+static void group_record_pin0(pio_sim_t *p, void *ctx)
+{
+    (void)ctx;
+    if (group_seen_count < 8U) {
+        group_seen_levels[group_seen_count] = pio_sim_get_pin(p, 0) ? 1U : 0U;
+    }
+    group_seen_count++;
+}
+
+static void test_group_stale_write_does_not_win_priority(void)
+{
+    pio_sim_t a;
+    pio_sim_t b;
+    pio_sim_init(&a);
+    pio_sim_init(&b);
+    pio_sim_t *blocks[] = {&a, &b};
+    pio_sim_group_t g;
+    pio_sim_group_init_shared(&g, blocks, 2);
+
+    const uint16_t nop = pio_sim_encode_mov(PIO_DST_Y, PIO_MOV_NONE, PIO_SRC_Y);
+
+    /* B: tick 1 sets GPIO 0 high, then parks on a nop self-loop. */
+    pio_sim_sm_set_set_pins(&b, 0, 0, 1);
+    pio_sim_sm_set_pindirs(&b, 0, 0, 1, true);
+    const uint16_t bprog[] = {pio_sim_encode_set(PIO_DST_PINS, 1), nop,
+                              pio_sim_encode_jmp(PIO_COND_ALWAYS, 1)};
+    pio_sim_load(&b, 0, bprog, 3);
+    pio_sim_sm_set_wrap(&b, 0, 0, 2);
+    pio_sim_sm_set_enabled(&b, 0, true);
+
+    /* A: tick 1 is a nop, tick 2 drives GPIO 0 low, then parks. */
+    pio_sim_sm_set_set_pins(&a, 0, 0, 1);
+    pio_sim_sm_set_pindirs(&a, 0, 0, 1, true);
+    const uint16_t aprog[] = {nop, pio_sim_encode_set(PIO_DST_PINS, 0),
+                              pio_sim_encode_jmp(PIO_COND_ALWAYS, 2)};
+    pio_sim_load(&a, 0, aprog, 3);
+    pio_sim_sm_set_wrap(&a, 0, 0, 2);
+    pio_sim_sm_set_enabled(&a, 0, true);
+
+    group_seen_count = 0;
+    pio_sim_set_device(&a, group_record_pin0, NULL);
+
+    pio_sim_group_run(&g, 3);
+    TEST_ASSERT_EQUAL_UINT8(3, group_seen_count);
+    /* Tick 1: B's set lands after A's hook ran, so A saw the idle level. */
+    TEST_ASSERT_EQUAL_UINT8(0, group_seen_levels[0]);
+    /* Tick 2: only A wrote this cycle — its low write must win even though
+     * B is the higher-priority owner (B's tick-1 write is stale). */
+    TEST_ASSERT_EQUAL_UINT8(0, group_seen_levels[1]);
+    /* Tick 3: nobody writes; the pad holds A's latched level. */
+    TEST_ASSERT_EQUAL_UINT8(0, group_seen_levels[2]);
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&a, 0));
+}
+
 static void test_pull_open_drain(void)
 {
     /* GPIO 3 pulled high: reads high while released, low while a SM drives it. */
@@ -1221,139 +1679,6 @@ static void test_sm_mask_enabled(void)
 }
 
 /* ── DMA pacing ────────────────────────────────────────────────────────────── */
-
-static void test_dma_feeds_and_drains_fifos(void)
-{
-    /* An echo program (TX -> OSR -> ISR -> RX) with a DMA channel feeding TX and
-     * another draining RX. Both channels run to completion, paced by DREQ. */
-    const uint16_t prog[] = {
-        pio_sim_encode_pull(false, true),                           /* pull block      */
-        pio_sim_encode_mov(PIO_DST_ISR, PIO_MOV_NONE, PIO_SRC_OSR), /* mov isr, osr    */
-        pio_sim_encode_push(false, true),                           /* push block      */
-        pio_sim_encode_jmp(PIO_COND_ALWAYS, 0),                     /* jmp 0           */
-    };
-    load_prog(prog, 4);
-
-    uint32_t in_buf[3] = {0x11111111U, 0x22222222U, 0x33333333U};
-    uint32_t out_buf[3] = {0};
-    pio_sim_dma_t tx;
-    pio_sim_dma_t rx;
-    pio_sim_dma_init(&tx, &pio, 0, PIO_DMA_TO_SM, in_buf, 3);
-    pio_sim_dma_init(&rx, &pio, 0, PIO_DMA_FROM_SM, out_buf, 3);
-
-    for (int i = 0; (i < 200) && !(pio_sim_dma_done(&tx) && pio_sim_dma_done(&rx)); i++) {
-        (void)pio_sim_dma_step(&tx);
-        (void)pio_sim_dma_step(&rx);
-        pio_sim_tick(&pio);
-    }
-    TEST_ASSERT_TRUE(pio_sim_dma_done(&tx));
-    TEST_ASSERT_TRUE(pio_sim_dma_done(&rx));
-    TEST_ASSERT_EQUAL_HEX32(0x11111111U, out_buf[0]);
-    TEST_ASSERT_EQUAL_HEX32(0x22222222U, out_buf[1]);
-    TEST_ASSERT_EQUAL_HEX32(0x33333333U, out_buf[2]);
-}
-
-/* TX->OSR->ISR->RX echo, used to round-trip DMA through a state machine. */
-static void load_echo_prog(void)
-{
-    const uint16_t prog[] = {
-        pio_sim_encode_pull(false, true),
-        pio_sim_encode_mov(PIO_DST_ISR, PIO_MOV_NONE, PIO_SRC_OSR),
-        pio_sim_encode_push(false, true),
-        pio_sim_encode_jmp(PIO_COND_ALWAYS, 0),
-    };
-    load_prog(prog, 4);
-}
-
-/* Drive a TX channel (following its chain) and an RX channel concurrently until
- * the RX channel finishes or `limit` ticks pass. */
-static void run_dma_pair(pio_sim_dma_t *tx, pio_sim_dma_t *rx, int limit)
-{
-    pio_sim_dma_t *txcur = tx;
-    for (int i = 0; (i < limit) && !pio_sim_dma_done(rx); i++) {
-        if ((txcur != NULL) && pio_sim_dma_done(txcur)) {
-            txcur = txcur->chain;
-        }
-        if (txcur != NULL) {
-            (void)pio_sim_dma_step(txcur);
-        }
-        (void)pio_sim_dma_step(rx);
-        pio_sim_tick(&pio);
-    }
-}
-
-static void test_dma_byte_size_roundtrip(void)
-{
-    load_echo_prog();
-    uint8_t in[4] = {0xAAU, 0xBBU, 0xCCU, 0xDDU};
-    uint8_t out[4] = {0};
-    pio_sim_dma_t tx;
-    pio_sim_dma_t rx;
-    pio_sim_dma_init_ex(&tx, &pio, 0, PIO_DMA_TO_SM, in, 4, PIO_DMA_SIZE_8, true, 0, NULL);
-    pio_sim_dma_init_ex(&rx, &pio, 0, PIO_DMA_FROM_SM, out, 4, PIO_DMA_SIZE_8, true, 0, NULL);
-    run_dma_pair(&tx, &rx, 200);
-    TEST_ASSERT_TRUE(pio_sim_dma_done(&rx));
-    TEST_ASSERT_EQUAL_HEX8(0xAAU, out[0]);
-    TEST_ASSERT_EQUAL_HEX8(0xBBU, out[1]);
-    TEST_ASSERT_EQUAL_HEX8(0xCCU, out[2]);
-    TEST_ASSERT_EQUAL_HEX8(0xDDU, out[3]);
-}
-
-static void test_dma_ring_wraps_source(void)
-{
-    load_echo_prog();
-    uint32_t in[2] = {0x55U, 0x66U};
-    uint32_t out[4] = {0};
-    pio_sim_dma_t tx;
-    pio_sim_dma_t rx;
-    pio_sim_dma_init_ex(&tx, &pio, 0, PIO_DMA_TO_SM, in, 4, PIO_DMA_SIZE_32, true, 2, NULL);
-    pio_sim_dma_init(&rx, &pio, 0, PIO_DMA_FROM_SM, out, 4);
-    run_dma_pair(&tx, &rx, 200);
-    const uint32_t expect[4] = {0x55U, 0x66U, 0x55U, 0x66U};
-    for (uint8_t i = 0; i < 4U; i++) {
-        TEST_ASSERT_EQUAL_HEX32(expect[i], out[i]);
-    }
-}
-
-static void test_dma_chain_to_next(void)
-{
-    load_echo_prog();
-    uint32_t a[2] = {0x11U, 0x22U};
-    uint32_t b[2] = {0x33U, 0x44U};
-    uint32_t out[4] = {0};
-    pio_sim_dma_t tx2;
-    pio_sim_dma_t tx1;
-    pio_sim_dma_t rx;
-    pio_sim_dma_init(&tx2, &pio, 0, PIO_DMA_TO_SM, b, 2);
-    pio_sim_dma_init_ex(&tx1, &pio, 0, PIO_DMA_TO_SM, a, 2, PIO_DMA_SIZE_32, true, 0, &tx2);
-    pio_sim_dma_init(&rx, &pio, 0, PIO_DMA_FROM_SM, out, 4);
-    run_dma_pair(&tx1, &rx, 200);
-    const uint32_t expect[4] = {0x11U, 0x22U, 0x33U, 0x44U};
-    for (uint8_t i = 0; i < 4U; i++) {
-        TEST_ASSERT_EQUAL_HEX32(expect[i], out[i]);
-    }
-    TEST_ASSERT_TRUE(pio_sim_dma_done(&tx2));
-}
-
-static void test_dma_run_drains_tx(void)
-{
-    /* `pull` in a loop consumes TX; pio_sim_dma_run feeds it until all words
-     * have been transferred. */
-    const uint16_t prog[] = {
-        pio_sim_encode_pull(false, true),
-        pio_sim_encode_jmp(PIO_COND_ALWAYS, 0),
-    };
-    load_prog(prog, 2);
-
-    uint32_t in_buf[4] = {1U, 2U, 3U, 4U};
-    pio_sim_dma_t tx;
-    pio_sim_dma_init(&tx, &pio, 0, PIO_DMA_TO_SM, in_buf, 4);
-    (void)pio_sim_dma_run(&tx, 200);
-    TEST_ASSERT_TRUE(pio_sim_dma_done(&tx));
-    TEST_ASSERT_EQUAL_UINT32(4U, tx.pos);
-}
-
-/* ── FIFO debug / status (FDEBUG / FSTAT) ──────────────────────────────────── */
 
 static void test_fdebug_flags(void)
 {
@@ -1406,6 +1731,26 @@ static void test_system_irq_lines(void)
     TEST_ASSERT_FALSE(pio_sim_interrupt_line(&pio, 0));
     pio_sim_set_irq_force(&pio, 0, PIO_INTR_SM_IRQ(0));
     TEST_ASSERT_TRUE(pio_sim_interrupt_line(&pio, 0));
+}
+
+/* IRQ-flag routing into INTR: RP2350 routes all eight SM IRQ flags (INTR bits
+ * 8..15); RP2040 routes only the low four. */
+static void test_intr_irq_flag_routing(void)
+{
+    pio.irq = 0xFFU; /* all eight flags raised */
+    uint32_t intr = pio_sim_get_irq_raw(&pio);
+#if PIO_SIM_HAS_INTR_IRQ8
+    for (uint8_t i = 0; i < 8U; i++) {
+        TEST_ASSERT_TRUE((intr & PIO_INTR_SM_IRQ(i)) != 0U);
+    }
+#else
+    for (uint8_t i = 0; i < 4U; i++) {
+        TEST_ASSERT_TRUE((intr & PIO_INTR_SM_IRQ(i)) != 0U);
+    }
+    for (uint8_t i = 4U; i < 8U; i++) {
+        TEST_ASSERT_TRUE((intr & PIO_INTR_SM_IRQ(i)) == 0U);
+    }
+#endif
 }
 
 /* The INTE/INTF masks read back exactly as set, per line and independently. */
@@ -1535,14 +1880,25 @@ int main(void)
     RUN_TEST(test_out_pins_shift_right);
     RUN_TEST(test_out_shift_left_takes_top_bits);
     RUN_TEST(test_out_autopull_refills);
-    RUN_TEST(test_out_autopull_eager_refill);
+    RUN_TEST(test_out_autopull_background_refill);
+    RUN_TEST(test_out_autopull_streams_word_per_cycle);
+    RUN_TEST(test_out_autopull_empty_then_fed_stalls_one_extra_cycle);
+    RUN_TEST(test_autopull_background_refill_without_out);
+    RUN_TEST(test_register_accessors_read_back);
+    RUN_TEST(test_trace_hook_fires_on_commit_only);
+    RUN_TEST(test_run_until_tx_drained_waits_for_osr);
+    RUN_TEST(test_pull_noop_when_autopull_osr_full);
     RUN_TEST(test_out_sticky_releases_on_inline_disable);
     RUN_TEST(test_out_inline_enable_gates_write);
     RUN_TEST(test_multi_sm_pin_priority_and_override);
-    RUN_TEST(test_multi_sm_priority_across_cycles);
+    RUN_TEST(test_pin_priority_same_cycle_higher_sm_wins);
+    RUN_TEST(test_pin_no_sticky_last_writer_wins);
+    RUN_TEST(test_out_sticky_retains_priority_each_cycle);
+    RUN_TEST(test_out_count_clamped_to_32);
     RUN_TEST(test_pin_floats_when_released);
     RUN_TEST(test_host_release_pin);
     RUN_TEST(test_out_exec_injects_instruction);
+    RUN_TEST(test_out_exec_injected_instruction_honors_delay);
 
     RUN_TEST(test_in_pins_shift_left);
     RUN_TEST(test_in_autopush_to_rx);
@@ -1567,6 +1923,7 @@ int main(void)
     RUN_TEST(test_delay_holds_pc);
     RUN_TEST(test_clkdiv_slows_execution);
     RUN_TEST(test_clkdiv_fractional_cadence);
+    RUN_TEST(test_clkdiv_int0_frac_is_65536);
     RUN_TEST(test_wrap_returns_to_bottom);
 
     RUN_TEST(test_fifo_join_rx_depth_8);
@@ -1575,6 +1932,7 @@ int main(void)
     RUN_TEST(test_in_autopush_full_does_not_reshift);
     RUN_TEST(test_irq_wait_parks_until_cleared);
     RUN_TEST(test_sm_exec_irq_wait_does_not_rearm);
+    RUN_TEST(test_sm_exec_irq_wait_from_stalled_sm);
     RUN_TEST(test_sm_get_pc_reads_back);
     RUN_TEST(test_sm_is_enabled_reads_back);
     RUN_TEST(test_sm_get_instr_reads_current);
@@ -1599,6 +1957,8 @@ int main(void)
     RUN_TEST(test_mov_rxfifo_roundtrip);
     RUN_TEST(test_mov_rxfifo_y_indexed);
     RUN_TEST(test_rxfifo_host_index_access);
+    RUN_TEST(test_rxfifo_mode_enforced);
+    RUN_TEST(test_mov_rxfifo_discriminator_bit4);
 #endif
     RUN_TEST(test_irq_next_prev_have_no_local_effect);
 #if PIO_SIM_HAS_WAIT_JMPPIN
@@ -1619,22 +1979,22 @@ int main(void)
 #endif
 #if PIO_SIM_HAS_IRQ_PREVNEXT
     RUN_TEST(test_irq_next_signals_neighbour_block);
+#if PIO_SIM_HAS_IRQ_STATUS
+    RUN_TEST(test_mov_status_irq_prev_next_blocks);
+#endif
 #endif
     RUN_TEST(test_group_runs_blocks_in_lockstep);
 #if PIO_SIM_HAS_IRQ_PREVNEXT
     RUN_TEST(test_group_wires_irq_ring);
 #endif
     RUN_TEST(test_group_shared_pads);
+    RUN_TEST(test_group_stale_write_does_not_win_priority);
     RUN_TEST(test_pull_open_drain);
     RUN_TEST(test_input_sync_bypass);
     RUN_TEST(test_sm_mask_enabled);
-    RUN_TEST(test_dma_feeds_and_drains_fifos);
-    RUN_TEST(test_dma_run_drains_tx);
-    RUN_TEST(test_dma_byte_size_roundtrip);
-    RUN_TEST(test_dma_ring_wraps_source);
-    RUN_TEST(test_dma_chain_to_next);
     RUN_TEST(test_fdebug_flags);
     RUN_TEST(test_system_irq_lines);
+    RUN_TEST(test_intr_irq_flag_routing);
     RUN_TEST(test_irq_enable_force_read_back);
 
     RUN_TEST(test_input_sync_delays_jmp_pin_by_two_cycles);

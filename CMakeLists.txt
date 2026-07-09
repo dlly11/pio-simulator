@@ -2,7 +2,9 @@
 cmake_minimum_required(VERSION 3.21)
 project(pio_sim LANGUAGES C)
 
-set(CMAKE_C_STANDARD 17)
+# The library is written to C11 (what the headers and README promise); keep the
+# build floor there so embedders on older toolchains aren't forced past it.
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Target chip: RP2040 (PIO version 0) or RP2350 (PIO version 1, a superset).
@@ -22,7 +24,8 @@ endif()
 
 # The simulator + assembler. Pure C, no dependencies. Consumers link `pio_sim`
 # and get the public headers (pio_sim.h, pio_asm.h) transitively.
-add_library(pio_sim STATIC lib/src/pio_sim.c lib/src/pio_asm.c)
+add_library(pio_sim STATIC lib/src/pio_sim.c lib/src/pio_gpio.c lib/src/pio_clock.c
+    lib/src/pio_dma.c lib/src/pio_chip.c lib/src/pio_asm.c)
 target_include_directories(pio_sim
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/lib/include

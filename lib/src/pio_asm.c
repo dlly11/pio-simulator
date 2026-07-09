@@ -5,6 +5,8 @@
 
 #include "pio_asm.h"
 
+#include "pio_sim_internal.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -96,7 +98,7 @@ static bool parse_uint(const char *s_in, uint32_t *out)
         } else {
             return false;
         }
-        v = v * (uint32_t)base + digit;
+        v = (v * (uint32_t)base) + digit;
     }
     *out = v;
     return true;
@@ -167,7 +169,8 @@ static bool find_define(const asm_ctx_t *ctx, const char *name, uint32_t *out)
 /* ── Expression evaluator (pioasm-compatible) ──────────────────────────────────
  * Integer expressions over `.define` symbols, labels, and literals, matching
  * real pioasm's operators and precedence. Tightest binding first:
- *   unary - , ::(32-bit reverse)  >  & | ^  >  * /  >  + -  >  << >>
+ *   unary -  >  & | ^  >  * /  >  + -  >  << >>  >  ::(32-bit reverse)
+ * (pioasm's grammar binds `::` loosest of all, so `::A + 1` is `::(A + 1)`.)
  * Operands: decimal / 0x / 0b literals, identifiers (define first, then label),
  * and parenthesised sub-expressions. Evaluated in int64, truncated to 32 bits at
  * the use site. Whitespace between tokens is ignored, so a spaced or glued form
@@ -185,26 +188,14 @@ static void expr_skip_ws(expr_t *e)
     }
 }
 
-/* Host-side 32-bit reversal for the `::` operator (mirrors pio_sim.c reverse32). */
-static uint32_t expr_reverse32(uint32_t v_in)
-{
-    uint32_t v = v_in;
-    v = ((v & 0x55555555U) << 1U) | ((v >> 1U) & 0x55555555U);
-    v = ((v & 0x33333333U) << 2U) | ((v >> 2U) & 0x33333333U);
-    v = ((v & 0x0F0F0F0FU) << 4U) | ((v >> 4U) & 0x0F0F0F0FU);
-    v = ((v & 0x00FF00FFU) << 8U) | ((v >> 8U) & 0x00FF00FFU);
-    v = (v << 16U) | (v >> 16U);
-    return v;
-}
-
-static int64_t expr_shift(expr_t *e); /* lowest-precedence entry, fwd decl */
+static int64_t expr_reverse(expr_t *e); /* lowest-precedence entry, fwd decl */
 
 static int64_t expr_primary(expr_t *e)
 {
     expr_skip_ws(e);
     if (*e->p == '(') {
         e->p++;
-        int64_t v = expr_shift(e);
+        int64_t v = expr_reverse(e);
         expr_skip_ws(e);
         if (*e->p == ')') {
             e->p++;
@@ -266,10 +257,6 @@ static int64_t expr_unary(expr_t *e)
     if (*e->p == '-') {
         e->p++;
         return -expr_unary(e);
-    }
-    if ((e->p[0] == ':') && (e->p[1] == ':')) {
-        e->p += 2;
-        return (int64_t)expr_reverse32((uint32_t)expr_unary(e));
     }
     return expr_primary(e);
 }
@@ -352,12 +339,24 @@ static int64_t expr_shift(expr_t *e) /* << >> — loosest binary */
     return v;
 }
 
+/* `::` (32-bit reverse) binds loosest of all, matching pioasm's grammar: it
+ * applies to the whole expression to its right (right-recursive). */
+static int64_t expr_reverse(expr_t *e)
+{
+    expr_skip_ws(e);
+    if ((e->p[0] == ':') && (e->p[1] == ':')) {
+        e->p += 2;
+        return (int64_t)pio_reverse32((uint32_t)expr_reverse(e));
+    }
+    return expr_shift(e);
+}
+
 /* Resolve an integer operand: a full expression (literal / define / label /
  * arithmetic). Truncated to 32 bits. */
 static bool resolve_uint(const asm_ctx_t *ctx, const char *s, uint32_t *out)
 {
     expr_t e = {ctx, s, true};
-    int64_t v = expr_shift(&e);
+    int64_t v = expr_reverse(&e);
     expr_skip_ws(&e);
     if (!e.ok || (*e.p != '\0')) {
         return false;
@@ -451,28 +450,28 @@ static int src_field(const char *s)
 static int out_dest_field(const char *s)
 {
     if (ieq(s, "pins")) {
-        return 0;
+        return (int)PIO_OUT_DST_PINS;
     }
     if (ieq(s, "x")) {
-        return 1;
+        return (int)PIO_OUT_DST_X;
     }
     if (ieq(s, "y")) {
-        return 2;
+        return (int)PIO_OUT_DST_Y;
     }
     if (ieq(s, "null")) {
-        return 3;
+        return (int)PIO_OUT_DST_NULL;
     }
     if (ieq(s, "pindirs")) {
-        return 4;
+        return (int)PIO_OUT_DST_PINDIRS;
     }
     if (ieq(s, "pc")) {
-        return 5;
+        return (int)PIO_OUT_DST_PC;
     }
     if (ieq(s, "isr")) {
-        return 6;
+        return (int)PIO_OUT_DST_ISR;
     }
     if (ieq(s, "exec")) {
-        return 7;
+        return (int)PIO_OUT_DST_EXEC;
     }
     return -1;
 }
@@ -481,48 +480,48 @@ static int out_dest_field(const char *s)
 static int mov_dest_field(const char *s)
 {
     if (ieq(s, "pins")) {
-        return 0;
+        return (int)PIO_MOV_DST_PINS;
     }
     if (ieq(s, "x")) {
-        return 1;
+        return (int)PIO_MOV_DST_X;
     }
     if (ieq(s, "y")) {
-        return 2;
+        return (int)PIO_MOV_DST_Y;
     }
 #if PIO_SIM_HAS_MOV_PINDIRS
     if (ieq(s, "pindirs")) {
-        return 3;
+        return (int)PIO_MOV_DST_PINDIRS;
     }
 #endif
     if (ieq(s, "exec")) {
-        return 4;
+        return (int)PIO_MOV_DST_EXEC;
     }
     if (ieq(s, "pc")) {
-        return 5;
+        return (int)PIO_MOV_DST_PC;
     }
     if (ieq(s, "isr")) {
-        return 6;
+        return (int)PIO_MOV_DST_ISR;
     }
     if (ieq(s, "osr")) {
-        return 7;
+        return (int)PIO_MOV_DST_OSR;
     }
     return -1;
 }
 
-/* SET destination name → field. */
+/* SET destination name → field (same numbering as OUT for the valid subset). */
 static int set_dest_field(const char *s)
 {
     if (ieq(s, "pins")) {
-        return 0;
+        return (int)PIO_DST_PINS;
     }
     if (ieq(s, "x")) {
-        return 1;
+        return (int)PIO_DST_X;
     }
     if (ieq(s, "y")) {
-        return 2;
+        return (int)PIO_DST_Y;
     }
     if (ieq(s, "pindirs")) {
-        return 4;
+        return (int)PIO_DST_PINDIRS;
     }
     return -1;
 }
@@ -818,6 +817,12 @@ static bool enc_in(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
         return false;
     }
     int src = src_field(tok[1]);
+    if (src == (int)PIO_SRC_STATUS) {
+        /* IN source encoding 101 is reserved on hardware (STATUS is a MOV-only
+         * source); real pioasm rejects it too. */
+        pa_set_error(ctx, "status is not a valid in source");
+        return false;
+    }
     uint32_t cnt;
     if ((src < 0) || !resolve_uint_join(ctx, tok, 2, n, &cnt)) {
         pa_set_error(ctx, "bad in operands");
@@ -1224,7 +1229,11 @@ static bool parse_fifo_config(const char *t, pio_fifo_join_t *out)
         return true;
     }
 #if PIO_SIM_HAS_RXFIFO_MOV
-    if (ieq(t, "txput") || ieq(t, "putget")) {
+    if (ieq(t, "putget")) {
+        *out = PIO_FIFO_JOIN_RX_PUTGET; /* both FJOIN_RX_PUT and FJOIN_RX_GET */
+        return true;
+    }
+    if (ieq(t, "txput")) {
         *out = PIO_FIFO_JOIN_RX_PUT;
         return true;
     }
@@ -1293,6 +1302,19 @@ static bool parse_mov_status(pa_parse_state_t *ps, char *tok[], uint8_t nt)
 #if PIO_SIM_HAS_IRQ_STATUS
     } else if (ieq(tok[1], "irq")) {
         out->mov_status_sel = PIO_STATUS_IRQ_SET;
+#if PIO_SIM_HAS_IRQ_PREVNEXT
+        /* `irq next set N` / `irq prev set N`: the flag is read from the
+         * neighbouring PIO block (EXECCTRL STATUS_N[4:3] on RP2350). */
+        for (uint8_t i = 2; (i + 1U) < nt; i++) {
+            if (ieq(tok[i], "next")) {
+                out->mov_status_sel = PIO_STATUS_IRQ_SET_NEXT;
+            } else if (ieq(tok[i], "prev")) {
+                out->mov_status_sel = PIO_STATUS_IRQ_SET_PREV;
+            } else {
+                /* `set` marker or other positional token: ignore. */
+            }
+        }
+#endif
 #endif
     } else {
         return false;
@@ -1333,11 +1355,17 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
         ps->idx = 0;
         return LINE_OK;
     }
-    /* `.define [PUBLIC] <NAME> <value>` — collected globally (a top-level define
-     * precedes any .program, so this must run before the in_program gate). */
+    /* `.define [PUBLIC] <NAME> <value>` — handled before the in_program gate
+     * because top-level defines precede any .program. Scoping matches pioasm:
+     * top-level and PUBLIC defines are global; a non-public define inside a
+     * program body is local to it, so one from a *non-selected* program must
+     * not leak into the selected program's symbol table. */
     if (ieq(tok[0], ".define")) {
         if (ps->pass == 1) {
             uint8_t ni = ((nt >= 2U) && ieq(tok[1], "public")) ? 2U : 1U;
+            if ((ni == 1U) && ps->seen_any_program && !ps->in_program) {
+                return LINE_OK; /* non-public define in another program: skip */
+            }
             uint32_t val = 0;
             if ((nt < (uint8_t)(ni + 2U)) ||
                 !resolve_uint_join(ps->ctx, tok, (uint8_t)(ni + 1U), nt, &val)) {
@@ -1620,7 +1648,7 @@ bool pio_asm_assemble(const char *src, const char *name, pio_program_t *out)
     (void)memset(&ctx, 0, sizeof(ctx));
     ctx.out = out;
 
-    pa_parse_state_t ps = {&ctx, name, 1, false, false, false, false, false, 0};
+    pa_parse_state_t ps = {.ctx = &ctx, .name = name, .pass = 1};
 
     /* Pass 1: select the program, collect labels and side-set/wrap. */
     if (!run_pass(&ps, src)) {
@@ -1674,7 +1702,9 @@ bool pio_asm_load_program(pio_sim_t *pio, uint8_t sm, uint8_t offset, const pio_
     pio_sim_sm_set_wrap(pio, sm, (uint8_t)(offset + prog->wrap_bottom),
                         (uint8_t)(offset + prog->wrap_top));
     pio_sim_sm_set_sideset(pio, sm, prog->sideset_bits, prog->sideset_opt, prog->sideset_pindirs);
-    pio_sim_sm_set_pc(pio, sm, (uint8_t)(offset + prog->wrap_bottom));
+    /* Start at the program's first instruction (the SDK's pio_sm_init
+     * convention), so any preamble before .wrap_target runs once. */
+    pio_sim_sm_set_pc(pio, sm, offset);
     return true;
 }
 

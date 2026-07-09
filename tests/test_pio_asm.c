@@ -506,6 +506,38 @@ static void test_assemble_directives_and_apply(void)
 #endif
 }
 
+#if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
+/* `.mov_status irq next|prev set N` selects the neighbouring block's flag. */
+static void test_mov_status_irq_next_prev_directive(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program s\n.mov_status irq next set 3\n    nop\n", NULL, &p), p.error);
+    TEST_ASSERT_TRUE(p.has_mov_status);
+    TEST_ASSERT_EQUAL_INT(PIO_STATUS_IRQ_SET_NEXT, p.mov_status_sel);
+    TEST_ASSERT_EQUAL_UINT8(3U, p.mov_status_n);
+
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program s\n.mov_status irq prev set 5\n    nop\n", NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_INT(PIO_STATUS_IRQ_SET_PREV, p.mov_status_sel);
+    TEST_ASSERT_EQUAL_UINT8(5U, p.mov_status_n);
+
+    /* Plain `irq set N` stays local. */
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program s\n.mov_status irq set 1\n    nop\n", NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_INT(PIO_STATUS_IRQ_SET, p.mov_status_sel);
+
+    /* Applied config lands on the SM. */
+    pio_sim_t pio;
+    pio_sim_init(&pio);
+    TEST_ASSERT_TRUE(
+        pio_asm_assemble(".program s\n.mov_status irq next set 3\n    nop\n", NULL, &p));
+    pio_asm_apply_program_config(&pio, 0, &p);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)PIO_STATUS_IRQ_SET_NEXT, pio.sm[0].status_sel);
+    TEST_ASSERT_EQUAL_UINT8(3U, pio.sm[0].status_n);
+}
+#endif
+
 /* A line with more tokens than the assembler holds is rejected, not silently
  * truncated (which would drop a trailing side-set / delay and mis-encode). */
 static void test_too_many_tokens_errors(void)
@@ -535,6 +567,84 @@ static void test_load_program_at_origin(void)
     TEST_ASSERT_EQUAL_UINT8(5U, pio_sim_sm_get_pc(&pio, 0)); /* PC at the origin */
     TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 1), pio.insn[5]);
     TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_jmp(PIO_COND_ALWAYS, 5), pio.insn[6]); /* jmp 0 -> 5 */
+}
+
+/* `::` (reverse) binds loosest of all, as in pioasm's grammar: `::2 >> 27` is
+ * ::(2 >> 27) = 0, not (::2) >> 27 = 8. */
+static void test_reverse_binds_loosest(void)
+{
+    const char *src = ".program r\n"
+                      ".define E (::2 >> 27) & 0x1F\n"
+                      ".define F (::E + 4) >> 27\n"
+                      "    set x, E\n"
+                      "    set y, F\n";
+    pio_program_t p;
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 0), p.insns[0]);
+    /* F = ::(0 + 4) >> 27 = 0x20000000 >> 27 = 4 (old precedence gave 0). */
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_Y, 4), p.insns[1]);
+}
+
+/* `in status` must be rejected: IN source encoding 101 is reserved on hardware
+ * (STATUS is a MOV-only source), and real pioasm rejects it. */
+static void test_in_status_rejected(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    in status, 8\n", NULL, &p));
+    /* …while mov from status stays accepted. */
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program t\n    mov x, status\n", NULL, &p));
+}
+
+/* pio_asm_load_program starts the SM at the program's first instruction (the
+ * SDK's pio_sm_init convention), so a preamble before .wrap_target runs once. */
+static void test_load_program_pc_starts_at_offset(void)
+{
+    const char *src = ".program pre\n"
+                      "    set x, 5\n" /* preamble: must execute */
+                      ".wrap_target\n"
+                      "    set y, 1\n"
+                      ".wrap\n";
+    pio_program_t p;
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_UINT8(1U, p.wrap_bottom);
+    TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 2, &p));
+    TEST_ASSERT_EQUAL_UINT8(2U, pio_sim_sm_get_pc(&pio, 0)); /* offset, not wrap */
+    pio_sim_sm_set_enabled(&pio, 0, true);
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_UINT32(5U, pio.sm[0].x); /* preamble ran */
+}
+
+#if PIO_SIM_HAS_RXFIFO_MOV
+/* `.fifo putget` selects the combined put+get mode (both FJOIN_RX bits), not
+ * plain PUT; txput/txget map to their single-direction modes. */
+static void test_fifo_putget_maps_to_putget(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program f\n.fifo putget\n    nop\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(PIO_FIFO_JOIN_RX_PUTGET, p.fifo_join);
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program f\n.fifo txput\n    nop\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(PIO_FIFO_JOIN_RX_PUT, p.fifo_join);
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program f\n.fifo txget\n    nop\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(PIO_FIFO_JOIN_RX_GET, p.fifo_join);
+}
+#endif
+
+/* Non-public defines are local to their program (pioasm scoping): one from a
+ * non-selected program must not leak into the selected program's symbols. */
+static void test_define_not_leaked_from_other_program(void)
+{
+    const char *src = ".program a\n.define LOCAL 7\n    set x, LOCAL\n"
+                      ".program b\n    set x, LOCAL\n";
+    pio_program_t p;
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src, "a", &p), p.error);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 7), p.insns[0]);
+    TEST_ASSERT_FALSE(pio_asm_assemble(src, "b", &p)); /* LOCAL is a's alone */
+    /* PUBLIC defines (and top-level ones) stay global. */
+    const char *src2 = ".define TOP 3\n"
+                       ".program a\n.define public SHARED 5\n    set x, SHARED\n"
+                       ".program b\n    set x, (SHARED + TOP)\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src2, "b", &p), p.error);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 8), p.insns[0]);
 }
 
 /* irq in absolute (non-rel) set/wait/clear forms. */
@@ -666,6 +776,7 @@ int main(void)
     RUN_TEST(test_assemble_irq_rel);
 #if PIO_SIM_HAS_RXFIFO_MOV
     RUN_TEST(test_assemble_mov_rxfifo);
+    RUN_TEST(test_fifo_putget_maps_to_putget);
 #endif
 #if PIO_SIM_HAS_WAIT_JMPPIN
     RUN_TEST(test_assemble_wait_jmppin);
@@ -685,9 +796,16 @@ int main(void)
     RUN_TEST(test_assemble_comments_and_binary);
     RUN_TEST(test_assemble_expressions);
     RUN_TEST(test_assemble_directives_and_apply);
+#if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
+    RUN_TEST(test_mov_status_irq_next_prev_directive);
+#endif
     RUN_TEST(test_too_many_tokens_errors);
     RUN_TEST(test_undefined_symbol_errors);
     RUN_TEST(test_load_program_at_origin);
+    RUN_TEST(test_reverse_binds_loosest);
+    RUN_TEST(test_define_not_leaked_from_other_program);
+    RUN_TEST(test_in_status_rejected);
+    RUN_TEST(test_load_program_pc_starts_at_offset);
     RUN_TEST(test_irq_absolute);
     RUN_TEST(test_more_dest_src_fields);
     RUN_TEST(test_arity_errors);

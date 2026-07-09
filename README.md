@@ -1,5 +1,7 @@
 # pio_sim
 
+![ci](https://github.com/dlly11/pio-simulator/actions/workflows/ci.yml/badge.svg)
+
 A pure-C functional simulator and assembler for the **RP2040 / RP2350 PIO**
 block. It runs real PIO programs off-hardware so you can unit-test PIO logic
 (protocols, timing, FIFO behaviour) in a normal host build — no silicon, no
@@ -13,8 +15,13 @@ Pico SDK, no RTOS.
   clock. Non-blocking FIFO ops match the hardware: `push noblock` on a full RX
   FIFO discards the word and clears the ISR; `pull noblock` on an empty TX FIFO
   loads the OSR from scratch X. On RP2350 it also models the 48-GPIO window
-  (GPIOBASE), inter-PIO IRQ signalling, multi-PIO groups, and DMA pacing — see
-  below.
+  (GPIOBASE), inter-PIO IRQ signalling, and multi-PIO groups. Companion modules
+  cover the chip around the block: `pio_gpio` (PADS_BANK0 pad registers and the
+  IO_BANK0 FUNCSEL mux with output/input overrides), `pio_dma` (the full 12/16-
+  channel DMA controller with chaining, IRQs, pacing timers and the CRC
+  sniffer), `pio_clock` (XOSC→PLL→clk_sys tree with tick↔time conversion), and
+  `pio_chip` (all blocks + shared pads + DMA + clock behind one tick call) — see
+  Scope below.
 - **`pio_asm`** — a pioasm-compatible assembler: all mnemonics and operand forms
   (incl. RP2350's `mov rxfifo[]`, `wait jmppin`, `irq/wait prev|next`, `mov
   pindirs`), every directive (`.program`, `.define`, `.side_set`, `.wrap_target`,
@@ -71,13 +78,16 @@ against the same feature surface the library was built with.
   SM-side pin access (IN/OUT/SET/side-set/MOV pins, `WAIT GPIO/PIN`, `JMP PIN`)
   is offset; host access (`pio_sim_get_pin`/`set_pin`) stays absolute.
 - **Pin drive & arbitration** — each state machine has its own pin output and
-  pin-direction (output-enable) registers; the pad's level is *resolved* from them
-  by priority. A state machine drives a pad only where its **pindirs** mark the pin
-  an output (as on hardware — `SET/OUT PINS` to a pin left as input has no pad
-  effect), and when several SMs drive one pin the **highest-numbered** wins — even
-  across different cycles, not just simultaneous writes. A pin with no PIO output,
-  no external driver, and no pull is **high-impedance** and reads 0 (true tri-state,
-  not its last driven value).
+  pin-direction (output-enable) registers; the pad's level is *resolved* from the
+  pin **writes** of each cycle, as hardware collates them (RP2040 §3.5.6.1). When
+  several SMs write one pin on the **same cycle** the **highest-numbered** wins;
+  a pin nobody writes holds its latched level, so a later, uncontested write from
+  any SM lands regardless of number (`OUT_STICKY` re-asserts an SM's pins every
+  cycle, which is what gives it continuous priority). A state machine drives a
+  pad only where its **pindirs** mark the pin an output (as on hardware —
+  `SET/OUT PINS` to a pin left as input has no pad effect). A pin with no PIO
+  output, no external driver, and no pull is **high-impedance** and reads 0
+  (true tri-state, not its last driven value).
 - **Output controls** — `pio_sim_sm_set_out_special` mirrors the SDK's
   `sm_config_set_out_special`: `OUT_STICKY` plus inline OUT-enable use a chosen
   OUT-data bit to gate the pin write — and under sticky, an enable of 0 *releases*
@@ -122,18 +132,46 @@ the RP2350 IN pin count, which has no RP2040 equivalent and is ignored there).
 `.origin` and `.pio_version` are recorded as metadata only — `.origin` is advisory
 since the load address is passed explicitly to `pio_asm_load_program`.
 
-## Scope (what's intentionally not modelled)
+## Scope
 
 This is a **functional** simulator: one `pio_sim_tick()` is one PIO system clock,
 and the per-SM clock divider is rate-exact (the 16.8 fractional accumulator
-averages to `int + frac/256` cycles per SM step). It deliberately does **not**
-model chip-level concerns outside the PIO block: real-time/wall-clock, the
-PLL/clock tree, GPIO pad electricals (drive strength, slew, schmitt/IE/OD), the
-GPIO function mux, or a full DMA controller (the DMA model is DREQ-paced — enough
-for PIO↔DMA interaction tests, not a DMA engine). One PIO timing detail is a known
-approximation: autopull/autopush refill is modelled at the end of the
-triggering OUT/IN, which the datasheet notes is pipeline-dependent and not to be
-relied upon at cycle granularity.
+averages to `int + frac/256` cycles per SM step). The chip-level surroundings of
+the PIO block are modelled too:
+
+- **Clock tree** (`pio_clock.h`): XOSC → PLL_SYS → clk_sys divider with
+  datasheet-validated parameters and exact integer tick↔ns/µs conversion. It
+  does not change stepping — a tick is still one clk_sys cycle; the tree gives
+  it a duration.
+- **GPIO pads** (`pio_gpio.h`): PADS_BANK0 with IE, OD, pulls (both enabled =
+  bus keeper) and RP2350 pad isolation simulated exactly; DRIVE strength,
+  SLEWFAST and SCHMITT are accepted/stored but are analog and do not affect the
+  digital simulation.
+- **GPIO function mux** (`pio_gpio.h`): per-pin FUNCSEL routing with
+  OUTOVER/OEOVER/INOVER; inputs always visible to the PIO, as on silicon.
+- **DMA** (`pio_dma.h`): the full 12/16-channel controller — address
+  generation, rings, chaining/null triggers, DREQ + pacing timers, byte swap,
+  the CRC sniffer, IRQ lines and abort.
+- **Chip umbrella** (`pio_chip.h`): all PIO blocks + shared pads + DMA + clock
+  in one `pio_chip_tick()`.
+
+Documented simulator-only deviations (each noted at its API):
+
+- Pins reset to a sim-only `LEGACY_ANY_PIO` function (every block may drive
+  every pin) and pads reset to friendly defaults (no pulls). Hardware-accurate
+  routing/reset are opt-in via `pio_sim_gpio_set_function` and
+  `pio_sim_pads_reset_hw`.
+- The DMA moves one atomic element per tick, whole-controller, with
+  level-sensitive DREQ — deterministic, and equivalent for PIO-FIFO workloads,
+  but not the pipelined bus of real silicon.
+- Autopull is a background OSR refill at one-tick granularity, following the
+  datasheet rules (refills during stalls/delays; an OUT cannot fill and shift
+  the OSR in one cycle). The datasheet notes the exact refill point is
+  pipeline-dependent and not to be relied upon.
+
+Still intentionally out of scope: analog pad behaviour (drive-strength
+contention, slew, hysteresis), real-time execution, bus-cycle-exact DMA
+pipelining, and the RP2350 DMA MPU/security attributes.
 
 ## Build & test
 
@@ -142,10 +180,22 @@ git submodule. Clone with `--recurse-submodules`, or initialise it after cloning
 
 ```sh
 git submodule update --init
-cmake -B build -G Ninja
+cmake -B build        # -G Ninja optional; any generator works
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
+
+No CMake handy? The library is dependency-free, so a bare compiler run works too:
+
+```sh
+gcc -std=c11 -Wall -Wextra -I lib/include -I lib/config -I third_party/unity/src \
+    lib/src/pio_sim.c lib/src/pio_dma.c lib/src/pio_asm.c \
+    tests/test_pio_sim.c third_party/unity/src/unity.c -o test_sim && ./test_sim
+```
+
+CI builds gcc + clang across both platforms (`-DPIO_SIM_PLATFORM=RP2040|RP2350`),
+runs the suites under ASan/UBSan, lints with clang-tidy/clang-format, and
+cross-checks the assembler's encodings against the real pioasm (see below).
 
 ### Lint & format
 
@@ -158,7 +208,7 @@ clang-format --dry-run --Werror lib/src/*.c lib/include/*.h tests/test_*.c
 
 # static analysis: needs a compile database for the include paths / feature defines
 cmake -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-clang-tidy -p build lib/src/pio_sim.c lib/src/pio_asm.c
+clang-tidy -p build lib/src/pio_sim.c lib/src/pio_dma.c lib/src/pio_asm.c
 ```
 
 ## Embedding
@@ -188,6 +238,10 @@ pio_sim_init(&pio);
 pio_program_t prog;
 pio_asm_assemble(".program blink\n set pins, 1 [1]\n set pins, 0 [1]\n", NULL, &prog);
 pio_asm_load_program(&pio, /*sm=*/0, /*offset=*/0, &prog);
+/* Loading only writes the instruction words. Directives that map to SM config
+ * (.clock_div, .fifo, .mov_status, .out/.in/.set, side-set) take effect only
+ * via pio_asm_apply_program_config: */
+pio_asm_apply_program_config(&pio, /*sm=*/0, &prog);
 pio_sim_sm_set_enabled(&pio, 0, true);
 
 for (int i = 0; i < 8; i++) pio_sim_tick(&pio);
