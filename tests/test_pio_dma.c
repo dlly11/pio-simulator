@@ -540,11 +540,12 @@ static void test_ring_size_out_of_range_no_ub(void)
     static uint32_t src[4] = {1, 2, 3, 4};
     static uint32_t dst[4] = {0};
     dma_channel_config c = pio_dma_channel_get_default_config(0);
-    channel_config_set_ring(&c, false, 64); /* > pointer width: guarded, no wrap */
+    channel_config_set_ring(&c, false, 64); /* > 15: clamped to the 4-bit field */
+    TEST_ASSERT_EQUAL_UINT8(15U, c.ring_size);
     channel_config_set_write_increment(&c, true);
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), pio_dma_addr_mem(src), 2, true);
     (void)pio_dma_tick(&dma);
-    TEST_ASSERT_EQUAL_HEX32(1U, dst[0]); /* survived; behaves as no-wrap */
+    TEST_ASSERT_EQUAL_HEX32(1U, dst[0]); /* survived; 32KB window never reached */
 }
 
 /* Robustness (Part 1): a NULL block slot must not be dereferenced. */

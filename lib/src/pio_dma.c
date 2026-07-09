@@ -99,6 +99,11 @@ void channel_config_set_transfer_data_size(dma_channel_config *c, pio_dma_size_t
 }
 void channel_config_set_ring(dma_channel_config *c, bool write, uint8_t size_bits)
 {
+    /* Hardware RING_SIZE is a 4-bit field (0..15); clamp so a stray larger value
+     * matches silicon truncation rather than widening the wrap window. */
+    if (size_bits > 15U) {
+        size_bits = 15U;
+    }
     c->ring_sel = write;
     c->ring_size = size_bits;
 }
