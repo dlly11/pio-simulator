@@ -221,9 +221,20 @@ add_subdirectory(third_party/pio_sim)   # defines the `pio_sim` target; tests of
 target_link_libraries(your_tests PRIVATE pio_sim)
 ```
 
-Consumers then `#include "pio_sim.h"` / `"pio_asm.h"`. Unit tests build only for a
-standalone (top-level) configure; set `-DPIO_SIM_BUILD_TESTS=OFF` to force them off.
-(Embedders that *do* build the tests must also init the `third_party/unity` submodule.)
+…or install it and consume the package:
+
+```cmake
+find_package(pio_sim CONFIG REQUIRED)
+target_link_libraries(your_tests PRIVATE pio_sim::pio_sim)
+```
+
+Consumers then `#include "pio_sim.h"` / `"pio_asm.h"` (or `#include "pio.h"` for
+the whole API in one include). Unit tests build only for a standalone (top-level)
+configure; set `-DPIO_SIM_BUILD_TESTS=OFF` to force them off. (Embedders that *do*
+build the tests must also init the `third_party/unity` submodule.)
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev environment (a Nix flake
+pinning the clang-21 toolchain) and how to reproduce the CI gate locally.
 
 ## API sketch
 
