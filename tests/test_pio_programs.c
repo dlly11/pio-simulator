@@ -233,11 +233,14 @@ static void test_chip_dma_feeds_ws2812(void)
     TEST_ASSERT_EQUAL_UINT8(7U, first_run);
     /* The frame duration has a defined wall-clock length under the default tree. */
     TEST_ASSERT_TRUE(pio_chip_ticks_to_ns(&chip, 120) > 0U);
-    /* The chip-level time conversions mirror the clock tree and round-trip. */
-    uint64_t us = pio_chip_ticks_to_us(&chip, 150000000U); /* 1 s at 150 MHz */
-    TEST_ASSERT_EQUAL_UINT64(1000000U, us);
-    TEST_ASSERT_EQUAL_UINT64(150000000U, pio_chip_us_to_ticks(&chip, 1000000U));
-    TEST_ASSERT_TRUE(pio_chip_ns_to_ticks(&chip, 1000000000U) > 0U);
+    /* The chip-level time conversions delegate to the embedded clock tree
+     * (frequency-independent: compare against pio_clk_* on chip.clk directly). */
+    TEST_ASSERT_EQUAL_UINT64(pio_clk_ticks_to_us(&chip.clk, 1500000U),
+                             pio_chip_ticks_to_us(&chip, 1500000U));
+    TEST_ASSERT_EQUAL_UINT64(pio_clk_ns_to_ticks(&chip.clk, 1000000U),
+                             pio_chip_ns_to_ticks(&chip, 1000000U));
+    TEST_ASSERT_EQUAL_UINT64(pio_clk_us_to_ticks(&chip.clk, 1000U),
+                             pio_chip_us_to_ticks(&chip, 1000U));
 }
 
 int main(void)
