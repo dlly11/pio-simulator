@@ -1,0 +1,12 @@
+; 8n1 UART transmit — the canonical pico-examples program. OUT pin 0 and the
+; side-set pin are both the TX line. One bit period is 8 SM cycles, so the
+; clock divider sets the baud rate. Exercises side-set (opt), set, out and a
+; delayed jmp loop.
+.program uart_tx
+.side_set 1 opt
+
+    pull       side 1 [7] ; assert stop/idle, or stall waiting for a byte
+    set x, 7   side 0 [7] ; preload bit counter, assert the start bit
+bitloop:                  ; runs 8 times, one data bit each
+    out pins, 1           ; shift the next bit to the TX pin
+    jmp x-- bitloop   [6] ; 8 cycles per iteration

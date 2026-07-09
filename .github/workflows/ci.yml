@@ -160,4 +160,5 @@ jobs:
           lib/config/pio_sim_config.h
           tests/test_pio_sim.c tests/test_pio_asm.c
           tests/test_pio_gpio.c tests/test_pio_clock.c tests/test_pio_dma.c
+          tests/test_pio_programs.c
           tests/test_pio_asm_vs_pioasm.c

@@ -15,6 +15,13 @@ foreach(t test_pio_sim test_pio_asm test_pio_gpio test_pio_clock test_pio_dma)
     add_test(NAME ${t} COMMAND ${t})
 endforeach()
 
+# Real-program end-to-end tests read their .pio sources from the corpus dir.
+add_executable(test_pio_programs test_pio_programs.c)
+target_link_libraries(test_pio_programs PRIVATE pio_sim unity)
+target_compile_definitions(test_pio_programs PRIVATE
+    TESTS_PIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/pio")
+add_test(NAME test_pio_programs COMMAND test_pio_programs)
+
 # ── Encoding differential vs the real Raspberry Pi pioasm ────────────────────
 # pio_asm is otherwise only checked against hand-derived golden encodings. When a
 # pioasm binary is available, cross-check every program in tests/pio against it:

@@ -1,0 +1,10 @@
+; Minimal clocked SPI-style shifter (MSB first): drive one data bit on the OUT
+; pin while toggling a side-set clock, so a looped-back pin can be sampled by a
+; second state machine. Exercises out + side-set + delay + wrap.
+.program spi_tx
+.side_set 1
+
+.wrap_target
+    out pins, 1 side 0 [1] ; present the data bit, clock low
+    nop         side 1 [1] ; clock high (data stable for the sampler)
+.wrap
