@@ -6,7 +6,7 @@ simulation, prints observable output, and returns non-zero if a built-in sanity
 check fails — so they double as runnable smoke tests. They are built and run in
 CI on both RP2040 and RP2350, so they always match the current API.
 
-Read them in order: each introduces a little more of the library.
+**Read them in order** — each introduces a little more of the library.
 
 | # | File | Tier | Shows |
 |---|------|------|-------|
