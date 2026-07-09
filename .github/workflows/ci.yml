@@ -17,14 +17,22 @@ jobs:
     strategy:
       fail-fast: false # a gcc failure shouldn't hide the clang result (and vice versa)
       matrix:
-        cc: [gcc, clang]
+        cc: [gcc, clang-21]
         platform: [RP2350, RP2040]
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
       - name: Install toolchain
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build clang
+        # clang-21 is the pinned clang everywhere (matches the flake dev shell);
+        # apt.llvm.org's llvm.sh installs it on whatever the runner's distro is.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build lsb-release wget gnupg
+          if [ "${{ matrix.cc }}" = "clang-21" ]; then
+            wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+            sudo bash /tmp/llvm.sh 21
+          fi
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_C_COMPILER=${{ matrix.cc }} -DPIO_SIM_PLATFORM=${{ matrix.platform }}
       - name: Build
@@ -43,13 +51,16 @@ jobs:
         with:
           submodules: recursive
       - name: Install toolchain
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build lsb-release wget gnupg
+          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash /tmp/llvm.sh 21
       - name: Configure (ASan + UBSan)
-        # Clang's ASan/UBSan give the most actionable diagnostics; pin it rather
-        # than inheriting the runner's default cc.
+        # Clang's ASan/UBSan give the most actionable diagnostics; pin clang-21.
         run: >
           cmake -B build-san -G Ninja
-          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_C_COMPILER=clang-21
           -DPIO_SIM_PLATFORM=${{ matrix.platform }}
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
       - name: Build
@@ -109,9 +120,13 @@ jobs:
         with:
           submodules: recursive
       - name: Install toolchain
-        # Pin the clang-tidy major version: the unversioned apt package tracks
-        # the distro default and check behavior drifts between releases.
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build clang-tidy-18
+        # Pin clang-tidy 21 (matches the flake dev shell, so local runs and CI
+        # agree). `llvm.sh 21 all` pulls in clang-tidy-21.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build lsb-release wget gnupg
+          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash /tmp/llvm.sh 21 all
       - name: Configure (export compile_commands.json)
         run: >
           cmake -B build -G Ninja
@@ -119,7 +134,7 @@ jobs:
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       - name: Run clang-tidy on the library
         run: >
-          clang-tidy-18 -p build lib/src/pio_sim.c lib/src/pio_gpio.c lib/src/pio_clock.c
+          clang-tidy-21 -p build lib/src/pio_sim.c lib/src/pio_gpio.c lib/src/pio_clock.c
           lib/src/pio_dma.c lib/src/pio_chip.c lib/src/pio_asm.c
 
   format:
@@ -127,10 +142,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install clang-format
-        run: sudo apt-get update && sudo apt-get install -y clang-format
+        # clang-format 21, matching the flake dev shell and the rest of CI.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lsb-release wget gnupg
+          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash /tmp/llvm.sh 21 all
       - name: Check formatting
         run: >
-          clang-format --dry-run --Werror
+          clang-format-21 --dry-run --Werror
           lib/src/pio_sim.c lib/include/pio_sim.h
           lib/src/pio_dma.c lib/include/pio_dma.h lib/src/pio_sim_internal.h
           lib/src/pio_gpio.c lib/include/pio_gpio.h
