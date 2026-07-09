@@ -1,0 +1,3 @@
+.program p
+.define X 2777777777 * 3983219825
+ set x, 1

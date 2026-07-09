@@ -1,0 +1,4 @@
+; teasred msÿÿb.
+.program jmpb
+tt:
+    jmp  ,jmp y--

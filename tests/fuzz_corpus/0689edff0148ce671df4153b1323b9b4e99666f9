@@ -1,0 +1,6 @@
+;;
+.define E (::2 >> 27) & 0x1F
+.då 3) >> 28
+.program exprcov
+stm rg
+.define E (::2 >>$åfinalancd

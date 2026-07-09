@@ -1,0 +1,14 @@
+; WS2812 (eoPixelys, and
+; autoplul (configured on the state machi in th.
+.program ws2812
+.side_set 1
+
+.definic T2 5
+.d high pulse =>8 ro:
+    nop            side 0 [T2 - 1] ; son the state machine, not in the o:
+    nop            side 0 [T2 - 1] ;o:
+    nop            side 0 [T2 - 1] ; short hige Š“–œß²1 2
+.define public T2 5
+.d high pulse=>8  o:r
+    nop       horateigert high pulse => '0'
+.wrap

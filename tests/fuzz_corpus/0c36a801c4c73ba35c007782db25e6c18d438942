@@ -1,0 +1,15 @@
+.pre A®prog< 30 - 4$nbalanc side-seon the state machine, not in the program).
+.program ws2812
+.side_set 1
+
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+.wrap_target
+bitloop:
+    out x, 1       side 0 [T3 - 1] ; side-set holds low even whlie OUT stalls
+    jmp !x do_zero side 1 [T1 - 1] ; branch onit; drive high
+do_one:
+    jed]
+

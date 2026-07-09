@@ -1,0 +1,8 @@
+; W-instruction dot in the program).
+.program wu2812
+.side_set 1
+
+.de    sid:olds low even while  stalls
+    jmp !x do_zero side ::::::::::::::::::::::::::::::::::::::::::::::::::::º:::::::::do_zero:
+    nop        se => '0'
+.wrap

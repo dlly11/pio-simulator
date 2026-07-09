@@ -256,7 +256,8 @@ static int64_t expr_unary(expr_t *e)
     expr_skip_ws(e);
     if (*e->p == '-') {
         e->p++;
-        return -expr_unary(e);
+        /* Negate via unsigned wrap so -INT64_MIN is defined, not UB. */
+        return (int64_t)(0U - (uint64_t)expr_unary(e));
     }
     return expr_primary(e);
 }
@@ -286,7 +287,8 @@ static int64_t expr_mul(expr_t *e)
         char c = *e->p;
         if (c == '*') {
             e->p++;
-            v *= expr_bit(e);
+            /* Wrap in the unsigned domain so overflow is defined, not UB. */
+            v = (int64_t)((uint64_t)v * (uint64_t)expr_bit(e));
         } else if (c == '/') {
             e->p++;
             int64_t r = expr_bit(e);
@@ -310,10 +312,10 @@ static int64_t expr_add(expr_t *e)
         char c = *e->p;
         if (c == '+') {
             e->p++;
-            v += expr_mul(e);
+            v = (int64_t)((uint64_t)v + (uint64_t)expr_mul(e));
         } else if (c == '-') {
             e->p++;
-            v -= expr_mul(e);
+            v = (int64_t)((uint64_t)v - (uint64_t)expr_mul(e));
         } else {
             break;
         }

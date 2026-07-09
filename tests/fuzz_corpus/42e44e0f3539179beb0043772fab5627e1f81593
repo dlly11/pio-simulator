@@ -1,0 +1,21 @@
+ll (confiram).
+.program ws2812
+.side_set 1
+
+.definine public T3 3
+
+.wrap_target
+bitloop:
+    out x, 1       side 0 [T3 - 1] ; side-set holdsefine public T2 5
+.delic T1 2
+.define public T2 5
+.define public T3 3
+
+.wrap_target
+bitloop:
+    out x, 1       side 0 [T3 - 1] ; side-set holdsefine public T1 5
+.define public T2 3
+
+.wrap_target
+iiiiiiiiiiii target
+    jmp  target

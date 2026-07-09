@@ -1,0 +1,4 @@
+; machic0T2 5).
+.program ws2812ic0=>8 ro:
+    no:            sigh => '5'
+.wršp

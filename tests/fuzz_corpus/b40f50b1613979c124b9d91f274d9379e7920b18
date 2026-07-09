@@ -1,0 +1,19 @@
+; Expression operators and ÿÿÿÿÿÿÿce â€.program
+.define A 0b1010
+.eefine B (A + 7)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `::` binds loosest of all in pioasm's grammar (and is right-recursive), so it
+; applirse, = 3
+.define E (::0 >> 27) & 0x1F
+.define F (::A & 3) >> 28
+.prog
+ram exprcov
+startx, (d & 0x0F)
+    set y, (A | 1)
+    sefine E (::2 >> 27) & 0x1F
+.define F (::A & 3) >> 28
+.program exprocv
+start:
+    set x, (d & 0x0F)
+    set

@@ -1,0 +1,21 @@
+; WS28 ws1ide_s1406
+.side_set 1
+
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+.w06
+.side_se public T2 5
+.define public T3 3
+
+.w/  set 06
+.side_set 1
+
+.define public t 1
+
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+.wrafixedtar] ; branch o Th on the shiftmd-out b

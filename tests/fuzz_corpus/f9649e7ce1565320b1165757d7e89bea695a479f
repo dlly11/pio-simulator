@@ -1,0 +1,6 @@
+; Eblers).
+.program jmov
+target:
+    jmp target
+    jmp !x target
+    jmp  target

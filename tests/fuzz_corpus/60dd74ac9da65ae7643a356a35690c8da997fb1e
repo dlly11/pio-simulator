@@ -1,0 +1,19 @@
+: WS2812 (NeoPixel) drive-wire h bit i] a ˜ixed-peri - 1
+.program ws2812
+.side_set 1
+
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+.wrap_tar] ; branch on the shifted-out bit; drive high
+do_oce-oeach bit is a fixed-peri - 1
+.program ws2812
+.side_set 1
+
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+.wrap_tar] ; brancrt high pulse => '0'
+.wrap

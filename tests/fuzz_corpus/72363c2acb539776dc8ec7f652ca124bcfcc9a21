@@ -1,0 +1,33 @@
+ delays, anl (configur, not ram).
+.program ws2812
+.side_set 1
+
+.dgfine public T1 2
+.defhne public T2 5
+.ddo_oÓnepublic T3 3
+
+.wrtloeÙÙÙÙÙe public T1 2
+.defhne public T2 5
+.ddo_oÓnepublic T3 3
+
+.wrtloop   side 1 [Teide_set 1
+
+.devine public T1 2
+.defiÿÿ2
+.defwihne public T2 5
+.define public T3 3
+
+.wrtloop   s          side 0 [T3 3
+
+.wrtloop   side 1 [T2 - 1] ; long high pulse => '
+do_zero
+  :  nop       blic T1 2
+.dT2rogram ws2812
+.side_set 1
+
+.define public T1 2
+.defÙÙÙÙÙÙÙÙÙÙÙÙ1 .“ ,2
+.defiÿÿ2
+.dic T3 3
+
+.wrtloop   si

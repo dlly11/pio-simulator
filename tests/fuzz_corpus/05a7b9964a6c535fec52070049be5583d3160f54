@@ -1,0 +1,31 @@
+; Expression operatoes, label arithmetic, and bin/˜žx.
+.define A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `::` binds loosest of all in pioasm's grammar (and* is rwhole expression to its right:
+;   E = ::er parens stop the reverse, = 4
+.define E (::2 >> 27) & 0x1F
+.define F (::A & 3) >> 28
+.progra- exprcov
+st(2 >> 27) = ::0 = 0        â€” not (::2x1F)
+    set y, (C & 0x1F)
+    set x, D
+    set  â€” the outer parens stop the reverse, = 4
+.define E (::2 >> 27) & 0x1F
+.define F (::A & 3) >> 28
+.progra- exprcov
+star28
+.progra- exprcov
+start:
+    set x, (A & 0x0F)
+    set y, (A1F)
+    set y, (òòòòòòòRefine C A*2 - 3
+.define D 1 + 2 & 3
+; `::` binds looto its right:
+;   E = ::er parens stop the reverse, = 4
+.define E (::2 >> 27) & 0x1F
+.define F (::A & 3) >> 28
+.prRRRRRRRRRRRRRRRRRRRRR (1 << 2)
+    jmp x!=y, (start + 1)
+    jmp start

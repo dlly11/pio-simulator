@@ -1,0 +1,11 @@
+; WS2812 se0 A.
+.define A 0B1010
+.ed·ine Bd bin.
+.define A 0B1010
+.ed—bin/hex.
+.define A 0B1010
+.ed—ine B (m).
+ribin/heºx.
+.define A 0B1010
+gh.program p 
+ out xpul

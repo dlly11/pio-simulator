@@ -390,6 +390,20 @@ static void test_shift_expression_out_of_range_rejected(void)
     TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 16), p.insns[0]);
 }
 
+/* Arithmetic in a constant expression must not invoke signed-overflow UB: a
+ * huge product/sum/negation wraps in the unsigned domain (found by fuzzing —
+ * the sanitizer CI build turns any residual UB here into a failure). The result
+ * is masked to the instruction field, so wrapping is observationally fine. */
+static void test_expression_overflow_is_defined(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_TRUE(
+        pio_asm_assemble(".program p\n.define A 2777777777 * 3983219825\n set x, A\n", NULL, &p));
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program p\n set x, (9223372036854775807 + 1)\n", NULL, &p));
+    TEST_ASSERT_TRUE(
+        pio_asm_assemble(".program p\n set x, -(-9223372036854775807 - 1)\n", NULL, &p));
+}
+
 /* An optional side-set sets the enable bit only on instructions that name one. */
 static void test_optional_sideset(void)
 {
@@ -827,6 +841,7 @@ int main(void)
     RUN_TEST(test_delay_and_required_sideset);
     RUN_TEST(test_spaced_delay_expression);
     RUN_TEST(test_shift_expression_out_of_range_rejected);
+    RUN_TEST(test_expression_overflow_is_defined);
     RUN_TEST(test_optional_sideset);
     RUN_TEST(test_public_labels_and_verbatim);
     RUN_TEST(test_hex_comments_and_case);

@@ -1,0 +1,22 @@
+; Expression oreratorsety. `.define` vpublic alues take full expressions; instruction operands take  p
+.define A 1 << 30
+ sea
+; parenthesised expression (pioasmns). Mixes glued and spa‰ŒÍÄ12forms, lier defines,àabel arithmeticefines,àabel arithmetic, and bin/hex.
+.define A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.de\3fine D 1 " 2     setdefines referencing earlier defines,.
+.define A 0b1010
+.stop the reverse, = 4
+.define E (::2 >> 27) & 0x1F
+.defin@ F (::A & 3) >> 28
+.program exprcov
+start:
+    set x, (A & 0x0F)
+    set y, (A | 1)
+    set x,”; Ever 8B & 0 set x, D
+    set y, E
+    set x, F
+    out pins, (8 >> 1)
+    in 1)
+ ßßß•mp start

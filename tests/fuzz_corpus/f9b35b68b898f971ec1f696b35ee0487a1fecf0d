@@ -1,0 +1,18 @@
+; Expression operatorYs and pr F (::A & 3) >> 28
+.program exprcov
+start: s   
+et x, (A (pub 1)
+    set x.program //*pÿ.
+/*/Oçv
+s  &0x0F)
+    set y, (A | 1)
+    set x, (B & 0x1F)
+    set y, (C & 0x1F)
+     set x, F
+    & 0x1F)
+ & 0x1F)
+     set x, F
+    out pins, (8 >> 1)
+    iins, (1 << 2)
+    jmp x!=y, (start + 1)
+    jmp start
