@@ -797,7 +797,7 @@ static void test_delay_holds_pc(void)
 static void test_clkdiv_slows_execution(void)
 {
     const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 1)};
-    sm_config_set_clkdiv_int_frac8(&cfg, 4, 0); /* one SM cycle every 4 ticks */
+    sm_config_set_clkdiv_int_frac(&cfg, 4, 0); /* one SM cycle every 4 ticks */
     load_prog(prog, 1);
     pio_sim_run(&pio, 3);
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].x); /* not yet */
@@ -813,7 +813,7 @@ static void test_clkdiv_fractional_cadence(void)
         pio_sim_encode_nop(), pio_sim_encode_nop(), pio_sim_encode_nop(),
         pio_sim_encode_nop(), pio_sim_encode_nop(), pio_sim_encode_nop(),
     };
-    sm_config_set_clkdiv_int_frac8(&cfg, 2, 128); /* 2.5 */
+    sm_config_set_clkdiv_int_frac(&cfg, 2, 128); /* 2.5 */
     load_prog(prog, 6);
     pio_sim_run(&pio, 5);
     TEST_ASSERT_EQUAL_UINT8(2U, pio_sim_sm_get_pc(&pio, 0));
@@ -826,7 +826,7 @@ static void test_clkdiv_fractional_cadence(void)
 static void test_clkdiv_int0_frac_is_65536(void)
 {
     const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 1)};
-    sm_config_set_clkdiv_int_frac8(&cfg, 0, 128); /* 65536.5 */
+    sm_config_set_clkdiv_int_frac(&cfg, 0, 128); /* 65536.5 */
     load_prog(prog, 1);
     pio_sim_run(&pio, 65536);
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].x); /* not yet: divider is 65536.5 */
@@ -998,16 +998,16 @@ static void test_sm_is_enabled_reads_back(void)
     TEST_ASSERT_FALSE(pio_sim_sm_is_enabled(&pio, 1));
 }
 
-/* pio_sim_sm_get_instr returns the word at the PC, or a pending injected one. */
+/* pio_sim_sm_get_instruction returns the word at the PC, or a pending injected one. */
 static void test_sm_get_instr_reads_current(void)
 {
     const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 5), pio_sim_encode_nop()};
     load_prog(prog, 2);
-    TEST_ASSERT_EQUAL_HEX16(prog[0], pio_sim_sm_get_instr(&pio, 0)); /* at pc 0 */
+    TEST_ASSERT_EQUAL_HEX16(prog[0], pio_sim_sm_get_instruction(&pio, 0)); /* at pc 0 */
     pio_sim_run(&pio, 1);
-    TEST_ASSERT_EQUAL_HEX16(prog[1], pio_sim_sm_get_instr(&pio, 0)); /* advanced to pc 1 */
-    pio_sim_sm_exec(&pio, 0, pio_sim_encode_pull(false, true));      /* TX empty: latches pending */
-    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_pull(false, true), pio_sim_sm_get_instr(&pio, 0));
+    TEST_ASSERT_EQUAL_HEX16(prog[1], pio_sim_sm_get_instruction(&pio, 0)); /* advanced to pc 1 */
+    pio_sim_sm_exec(&pio, 0, pio_sim_encode_pull(false, true)); /* TX empty: latches pending */
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_pull(false, true), pio_sim_sm_get_instruction(&pio, 0));
 }
 
 /* pio_sim_sm_is_stalled reflects a blocking instruction that cannot make progress. */
@@ -1190,7 +1190,7 @@ static void test_clkdiv_restart_realigns_sms(void)
     pio_sim_load(&pio, 0, prog, 1);
     pio_sm_config c = pio_get_default_sm_config();
     sm_config_set_wrap(&c, 0, 0);
-    sm_config_set_clkdiv_int_frac8(&c, 4, 0); /* one SM cycle every 4 ticks */
+    sm_config_set_clkdiv_int_frac(&c, 4, 0); /* one SM cycle every 4 ticks */
     for (uint8_t s = 0; s < 2U; s++) {
         pio_sim_sm_init(&pio, s, 0, &c);
     }
@@ -1221,7 +1221,7 @@ static void test_clkdiv_freeruns_while_disabled(void)
     const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 1)};
     pio_sim_load(&pio, 0, prog, 1);
     sm_config_set_wrap(&cfg, 0, 0);
-    sm_config_set_clkdiv_int_frac8(&cfg, 4, 0);
+    sm_config_set_clkdiv_int_frac(&cfg, 4, 0);
     pio_sim_sm_init(&pio, 0, 0, &cfg); /* apply config; SM left disabled */
     pio_sim_run(&pio, 3);
     TEST_ASSERT_EQUAL_UINT32(768U, pio.sm[0].clk_accum);     /* divider free-ran */
@@ -1899,7 +1899,7 @@ static void test_clear_fifos(void)
     TEST_ASSERT_TRUE(pio_sim_sm_is_rx_fifo_empty(&pio, 0));
 }
 
-static void test_group_enable_sm_mask_sync(void)
+static void test_group_enable_sm_mask_in_sync(void)
 {
     pio_sim_t a, b;
     pio_sim_init(&a);
@@ -1915,7 +1915,7 @@ static void test_group_enable_sm_mask_sync(void)
     pio_sim_group_t g;
     pio_sim_group_init(&g, blocks, 2);
     const uint8_t masks[] = {0x1U, 0x1U};
-    pio_sim_group_enable_sm_mask_sync(&g, masks);
+    pio_sim_group_enable_sm_mask_in_sync(&g, masks);
     pio_sim_group_run(&g, 5);
     TEST_ASSERT_TRUE(pio_sim_sm_is_enabled(&a, 0));
     TEST_ASSERT_TRUE(pio_sim_sm_is_enabled(&b, 0));
@@ -1947,8 +1947,8 @@ static void test_set_pc_out_of_range_is_bounded(void)
     load_prog(prog, 1);
     pio_sim_sm_set_pc(&pio, 0, 200);
     TEST_ASSERT_TRUE(pio_sim_sm_get_pc(&pio, 0) < PIO_SIM_INSN_COUNT);
-    (void)pio_sim_sm_get_instr(&pio, 0); /* fetch must stay in bounds */
-    pio_sim_run(&pio, 2);                /* stepping must not read OOB */
+    (void)pio_sim_sm_get_instruction(&pio, 0); /* fetch must stay in bounds */
+    pio_sim_run(&pio, 2);                      /* stepping must not read OOB */
 }
 
 /* sm_config_set_clkdiv must not invoke float→int UB for out-of-range divisors
@@ -2100,7 +2100,7 @@ int main(void)
 
     RUN_TEST(test_fifo_join_survives_restart);
     RUN_TEST(test_clear_fifos);
-    RUN_TEST(test_group_enable_sm_mask_sync);
+    RUN_TEST(test_group_enable_sm_mask_in_sync);
     RUN_TEST(test_unwritten_fetch_is_flagged);
 
     return UNITY_END();

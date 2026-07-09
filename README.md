@@ -126,7 +126,7 @@ against the same feature surface the library was built with.
   SDK-shaped `channel_config_set_*` mutators, program it with
   `pio_dma_channel_configure`, and advance it with `pio_dma_tick` (one transfer
   per system tick). Endpoints are host memory or a PIO FIFO
-  (`pio_dma_addr_mem`/`_txf`/`_rxf`); DREQ pacing follows `pio_sim_dreq_tx`/`_rx`.
+  (`pio_dma_addr_mem`/`_txf`/`_rxf`); DREQ pacing follows `pio_sim_sm_is_dreq_tx`/`_rx`.
   It covers chaining, null triggers, the `dma_irqn_*` completion IRQs, the CRC
   sniffer, and fractional pacing timers — see the [Scope](#scope) section.
 

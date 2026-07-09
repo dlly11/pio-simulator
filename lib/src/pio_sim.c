@@ -329,17 +329,17 @@ void sm_config_set_wrap(pio_sm_config *c, uint8_t wrap_target, uint8_t wrap)
     c->wrap_bottom = (uint8_t)(wrap_target % PIO_SIM_INSN_COUNT);
     c->wrap_top = (uint8_t)(wrap % PIO_SIM_INSN_COUNT);
 }
-void sm_config_set_clkdiv_int_frac8(pio_sm_config *c, uint16_t div_int, uint8_t div_frac8)
+void sm_config_set_clkdiv_int_frac(pio_sm_config *c, uint16_t div_int, uint8_t div_frac)
 {
     c->clkdiv_int = div_int;
-    c->clkdiv_frac = div_frac8;
+    c->clkdiv_frac = div_frac;
 }
 void sm_config_set_clkdiv(pio_sm_config *c, float div)
 {
     /* Guard the float→int conversions: a value that can't be represented in the
      * target integer type is UB. Clamp to the hardware range [1, 65536); the
      * SDK encodes a divisor of 65536 as clkdiv_int == 0, but that is only
-     * reachable via set_clkdiv_int_frac8, not this float helper. */
+     * reachable via set_clkdiv_int_frac, not this float helper. */
     if (!(div >= 1.0F)) { /* also catches NaN */
         div = 1.0F;
     } else if (div > 65535.99F) {
@@ -416,7 +416,7 @@ uint8_t pio_sim_sm_get_osr_count(const pio_sim_t *pio, uint8_t sm)
     return pio->sm[SM_IDX(sm)].osr_count;
 }
 
-uint16_t pio_sim_sm_get_instr(const pio_sim_t *pio, uint8_t sm)
+uint16_t pio_sim_sm_get_instruction(const pio_sim_t *pio, uint8_t sm)
 {
     const pio_sm_t *s = &pio->sm[SM_IDX(sm)];
     return s->exec_pending ? s->exec_insn : pio->insn[s->pc % PIO_SIM_INSN_COUNT];
@@ -1742,7 +1742,7 @@ void pio_sim_group_run(pio_sim_group_t *g, uint64_t n)
     }
 }
 
-void pio_sim_group_enable_sm_mask_sync(pio_sim_group_t *g, const uint8_t *masks)
+void pio_sim_group_enable_sm_mask_in_sync(pio_sim_group_t *g, const uint8_t *masks)
 {
     for (uint8_t i = 0; i < g->count; i++) {
         pio_sim_enable_sm_mask_in_sync(g->blk[i], masks[i]);

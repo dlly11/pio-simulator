@@ -203,7 +203,7 @@ void pio_dma_channel_abort(pio_dma_t *d, uint8_t ch);
 /** True while the channel is transferring (CTRL.BUSY). */
 bool pio_dma_channel_is_busy(const pio_dma_t *d, uint8_t ch);
 /** Live remaining transfer count for `ch` (not the reload value). */
-uint32_t pio_dma_channel_transfer_count(const pio_dma_t *d, uint8_t ch);
+uint32_t pio_dma_channel_get_trans_count(const pio_dma_t *d, uint8_t ch);
 
 /** Per-channel completion hook (sim extension), called whenever the channel's
  * INTR bit is raised (respecting IRQ_QUIET). */

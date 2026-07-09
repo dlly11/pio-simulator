@@ -1841,7 +1841,7 @@ void pio_asm_apply_program_config(pio_sim_t *pio, uint8_t sm, const pio_program_
             frac = 0;
             whole++;
         }
-        sm_config_set_clkdiv_int_frac8(&c, (uint16_t)whole, (uint8_t)frac);
+        sm_config_set_clkdiv_int_frac(&c, (uint16_t)whole, (uint8_t)frac);
     }
     if (prog->has_fifo_join) {
         sm_config_set_fifo_join(&c, prog->fifo_join);

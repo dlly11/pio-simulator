@@ -92,7 +92,7 @@ static void test_tx_dreq_pacing_respects_fifo_depth(void)
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(in), 8, true);
     tick_all(20);
     TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 0));
-    TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_transfer_count(&dma, 0));
+    TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_get_trans_count(&dma, 0));
     TEST_ASSERT_TRUE(pio_sim_sm_is_tx_fifo_full(&pio, 0));
 }
 
@@ -385,7 +385,7 @@ static void test_pacing_timer_quarter_rate(void)
     for (int i = 0; i < 8; i++) {
         (void)pio_dma_tick(&dma);
     }
-    TEST_ASSERT_EQUAL_UINT32(2U, pio_dma_channel_transfer_count(&dma, 0)); /* 2 of 4 done */
+    TEST_ASSERT_EQUAL_UINT32(2U, pio_dma_channel_get_trans_count(&dma, 0)); /* 2 of 4 done */
     for (int i = 0; i < 8; i++) {
         (void)pio_dma_tick(&dma);
     }
@@ -410,14 +410,14 @@ static void test_one_transfer_per_tick_and_priority(void)
     pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_mem(dst_b), pio_dma_addr_mem(&src[4]), 4,
                               true);
     (void)pio_dma_tick(&dma); /* one element total */
-    TEST_ASSERT_EQUAL_UINT32(4U + 3U, pio_dma_channel_transfer_count(&dma, 0) +
-                                          pio_dma_channel_transfer_count(&dma, 1));
+    TEST_ASSERT_EQUAL_UINT32(4U + 3U, pio_dma_channel_get_trans_count(&dma, 0) +
+                                          pio_dma_channel_get_trans_count(&dma, 1));
     for (int i = 0; i < 3; i++) {
         (void)pio_dma_tick(&dma);
     }
     /* 4 ticks: the high-priority channel is done; ch0 hasn't moved. */
     TEST_ASSERT_FALSE(pio_dma_channel_is_busy(&dma, 1));
-    TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_transfer_count(&dma, 0));
+    TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_get_trans_count(&dma, 0));
     for (int i = 0; i < 4; i++) {
         (void)pio_dma_tick(&dma);
     }

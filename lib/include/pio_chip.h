@@ -42,7 +42,9 @@ void pio_chip_run(pio_chip_t *c, uint64_t n);
 pio_sim_t *pio_chip_pio(pio_chip_t *c, uint8_t index);
 
 /** Wall-clock duration of `ticks` chip cycles under the configured tree, and the
- * inverse conversions — thin wrappers over the embedded pio_clk tree. */
+ * inverse conversions — thin wrappers over the embedded pio_clk tree. As in
+ * pio_clk.h, ticks_to_* round to nearest and *_to_ticks round up (ceiling, so a
+ * derived deadline is never short). */
 uint64_t pio_chip_ticks_to_ns(const pio_chip_t *c, uint64_t ticks);
 uint64_t pio_chip_ticks_to_us(const pio_chip_t *c, uint64_t ticks);
 uint64_t pio_chip_ns_to_ticks(const pio_chip_t *c, uint64_t ns);

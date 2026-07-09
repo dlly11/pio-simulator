@@ -301,7 +301,11 @@ void pio_sim_init(pio_sim_t *pio);
 /** Load `count` instruction words at `offset` into shared instruction memory. */
 void pio_sim_load(pio_sim_t *pio, uint8_t offset, const uint16_t *insns, uint8_t count);
 
-/** Reset a single state machine's execution state (PC, registers, FIFOs). */
+/** Reset a single state machine's execution state: PC to wrap_bottom, X/Y/OSR/ISR
+ * and their counts, delay/stall/pending-exec, the clock accumulator, and both
+ * FIFOs (the join capacity is preserved). Note this is broader than the SDK's
+ * pio_sm_restart, which leaves the PC and scratch registers untouched; reposition
+ * the PC afterwards with pio_sim_sm_set_pc if you need a specific start address. */
 void pio_sim_sm_restart(pio_sim_t *pio, uint8_t sm);
 
 /** Enable or disable a state machine. */
@@ -363,10 +367,11 @@ uint32_t pio_sim_sm_get_osr(const pio_sim_t *pio, uint8_t sm);
 uint8_t pio_sim_sm_get_isr_count(const pio_sim_t *pio, uint8_t sm);
 uint8_t pio_sim_sm_get_osr_count(const pio_sim_t *pio, uint8_t sm);
 
-/** Instruction word state machine `sm` would execute next: an instruction injected
- * via OUT/MOV EXEC or pio_sim_sm_exec if one is pending, else the word at its PC.
- * Mirrors reading the SDK's SMx_INSTR register. */
-uint16_t pio_sim_sm_get_instr(const pio_sim_t *pio, uint8_t sm);
+/** Instruction word state machine `sm` would execute next: a stalled instruction
+ * injected via OUT/MOV EXEC or pio_sim_sm_exec that is pending retry, else the
+ * word at its PC. (A non-stalling injected instruction is consumed immediately
+ * and does not linger here.) Mirrors reading the SDK's SMx_INSTR register. */
+uint16_t pio_sim_sm_get_instruction(const pio_sim_t *pio, uint8_t sm);
 
 /* MOV STATUS source selector (mirrors EXECCTRL_STATUS_SEL). */
 typedef enum {
@@ -446,15 +451,17 @@ typedef struct {
  * autopush/pull, IN pin count unmasked. */
 pio_sm_config pio_get_default_sm_config(void);
 
-/* Config mutators — exact SDK names, acting on the config value only. */
+/* Config mutators, acting on the config value only. Names match the pico-sdk
+ * exactly except the split *_pin_base / *_pin_count variants, which are sim
+ * extensions (the SDK sets base+count together via *_pins). */
 void sm_config_set_out_pins(pio_sm_config *c, uint8_t out_base, uint8_t out_count);
-void sm_config_set_out_pin_base(pio_sm_config *c, uint8_t out_base);
-void sm_config_set_out_pin_count(pio_sm_config *c, uint8_t out_count);
+void sm_config_set_out_pin_base(pio_sm_config *c, uint8_t out_base);   /* sim extension */
+void sm_config_set_out_pin_count(pio_sm_config *c, uint8_t out_count); /* sim extension */
 void sm_config_set_set_pins(pio_sm_config *c, uint8_t set_base, uint8_t set_count);
-void sm_config_set_set_pin_base(pio_sm_config *c, uint8_t set_base);
-void sm_config_set_set_pin_count(pio_sm_config *c, uint8_t set_count);
+void sm_config_set_set_pin_base(pio_sm_config *c, uint8_t set_base);   /* sim extension */
+void sm_config_set_set_pin_count(pio_sm_config *c, uint8_t set_count); /* sim extension */
 void sm_config_set_in_pins(pio_sm_config *c, uint8_t in_base);
-void sm_config_set_in_pin_base(pio_sm_config *c, uint8_t in_base);
+void sm_config_set_in_pin_base(pio_sm_config *c, uint8_t in_base); /* sim extension */
 #if PIO_SIM_HAS_IN_PIN_COUNT
 /** RP2350: IN PINS / MOV x,PINS / WAIT PIN see only this many low pins; higher
  * bits read 0. `count` 1..32 (32 = unmasked default). */
@@ -467,7 +474,7 @@ void sm_config_set_sideset(pio_sm_config *c, uint8_t bit_count, bool optional, b
 /** Inclusive wrap: `wrap_target` is the bottom, `wrap` the top. */
 void sm_config_set_wrap(pio_sm_config *c, uint8_t wrap_target, uint8_t wrap);
 /** Clock divider 16.8 fixed point; `div_int` 0 encodes 65536. */
-void sm_config_set_clkdiv_int_frac8(pio_sm_config *c, uint16_t div_int, uint8_t div_frac8);
+void sm_config_set_clkdiv_int_frac(pio_sm_config *c, uint16_t div_int, uint8_t div_frac);
 /** Float convenience (SDK sm_config_set_clkdiv). */
 void sm_config_set_clkdiv(pio_sm_config *c, float div);
 /** `shift_right` matches the SDK bool; threshold 0 (or >32) means 32. */
@@ -710,16 +717,16 @@ void pio_sim_group_run(pio_sim_group_t *g, uint64_t n);
  * phase-aligned (as pio_sim_enable_sm_mask_in_sync does per block). Because the group
  * ticks all blocks in lockstep, SMs started this way run cycle-aligned across PIO
  * blocks — the multi-PIO analogue of an in-block synchronised start. */
-void pio_sim_group_enable_sm_mask_sync(pio_sim_group_t *g, const uint8_t *masks);
+void pio_sim_group_enable_sm_mask_in_sync(pio_sim_group_t *g, const uint8_t *masks);
 
 /* ── DMA data requests ─────────────────────────────────────────────────────────
  * The PIO-side DREQ levels. The full DMA controller model (channels, chaining,
  * IRQs, sniffer, pacing timers) lives in pio_dma.h. */
 
 /** TX DREQ: true when the SM's TX FIFO can accept another word. */
-bool pio_sim_dreq_tx(const pio_sim_t *pio, uint8_t sm);
+bool pio_sim_sm_is_dreq_tx(const pio_sim_t *pio, uint8_t sm);
 /** RX DREQ: true when the SM's RX FIFO holds a word to read. */
-bool pio_sim_dreq_rx(const pio_sim_t *pio, uint8_t sm);
+bool pio_sim_sm_is_dreq_rx(const pio_sim_t *pio, uint8_t sm);
 
 /* ── Instruction encoding helpers (match pico-sdk pio_encode_*) ────────────── */
 

@@ -71,9 +71,13 @@
 #if PIO_SIM_PIO_VERSION >= 1
 #define PIO_SIM_CLK_SYS_DIV_FRAC_BITS 16U
 #define PIO_SIM_CLK_SYS_DIV_INT_MAX 0xFFFFU
+/* Boot default PLL_SYS POSTDIV1: 1500 MHz VCO / 5 / 2 = 150 MHz on RP2350. */
+#define PIO_SIM_CLK_SYS_BOOT_POSTDIV1 5U
 #else
 #define PIO_SIM_CLK_SYS_DIV_FRAC_BITS 8U
 #define PIO_SIM_CLK_SYS_DIV_INT_MAX 0xFFFFFFU
+/* Boot default PLL_SYS POSTDIV1: 1500 MHz VCO / 6 / 2 = 125 MHz on RP2040. */
+#define PIO_SIM_CLK_SYS_BOOT_POSTDIV1 6U
 #endif
 
 /* PLL_SYS parameter limits (used by the pio_clk module): the VCO floor is

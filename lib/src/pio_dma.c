@@ -16,11 +16,11 @@
 #include <string.h>
 
 /* PIO-side DREQ levels (kept in pio_sim.h for standalone use). */
-bool pio_sim_dreq_tx(const pio_sim_t *pio, uint8_t sm)
+bool pio_sim_sm_is_dreq_tx(const pio_sim_t *pio, uint8_t sm)
 {
     return !pio_sim_sm_is_tx_fifo_full(pio, sm);
 }
-bool pio_sim_dreq_rx(const pio_sim_t *pio, uint8_t sm)
+bool pio_sim_sm_is_dreq_rx(const pio_sim_t *pio, uint8_t sm)
 {
     return !pio_sim_sm_is_rx_fifo_empty(pio, sm);
 }
@@ -179,7 +179,7 @@ void pio_dma_channel_abort(pio_dma_t *d, uint8_t ch)
 
 bool pio_dma_channel_is_busy(const pio_dma_t *d, uint8_t ch) { return d->ch[CH_IDX(ch)].busy; }
 
-uint32_t pio_dma_channel_transfer_count(const pio_dma_t *d, uint8_t ch)
+uint32_t pio_dma_channel_get_trans_count(const pio_dma_t *d, uint8_t ch)
 {
     return d->ch[CH_IDX(ch)].trans_count;
 }
@@ -334,7 +334,8 @@ static bool dma_treq_ready(const pio_dma_t *d, const pio_dma_channel_t *chan)
     }
     uint8_t sm = treq % 4U;
     bool is_rx = ((treq % 8U) >= 4U);
-    return is_rx ? pio_sim_dreq_rx(d->pio[pio_index], sm) : pio_sim_dreq_tx(d->pio[pio_index], sm);
+    return is_rx ? pio_sim_sm_is_dreq_rx(d->pio[pio_index], sm)
+                 : pio_sim_sm_is_dreq_tx(d->pio[pio_index], sm);
 }
 
 /* FIFO endpoints must also be able to move data this tick, whatever the TREQ
@@ -345,13 +346,13 @@ static bool dma_endpoints_ready(const pio_dma_t *d, const pio_dma_channel_t *cha
     const pio_dma_addr_t *w = &chan->write_addr;
     if (r->kind == PIO_DMA_ADDR_PIO_RXF) {
         if ((r->pio_index >= d->pio_count) || (d->pio[r->pio_index] == NULL) ||
-            !pio_sim_dreq_rx(d->pio[r->pio_index], r->sm)) {
+            !pio_sim_sm_is_dreq_rx(d->pio[r->pio_index], r->sm)) {
             return false;
         }
     }
     if (w->kind == PIO_DMA_ADDR_PIO_TXF) {
         if ((w->pio_index >= d->pio_count) || (d->pio[w->pio_index] == NULL) ||
-            !pio_sim_dreq_tx(d->pio[w->pio_index], w->sm)) {
+            !pio_sim_sm_is_dreq_tx(d->pio[w->pio_index], w->sm)) {
             return false;
         }
     }
