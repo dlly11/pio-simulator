@@ -834,6 +834,18 @@ static void test_clkdiv_int0_frac_is_65536(void)
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].x); /* fires on tick 65537 */
 }
 
+/* pio_sim_sm_init wraps an out-of-range initial_pc into the 32-word instruction
+ * window, exactly as pio_sim_sm_set_pc does, so the post-commit PC increment
+ * stays consistent. */
+static void test_sm_init_wraps_initial_pc(void)
+{
+    pio_sim_t local;
+    pio_sim_init(&local);
+    pio_sm_config c = pio_get_default_sm_config();
+    pio_sim_sm_init(&local, 0, 40, &c); /* 40 % 32 == 8 */
+    TEST_ASSERT_EQUAL_UINT8(8U, pio_sim_sm_get_pc(&local, 0));
+}
+
 static void test_wrap_returns_to_bottom(void)
 {
     /* Two-instruction loop incrementing y via set; wrap top=1 -> bottom=0. */
@@ -2073,6 +2085,7 @@ int main(void)
     RUN_TEST(test_clkdiv_slows_execution);
     RUN_TEST(test_clkdiv_fractional_cadence);
     RUN_TEST(test_clkdiv_int0_frac_is_65536);
+    RUN_TEST(test_sm_init_wraps_initial_pc);
     RUN_TEST(test_wrap_returns_to_bottom);
 
     RUN_TEST(test_fifo_join_rx_depth_8);

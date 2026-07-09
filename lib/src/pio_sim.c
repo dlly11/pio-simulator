@@ -536,7 +536,9 @@ void pio_sim_sm_init(pio_sim_t *pio, uint8_t sm, uint8_t initial_pc, const pio_s
     s->clk_accum = 0;
     s->fdebug = 0;
     s->enabled = false;
-    s->pc = initial_pc;
+    /* Keep the PC in range like pio_sim_sm_set_pc does, so an out-of-range
+     * initial_pc can't desync the post-commit PC increment. */
+    s->pc = (uint8_t)(initial_pc % PIO_SIM_INSN_COUNT);
 }
 
 void pio_sim_sm_set_consecutive_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base, uint8_t count,
