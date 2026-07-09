@@ -1,9 +1,0 @@
-; WS.
-.define A 0B10/10
-.ed— Bd bin.
-.define AÙ 0B10/1; WS2in.
-.define A 0B10/10
-.ed— B
-.define AÙ 0B10/10
-xpu
-xpul

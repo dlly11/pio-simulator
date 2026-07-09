@@ -1,8 +1,0 @@
-; W-instruction dot in the program).
-.program wu2812
-.side_set 1
-
-.de
-    jmp !x do_zero side ::::::::::::::::::::::::::::::::::::::::::::::::::::º:::::::::do_zero:
-    nop        se => '0'
-.wrap

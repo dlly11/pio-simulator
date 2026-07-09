@@ -1,3 +1,0 @@
-en.
-.define A 0b1010
-.define B ( A+

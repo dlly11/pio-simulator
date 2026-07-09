@@ -1,7 +1,0 @@
-;;;abel arithиииииииииииииииииииииииии8
-.program exprcov
-start:
-      jmp x!=y, ;
-// 
-% c-sdk {
- unbalanced

@@ -1,7 +1,0 @@
-s).
-.program jmpcov
-target:
-    jmp target
-  jmp y-- target
-       jmp !y target
-    jmp y-- targxe

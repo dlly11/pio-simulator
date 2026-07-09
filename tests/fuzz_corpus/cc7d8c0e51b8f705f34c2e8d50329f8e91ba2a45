@@ -1,9 +1,0 @@
-; Every jmpmblerc).
-.program jmpcov
-target:
-    
-    jmp !x target
-    jmp x-- target
-  jmp !y target
-    jmp y-- target
-    jmp x!=y targbe

@@ -1,6 +1,0 @@
-; Ezvery jmp co h.
-.program jm 5
-.define publjmp x-- ta˜et
-    jm a fi6xet 1
-
-.define public lic T2

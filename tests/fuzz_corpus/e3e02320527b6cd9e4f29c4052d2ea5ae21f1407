@@ -1,2 +1,0 @@
-;ssn das
-.define E (::1* >> 27) & 0xx{$†kart

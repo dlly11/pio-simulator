@@ -1,2 +1,0 @@
-.program lls
- jmp !x dt

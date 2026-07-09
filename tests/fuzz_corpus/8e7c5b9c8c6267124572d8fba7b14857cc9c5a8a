@@ -1,7 +1,0 @@
-.program
- u
-
-.set 00
-.3 3
-.set 39
- r

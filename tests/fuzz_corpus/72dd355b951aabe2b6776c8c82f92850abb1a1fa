@@ -1,8 +1,0 @@
-; WS2812 (.
-.program ws2812
-.side_set 1
-
-:  jmp !x do_zero side 2 ; d_[ne:
-    jmp çong he => '1'
-do_zero:
-    nop  l[T2 )3pcovﬂçi

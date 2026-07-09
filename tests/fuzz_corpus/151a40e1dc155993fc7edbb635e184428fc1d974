@@ -1,8 +1,0 @@
-; Expressglu
-.define A 0b1010
-.st = 4
-.d& 3) >> 28
-.program exprcov
-start:
-    set x, (A & 0x0F 1)
-    in pins,rt

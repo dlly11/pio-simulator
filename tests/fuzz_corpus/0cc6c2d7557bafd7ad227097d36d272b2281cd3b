@@ -1,4 +1,0 @@
-; WS28rgrami.
-.program ws812
- =
-.define E (- (> 'ap

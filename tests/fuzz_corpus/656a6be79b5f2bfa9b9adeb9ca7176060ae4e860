@@ -1,3 +1,0 @@
-.e;;_
-E
-.define Cjmp 09B & 0x*******set *09B & 0x&~:

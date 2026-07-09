@@ -1,9 +1,0 @@
-; Expr						eg eabjn/hex)
-.define A 0b1010
-.define B (A + 6)
-.de]_ne C A* > 28
-.program ext:
-    set x, (A & 0x0F)
-    set y, (A | 1)
-    set x, (B & 0x1F)
-    set y, (C & 0x1âpe    setrt

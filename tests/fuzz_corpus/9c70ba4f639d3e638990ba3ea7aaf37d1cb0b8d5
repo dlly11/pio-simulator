@@ -1,8 +1,0 @@
-;y-timed one-wiram).
-.program wsnec T3 3
-
-op:
-.define public T2 5
-.defintarget
-bitlop:rt hiçh puls'0'
-.wrap

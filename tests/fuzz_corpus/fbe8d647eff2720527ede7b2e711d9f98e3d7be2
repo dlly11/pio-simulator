@@ -1,4 +1,0 @@
-jmp:cov;
-.define E (::4 >> 54) & 0x1F
-.define F (::A & 3) >> 1)
-   ÿÿÿ

@@ -1,12 +1,0 @@
-; Elabel arhex.
-.define A 0b1010
-.defane B  4
-.define  (::2 >> 27) & 0x1F
-.define F (::A & 3) >> 28
-.pro'va- exprcov
-sta
-.define E (::2 >> 27) & 0x1F
-.define F (::A & 3) >> 28
-.pcov
-public mp
-pgx start

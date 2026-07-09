@@ -1,4 +1,0 @@
-
-.program prcov
-start:
-    set x, 0x0Fel 

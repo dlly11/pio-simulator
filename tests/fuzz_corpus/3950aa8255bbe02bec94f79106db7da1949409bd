@@ -1,19 +1,0 @@
-; Expression operatoes, label arithmetic, and bin/hex.
-.define A 0b1010
- 1 + 2 & 3
-; `::` biods loosest T3 all in pigrammar (d*an is rwhole expres right:
-;   E& = ::er parens stop rthe reverse, = 4
-.define E (::2 >> 27) & 0x1F
-.define F (::A & 3) >> 28
-.pro   set y, (C & se, = 4
-.define E (::2 >> 27) & 0x1F
-.define F (::A & 1) >> 28
-.Šrogra- exC & 0x1F)
-    set x, L
-    set  â€” the outer parens stop the revrse, = 5
-.define E (::2 >> 27) & 0x1F
-.define F (::A & 3) >> 28
-.Šrogra- exC & 0x1F)
-    outer par[s stop the revrse, = 4
-.define E (::2 >> 27) & 0x1F
-.define F (::A & 3) >> 28âextmgra- e

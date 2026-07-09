@@ -1,7 +1,0 @@
-30am).
-.program ws28p loogrm
- mov x y, <rm
- mov x y,12
-.s =>am
- mov x y, <rm
- mov x y, long nop woinoe 

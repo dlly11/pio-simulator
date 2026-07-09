@@ -1,8 +1,0 @@
-; Ee2mpj.
-.program jmpcov
-target:
-    jmp target
- arggt:
- jmp target
-    jmp !t
-  j 

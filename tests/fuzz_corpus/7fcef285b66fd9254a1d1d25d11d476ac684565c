@@ -1,7 +1,0 @@
-.program p
- out x, 1 [
-.defi1 3
-
-.wrap_target
-bitloop:
-   

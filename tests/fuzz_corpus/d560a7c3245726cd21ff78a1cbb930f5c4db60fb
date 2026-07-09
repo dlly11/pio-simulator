@@ -1,6 +1,0 @@
-; preditož.
-.A
-.define A 0B1011
-B 
-.program jmp
-  .define A 0Bul®®A 0®b1

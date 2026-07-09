@@ -1,8 +1,0 @@
- prek
-.program cossion/hex.
-.define A 0b1010
-.define B (A +0 )
-.define C A*3
-;B (A + 6)
-.define C A*2 - 3
-.p start
