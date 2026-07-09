@@ -22,6 +22,14 @@ else()
     message(FATAL_ERROR "PIO_SIM_PLATFORM must be RP2040 or RP2350 (got '${PIO_SIM_PLATFORM}')")
 endif()
 
+# Source-based coverage (llvm-cov). Instruments every target; the report is
+# filtered to lib/src. Applied before the targets so it reaches all of them.
+option(PIO_SIM_COVERAGE "Instrument for llvm-cov source coverage (Clang)" OFF)
+if(PIO_SIM_COVERAGE)
+    add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
+    add_link_options(-fprofile-instr-generate -fcoverage-mapping)
+endif()
+
 # The simulator + assembler. Pure C, no dependencies. Consumers link `pio_sim`
 # and get the public headers (pio_sim.h, pio_asm.h) transitively.
 add_library(pio_sim STATIC lib/src/pio_sim.c lib/src/pio_gpio.c lib/src/pio_clock.c

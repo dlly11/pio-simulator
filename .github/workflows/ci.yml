@@ -189,3 +189,58 @@ jobs:
         run: |
           mkdir -p /tmp/fuzz-finds
           ./build-fuzz/tests/fuzz_pio_asm -max_total_time=60 /tmp/fuzz-finds tests/fuzz_corpus
+
+  # Source coverage (llvm-cov) over the library, merging the RP2040 and RP2350
+  # test runs so v0- and v1-gated code both count. Fails under an 80% line-
+  # coverage gate; the full HTML report is uploaded as an artifact.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build lsb-release wget gnupg jq
+          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash /tmp/llvm.sh 21 all
+      - name: Build and run with coverage (both platforms)
+        run: |
+          mkdir -p prof
+          for plat in RP2040 RP2350; do
+            cmake -B "build-$plat" -G Ninja -DCMAKE_C_COMPILER=clang-21 \
+              -DPIO_SIM_PLATFORM="$plat" -DPIO_SIM_COVERAGE=ON
+            cmake --build "build-$plat"
+            ( cd "build-$plat" && LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/prof/$plat-%p.profraw" \
+              ctest --output-on-failure )
+          done
+      - name: Report, gate at 80%, and render HTML
+        run: |
+          llvm-profdata-21 merge -sparse prof/*.profraw -o merged.profdata
+          OBJS=$(find build-RP2040 build-RP2350 -type f -name 'test_pio_*' \
+            ! -name '*.profraw' | sed 's/^/-object /' | tr '\n' ' ')
+          IGNORE='(tests|third_party|unity)'
+          # shellcheck disable=SC2086
+          llvm-cov-21 report $OBJS -instr-profile=merged.profdata \
+            -ignore-filename-regex="$IGNORE" | tee coverage.txt
+          {
+            echo '### Coverage — lib/src, RP2040 + RP2350 merged'
+            echo '```'
+            cat coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # shellcheck disable=SC2086
+          PCT=$(llvm-cov-21 export $OBJS -instr-profile=merged.profdata -summary-only \
+            -ignore-filename-regex="$IGNORE" | jq '.data[0].totals.lines.percent')
+          echo "Total line coverage: $PCT%"
+          awk -v p="$PCT" 'BEGIN { if (p+0 < 80) { print "FAIL: below the 80% gate"; exit 1 }
+            print "PASS: at or above the 80% gate" }'
+          # shellcheck disable=SC2086
+          llvm-cov-21 show $OBJS -instr-profile=merged.profdata -format=html \
+            -ignore-filename-regex="$IGNORE" -output-dir=coverage-html
+      - name: Upload HTML coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-html
+          path: coverage-html
