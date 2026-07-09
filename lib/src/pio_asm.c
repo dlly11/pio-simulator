@@ -321,6 +321,20 @@ static int64_t expr_add(expr_t *e)
     return v;
 }
 
+/* Shift `v` by `by`, computed in the unsigned domain so a negative value or a
+ * shift wider than the type is defined rather than UB. A shift count outside
+ * [0,63] is a malformed expression (no real program shifts that far) — flag it
+ * and yield 0. */
+static int64_t expr_do_shift(expr_t *e, int64_t v, int64_t by, bool left)
+{
+    if ((by < 0) || (by > 63)) {
+        e->ok = false;
+        return 0;
+    }
+    uint64_t u = (uint64_t)v;
+    return (int64_t)(left ? (u << by) : (u >> by));
+}
+
 static int64_t expr_shift(expr_t *e) /* << >> — loosest binary */
 {
     int64_t v = expr_add(e);
@@ -328,10 +342,10 @@ static int64_t expr_shift(expr_t *e) /* << >> — loosest binary */
         expr_skip_ws(e);
         if ((e->p[0] == '<') && (e->p[1] == '<')) {
             e->p += 2;
-            v = v << expr_add(e);
+            v = expr_do_shift(e, v, expr_add(e), true);
         } else if ((e->p[0] == '>') && (e->p[1] == '>')) {
             e->p += 2;
-            v = v >> expr_add(e);
+            v = expr_do_shift(e, v, expr_add(e), false);
         } else {
             break;
         }

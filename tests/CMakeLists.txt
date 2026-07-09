@@ -22,6 +22,28 @@ target_compile_definitions(test_pio_programs PRIVATE
     TESTS_PIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/pio")
 add_test(NAME test_pio_programs COMMAND test_pio_programs)
 
+# ── libFuzzer harness for the assembler (clang only) ─────────────────────────
+# Fuzzes the untrusted-text entry point pio_asm_assemble. The library sources
+# are compiled *into* the harness with the sanitizer so ASan/UBSan instrument
+# the parser internals, not just the harness. Seed corpus: tests/fuzz_corpus.
+option(PIO_SIM_BUILD_FUZZERS "Build the libFuzzer harnesses (requires Clang)" OFF)
+if(PIO_SIM_BUILD_FUZZERS)
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "PIO_SIM_BUILD_FUZZERS requires Clang (libFuzzer).")
+    endif()
+    add_executable(fuzz_pio_asm fuzz_pio_asm.c
+        ${CMAKE_SOURCE_DIR}/lib/src/pio_asm.c
+        ${CMAKE_SOURCE_DIR}/lib/src/pio_sim.c)
+    target_include_directories(fuzz_pio_asm PRIVATE
+        ${CMAKE_SOURCE_DIR}/lib/include ${CMAKE_SOURCE_DIR}/lib/config
+        ${CMAKE_SOURCE_DIR}/lib/src)
+    target_compile_definitions(fuzz_pio_asm PRIVATE
+        PIO_SIM_PIO_VERSION=${PIO_SIM_PIO_VERSION})
+    target_compile_options(fuzz_pio_asm PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all -g -O1)
+    target_link_options(fuzz_pio_asm PRIVATE -fsanitize=fuzzer,address,undefined)
+endif()
+
 # ── Encoding differential vs the real Raspberry Pi pioasm ────────────────────
 # pio_asm is otherwise only checked against hand-derived golden encodings. When a
 # pioasm binary is available, cross-check every program in tests/pio against it:
