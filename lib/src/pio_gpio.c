@@ -11,6 +11,8 @@
 
 #include "pio_sim_internal.h"
 
+#include <stddef.h> /* NULL */
+
 /* pad_cfg packing: DRIVE[1:0] | SLEWFAST<<2 | SCHMITT<<3. */
 #define PAD_CFG_DRIVE_MASK 0x3U
 #define PAD_CFG_SLEWFAST 0x4U
@@ -112,10 +114,30 @@ void pio_sim_pad_set_output_disable(pio_sim_t *pio, uint8_t pin, bool od)
     mask_set(&pio->pads->pad_od, pin_bit(pin), od);
 }
 
+bool pio_sim_pad_get_input_enable(const pio_sim_t *pio, uint8_t pin)
+{
+    return (pio->pads->pad_ie & pin_bit(pin)) != 0U;
+}
+
+bool pio_sim_pad_get_output_disable(const pio_sim_t *pio, uint8_t pin)
+{
+    return (pio->pads->pad_od & pin_bit(pin)) != 0U;
+}
+
 void pio_sim_pad_set_pulls(pio_sim_t *pio, uint8_t pin, bool up, bool down)
 {
     mask_set(&pio->pads->pad_pue, pin_bit(pin), up);
     mask_set(&pio->pads->pad_pde, pin_bit(pin), down);
+}
+
+void pio_sim_pad_get_pulls(const pio_sim_t *pio, uint8_t pin, bool *up, bool *down)
+{
+    if (up != NULL) {
+        *up = (pio->pads->pad_pue & pin_bit(pin)) != 0U;
+    }
+    if (down != NULL) {
+        *down = (pio->pads->pad_pde & pin_bit(pin)) != 0U;
+    }
 }
 
 void pio_sim_pad_set_drive(pio_sim_t *pio, uint8_t pin, uint8_t drive)
