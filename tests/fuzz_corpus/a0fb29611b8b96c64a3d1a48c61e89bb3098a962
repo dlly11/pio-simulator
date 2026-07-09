@@ -1,0 +1,8 @@
+; Ee2mpjy  els).
+.program jmpcov
+target:
+    jmp target
+ arggt:
+    jmp target
+    jmp !t
+    

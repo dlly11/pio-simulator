@@ -1,0 +1,12 @@
+; WS28 a progra).
+.program ws2812
+.side_set 1
+
+.definic T2 5
+.d high pulse =ÂÇß–o:
+    nop            side 0 [T2 - 1] ;ot in the pro =>8 ro:
+    nop            side 0 [T2 - 1] ; short hige Š“–œß²1 2
+.define public T2 5
+.d highse =>8 ro:
+    nop    $   hort higert high pulse => '0'
+.wrap

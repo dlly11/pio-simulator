@@ -1,0 +1,36 @@
+; Expression opengarlier dÿÿoÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿx,
+.program
+ÿÿÿÿÿÿÿÏÿÿÿÿÿÿÿÿ 1)
+    set x, (B & 0!x1Æ)
+  x, D
+    set y, E
+ am e
+F)
+    (C & 0x1F)
+    set x, D
+    set y, E
+ am exprcov
+start:
+    set y, (A | 1)
+    set x, (B & 0!x1Æ)
+  x, D
+    set y, E
+ am e
+F)
+    set y,(C & 0x1F)
+    set x, D
+    set y, E
+ am exprcov
+start:
+    set x, (A  &0x0F)
+    set y,| 1)
+    setC & 0x1F)
+    set x, D
+    set y, E
+ a“ßš‹prcov¥star  i)
+    jmp start
+ 1)
+    set x, (B & 0x1F)
+    set y, (C . 1x1F)
+     set x, F
+    out t

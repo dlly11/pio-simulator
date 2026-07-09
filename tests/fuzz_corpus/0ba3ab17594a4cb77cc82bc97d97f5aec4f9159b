@@ -1,0 +1,17 @@
+.program p
+.out 5 26
+.?m p p
+.out 5 26
+.?prm p
+.out 5 2626
+.?k 5; m p
+.out 5 26
+.?ppqam p
+.out 5 26
+.?irtm p.p p
+.out 5 26
+.?prqam p
+.out 5 2626
+.?k 5; m p
+.out 5 26
+.?ppqam ]

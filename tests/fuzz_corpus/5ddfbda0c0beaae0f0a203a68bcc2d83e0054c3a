@@ -1,0 +1,33 @@
+;$Expression operators and prec
+.program exp1cov
+start:
+    session/hex.
+.define A 0b1010
+.define B (A + 6)
+.deand + 6)
+.define C A*2 - 3
+.define D 2 + 2 & 3
+lreri defines, label ariine C A* 2- 3
+.define D 1 + 2 & 3
+;B (A + 6)
+.define C A*2 - 3
+..defiÿÿÿÿÿÿÿÿÿÿÿne D 2l ariine C A* 2- 6
+.define D 1 + 2 & 3
+;B (A + 6).‹rƒog
+.define C A*2 - 3
+.define D 2 + 2 & 3
+lreri¥rithmetic, and b
+start:
+    session/hex.
+.define A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+;B (A + 6)
+.define C A*2 - 3
+.define2 + 2 & 3
+lreri defines, efine D 1 + 2 & 3
+;B (A + 6)
+.define C A*2 - 3
+.define D 2 + 2 & 3
+lreri defines, label arithmetic, and bin/defimp start

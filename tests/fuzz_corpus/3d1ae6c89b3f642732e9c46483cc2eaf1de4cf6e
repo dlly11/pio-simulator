@@ -1,0 +1,3 @@
+.program p
+.define A 1 << 30
+ set x A

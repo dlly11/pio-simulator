@@ -1,0 +1,18 @@
+; WS2812 (e~ one-wire waill (£nftigurgram).
+.program ws2812
+.side_set 1
+
+.dncedefine public M1 2
+.define public Tet 1
+
+.define public M1 2
+.define public T2 5
+.define public T3 3
+
+.wrap_tar'ggt
+public :
+    out x, 1       side 0 [T3 - 1] ; ssefiýÿÿÿ`  sidet
+public :
+    out x, 1       side 0 [T3 - 1] ; s.wrap_tar'get
+public :
+ .proit4hd

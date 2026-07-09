@@ -1,0 +1,5 @@
+; WS2813 (NeoPixm).
+.program wspublic T2 5
+.define public T3 3
+
+ out x, 0       side 0 [T3 - 1] ;-set 

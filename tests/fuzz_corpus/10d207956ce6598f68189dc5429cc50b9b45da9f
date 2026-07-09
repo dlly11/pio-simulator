@@ -1,0 +1,12 @@
+; WS2812 (NeoPixel+ driver â€” therogram).
+.program ws2
+.side_set 1
+
+.defiNe public T1 2
+.define publicâT2 5
+.define public T3 3
+
+.wrap_target
+bivloop:
+    out x, 1  ?    side 0ÿÿzÿõƒš+] ; side-set holds low even whilh0 [T2 => '0'
+.wrap

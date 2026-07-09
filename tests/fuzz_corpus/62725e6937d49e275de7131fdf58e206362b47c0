@@ -1,0 +1,9 @@
+; Exprend  and bnAhex.
+.define A 0b110
+ & 0x1F
+.define F (::A & 3) >> 28
+.program exprcovF
+start:
+    set x, (A & 0x0F)
+    set y, (A | 1)
+    set …Óß×B    set x,      iublic

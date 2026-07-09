@@ -1,0 +1,134 @@
+;;;d
+a : essio™/hex.
+.define A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D  0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.de1 + 2 & 3
+; `::rrrrrrrefine A 0b1010
+.define B (A + 6)
+.dine C A*2 - 3
+.define D  0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.de1 + 2 & 3
+; `::rrrrrrrefine A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + (A + 6)
+.define C A*2 - 3
+.define D  0b1010
+.define B (A + 6)
+- 3
+.define D  0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.de1 + 2 & 3
+; `::rrrrrrr[efine A 0b1010
+.d6)
+.define C A*2 - 3
+.ne C A*2 - 3
+.define D  0b1010
+.define B (A + 5)
+.define C A*2 - 3
+.de1 + 2 & 3
+; `::rrrB (A + 6)
+.define C A*21 + 2 & 3
+; `::.define D 1 + 2 & 3
+; `::`,  sdefine D  0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.de1 + 2 & 3
+; `::rrrrr.‹rƒogrr[efine A 0efir 
+t sessio™/hex.
+.define A 0b1010
+.define B (A + 6)
+.define C A*21 + 2 & 3
+; `::.define D 1 + 2 & 3
+; `::`,  sdefine B (A + 6)
+.define C A*2 - 3
+.define D  0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.de1 + 2 & 3
+; `::rrrrrrrefine A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + (A + 6)
+.define C A*2 - 3
+.define D  0b1010
+.define B (A + 6)
+.define C A*2 
+.de1 + 2 & 3
+; `::rr B (A + 6)
+.define C A*2 - 3
+.define D  0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.de1 + 2 & 3
+; `::rrrrrrrefine A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + (A + 6)
+.define C A*2 - 3
+.define D  0b1010
+.define B (A + 6)
+.define C A*2 
+.de1 + 2 & 3
+; `::rrrrrrr[efine A 0b1010
+.defPUBLIC A + 6)
+.define C A*2 - 3
+.ne C A*2 - 3
+..define C A*2 - 3
+.de1 + 2 & 3
+; `::rrrrrrr[efine A 0b1010
+.d6)
+.define C A*2 - 3
+.ne C A*2 - 3
+.define D  0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.de1 + 2 & 3
+; `::rrrrrrr[efine A 0efir 
+t sessio™/hex.
+.define A 0b1010
+.define B (A + 6)
+.define C A*21 + 2 & 3
+; `::.define D 1 + 2 & 3
+; `::`,  sdefine B (A + 6)
+.define C A*2 - 3
+.define D  0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.de1 + 2 &define C A*2 - 3
+.define D 1 + (A + 6)
+.define C A*2 - 3
+.define D  0b1010
+.define B (A + 6)
+.define C A*2 
+.de1 + 2 & 3
+; `::rrrrrrr[efine A 0b1010
+.defPUBLIC A + 5)
+.define C A*2-- 3
+.ne C A*2 - 3
+.define D  0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.de1 + 2 & 3
+; `::rrrrrrr[efine A 0 time encodev ine, not in the program).
+.program ws2812
+.side_set 1
+
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+.wrap_target
+bitloop:
+    out x, 1       side 0 [T3 - 1] ; side-set holdsb1010
+.define B (A A*2 - 3
+.define D 1 + 2 & 3
+; `::.define D 1 + 2 &;u;
+ 3/

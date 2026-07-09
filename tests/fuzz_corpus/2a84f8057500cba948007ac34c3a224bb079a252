@@ -1,0 +1,11 @@
+;;;abel arithÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉÉmeticand bÿin/hx.
+.define A 0b1010
+.dufÿÿÿÿÿÿÿine B (A .define D 1 + 2 & 3
+; `::`, (B &:2 >> 27) & 0x1F
+.defi;e F (::A & 3) >> 28
+.program exprcov
+start:
+      jmp x!=y, ;
+// 
+% c-sdk {
+ unbalanced

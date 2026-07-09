@@ -1,0 +1,6 @@
+;; ond
+.program jmpcov
+target:
+    jmp target
+    jmp !x target
+rget

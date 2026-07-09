@@ -1,0 +1,5 @@
+.program p
+ out x, 1fi1
+.wrap_target
+bitloop:
+  	

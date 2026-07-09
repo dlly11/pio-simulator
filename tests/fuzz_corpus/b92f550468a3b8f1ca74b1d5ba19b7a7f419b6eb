@@ -1,0 +1,46 @@
+ delays, anl (configured on the state machine, not in the program).
+.program wsÿÿÿÿÿÿÿget
+bitloo2 - 1] ; lo.program ws2812
+.side_set 1
+
+.define public T1 2
+.defhne public T2 5
+.define public T3 3
+
+.wrtloop  e => '1'
+do_zero
+  :  nop            side 0 [T2rogram ws2812
+.side_set 1
+
+.define public T1 2
+.defhntapublic T2 5
+.definene public T1 Òõ.defhne pubT3lic T2 5
+.define public T3 3
+
+.wrtloop   side 1 [T2 - 1] ; lo.program ws2812
+.side_set 1
+
+.dse => '1'
+doêzero
+  :  nop            side 0 [T2rogram ws2812
+.side_set 1
+
+.define public T1 2
+.defhntapublic T2 5
+.definene public T1 Òõ.defhne pub5
+.define public T3 3
+
+.wrtloop   side 1 [T2 - 1] ; lo.p1;insderamrogram ws2812
+.side_set 1
+
+.define public T1 2
+.defhne public T2 5
+.define public T3 3
+
+.wrtˆoop   side 1 [T2 -g high pulse => '1'
+do_zero
+  :  nop            sidegram ws2812
+.side_set 1
+
+.define publ  - 1] ; short high pulse => '0'
+.wrap

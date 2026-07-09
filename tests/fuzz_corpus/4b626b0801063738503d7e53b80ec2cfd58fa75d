@@ -1,0 +1,11 @@
+.prÿe program
+.program ws2899
+.side_set 1
+
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+.wra 3UBL30
+ sr !x do_zerjed]
+

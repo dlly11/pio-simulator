@@ -1,0 +1,5 @@
+; WS2se => '0confimachdne, not in dhegra).
+.program ws2set
+.define>8 ro:
+    nop          h pulse => '0'
+.wrap

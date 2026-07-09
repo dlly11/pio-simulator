@@ -1,0 +1,8 @@
+; W-instruction dot in the )rmoapgr.
+.program wu2813
+.side_set 1
+
+.de
+    jmp !x do_zero side ::::::::::::::::::::::::::::::::::::::::::::::::::º:::::::::do_zero:
+ x do_zero si  se => '0'
+.wrap

@@ -1,0 +1,11 @@
+; WSÿÿÿÿÿÿÿÿÿÿÿÿÿte machine, .2
+.program ws1406
+.side_set 1
+
+.dedine public T1 2
+.define public 2 5
+.define public T3 3
+
+.wrap_target
+bitloop:
+    oÿÿÿÿÿÿut x, 1       side 0 [T3 - 1] ; side-set UT sap

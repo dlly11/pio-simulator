@@ -1,0 +1,15 @@
+; e, not in the program).
+.pro; preciselm)8.
+.program ws3829
+.side_set 1
+
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+.wrap_target
+bitloov:
+    out x, 1       side 0 [T3 - 1] ;   jmp !x do_ze lls
+    jmp !x do_ze 1 [
+.prog nop            side 0 [T2 - 1] ; short high pulse => '0'
+.wrap

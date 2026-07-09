@@ -1,0 +1,5 @@
+; WS2812 (Pixel) yigh ©©©©©©©©©©©©©©©©©©©pulse => '0confimachdne, not in dhegra).
+.program ws2set
+.define>8 ro:
+    nop            side 0 [T2 - 1]ÿ; short high pulse => '0'
+.wrap

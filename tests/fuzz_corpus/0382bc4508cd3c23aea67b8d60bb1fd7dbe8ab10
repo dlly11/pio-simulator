@@ -1,0 +1,4 @@
+.
+.program jmpb
+tt:
+    jmp -T2-

@@ -322,8 +322,9 @@ void sm_config_set_sideset(pio_sm_config *c, uint8_t bit_count, bool optional, b
 }
 void sm_config_set_wrap(pio_sm_config *c, uint8_t wrap_target, uint8_t wrap)
 {
-    c->wrap_bottom = wrap_target;
-    c->wrap_top = wrap;
+    /* Both ends address the 32-word instruction memory. */
+    c->wrap_bottom = (uint8_t)(wrap_target % PIO_SIM_INSN_COUNT);
+    c->wrap_top = (uint8_t)(wrap % PIO_SIM_INSN_COUNT);
 }
 void sm_config_set_clkdiv_int_frac8(pio_sm_config *c, uint16_t div_int, uint8_t div_frac8)
 {
@@ -332,6 +333,15 @@ void sm_config_set_clkdiv_int_frac8(pio_sm_config *c, uint16_t div_int, uint8_t 
 }
 void sm_config_set_clkdiv(pio_sm_config *c, float div)
 {
+    /* Guard the float→int conversions: a value that can't be represented in the
+     * target integer type is UB. Clamp to the hardware range [1, 65536); the
+     * SDK encodes a divisor of 65536 as clkdiv_int == 0, but that is only
+     * reachable via set_clkdiv_int_frac8, not this float helper. */
+    if (!(div >= 1.0F)) { /* also catches NaN */
+        div = 1.0F;
+    } else if (div > 65535.99F) {
+        div = 65535.99F;
+    }
     uint16_t whole = (uint16_t)div;
     uint8_t frac = (uint8_t)((div - (float)whole) * 256.0F);
     c->clkdiv_int = whole;
@@ -380,7 +390,11 @@ void pio_sim_clkdiv_restart_sm_mask(pio_sim_t *pio, uint8_t sm_mask)
 
 void pio_sim_sm_clkdiv_restart(pio_sim_t *pio, uint8_t sm) { pio->sm[SM_IDX(sm)].clk_accum = 0; }
 
-void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc) { pio->sm[SM_IDX(sm)].pc = pc; }
+void pio_sim_sm_set_pc(pio_sim_t *pio, uint8_t sm, uint8_t pc)
+{
+    /* PC indexes the 32-word instruction memory; keep it in range. */
+    pio->sm[SM_IDX(sm)].pc = (uint8_t)(pc % PIO_SIM_INSN_COUNT);
+}
 
 uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].pc; }
 
@@ -402,7 +416,7 @@ uint8_t pio_sim_sm_get_osr_count(const pio_sim_t *pio, uint8_t sm)
 uint16_t pio_sim_sm_get_instr(const pio_sim_t *pio, uint8_t sm)
 {
     const pio_sm_t *s = &pio->sm[SM_IDX(sm)];
-    return s->exec_pending ? s->exec_insn : pio->insn[s->pc];
+    return s->exec_pending ? s->exec_insn : pio->insn[s->pc % PIO_SIM_INSN_COUNT];
 }
 
 void pio_sim_sm_set_status_value(pio_sim_t *pio, uint8_t sm, uint32_t value)
@@ -510,6 +524,7 @@ void pio_sim_sm_set_consecutive_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base
                                         bool is_out)
 {
     pio_sm_t *s = &pio->sm[SM_IDX(sm)];
+    count = clamp_pin_count(count); /* at most one full 32-pin window */
     for (uint8_t i = 0; i < count; i++) {
         uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
         if (is_out) {
@@ -1512,10 +1527,13 @@ static void sm_cycle(pio_sim_t *pio, uint8_t sm_idx)
     if (from_exec) {
         insn = sm->exec_insn;
     } else {
-        if (!pio->insn_used[sm->pc]) {
+        /* Fetch address is masked to the 32-word memory: a caller-poked PC or a
+         * bad wrap can never index out of bounds. */
+        uint8_t fetch_pc = (uint8_t)(sm->pc % PIO_SIM_INSN_COUNT);
+        if (!pio->insn_used[fetch_pc]) {
             pio->unwritten_fetches++; /* diagnostic: runaway PC / bad wrap */
         }
-        insn = pio->insn[sm->pc];
+        insn = pio->insn[fetch_pc];
     }
 
     uint8_t next_pc = 0;

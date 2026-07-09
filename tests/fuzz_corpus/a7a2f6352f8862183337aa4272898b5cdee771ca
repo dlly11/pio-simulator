@@ -1,0 +1,9 @@
+; WS2812 se0 A.
+.define A 0B1010
+.ed·n.
+.define A 0B1010
+.ed—Abin/hex.
+.define A 0B1010
+.
+.define A 0B1010
+ut xpul

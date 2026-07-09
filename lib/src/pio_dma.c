@@ -90,7 +90,9 @@ void channel_config_set_write_increment(pio_dma_channel_config_t *c, bool incr)
 void channel_config_set_dreq(pio_dma_channel_config_t *c, uint8_t dreq) { c->treq_sel = dreq; }
 void channel_config_set_chain_to(pio_dma_channel_config_t *c, uint8_t chain_to)
 {
-    c->chain_to = chain_to;
+    /* Only real channels can be chained to; keep the field in range so the
+     * `1u << chain_to` trigger in dma_advance is always well-defined. */
+    c->chain_to = (uint8_t)(chain_to % PIO_SIM_DMA_NUM_CHANNELS);
 }
 void channel_config_set_transfer_data_size(pio_dma_channel_config_t *c, pio_dma_size_t size)
 {
@@ -438,7 +440,7 @@ static void dma_transfer_one(pio_dma_t *d, uint8_t c)
         if (!chan->ctrl.irq_quiet) {
             dma_raise_irq(d, c);
         }
-        if (chan->ctrl.chain_to != c) {
+        if ((chan->ctrl.chain_to != c) && (chan->ctrl.chain_to < PIO_SIM_DMA_NUM_CHANNELS)) {
             pio_dma_channel_start_mask(d, (uint32_t)1U << chan->ctrl.chain_to);
         }
     }

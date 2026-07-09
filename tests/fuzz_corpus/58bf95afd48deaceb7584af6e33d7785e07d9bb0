@@ -1,0 +1,10 @@
+; Eross assemblerse.
+.program jmpcov
+target:
+    jmp target
+    jmp !x target
+    jmp x-- target
+    jmp !y  target
+jmp target
+ jmp !x target
+    jmp x-- target

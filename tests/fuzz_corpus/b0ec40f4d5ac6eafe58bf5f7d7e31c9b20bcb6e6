@@ -1,0 +1,13 @@
+.progÿÿÿOOOOOOOOOOÿÿïÿd bin/hex.
+.define A 0b1010
+efdnei. J (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `::`, (B & 0x1F)
+D 1 + 2 & 3
+; `:28
+.program eart:
+am p
+.define *®)2 << A*2 - 3
+.defstart:
+ sideanc.

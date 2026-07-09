@@ -1,0 +1,59 @@
+; WS2812 (Neon del@says, and
+; autopull ne pdefine public T3 3
+
+.wrap_target
+bitl
+staam!.ÿÿÿÿÿÿÿÿx,
+.program
+ÿÿÿÿÿÿÿÿ2ÿÿÿÿx,
+.program
+Œ wx
+,
+.program ws2812
+.side_T3 3
+
+.wrap_target
+bitloop:
+   
+.program
+ mx
+,
+.program ws28
+.program ws2812
+.sid T2 5
+.Äefine public T3 3
+
+.wrap_target
+bitloop:
+   
+.program
+ mx
+,
+.program ws28.progr
+bitloop:
+   
+.program
+ mx
+,
+.program ws28
+.program ws22812
+.side[set 1
+
+.dÄfi  
+.program
+ mx
+,
+.program ws28
+.program ws2812
+.sid T2 5
+.Äefine ,,public T3 3
+
+itloop:
+   
+.program
+ gram
+ mx
+,
+.program ws28
+.program ws2812
+.side_setde-se; WSt holdsefinrt:

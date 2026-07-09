@@ -1910,10 +1910,38 @@ static void test_unwritten_fetch_is_flagged(void)
     TEST_ASSERT_TRUE(pio.unwritten_fetches > 0U);
 }
 
+/* A caller-poked PC past the 32-word instruction memory must not index out of
+ * bounds: pio_sim_sm_set_pc keeps it in range and stepping stays safe (the
+ * sanitizer CI build turns any OOB access here into a failure). */
+static void test_set_pc_out_of_range_is_bounded(void)
+{
+    const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_X, 1)};
+    load_prog(prog, 1);
+    pio_sim_sm_set_pc(&pio, 0, 200);
+    TEST_ASSERT_TRUE(pio_sim_sm_get_pc(&pio, 0) < PIO_SIM_INSN_COUNT);
+    (void)pio_sim_sm_get_instr(&pio, 0); /* fetch must stay in bounds */
+    pio_sim_run(&pio, 2);                /* stepping must not read OOB */
+}
+
+/* sm_config_set_clkdiv must not invoke float→int UB for out-of-range divisors
+ * (negative / NaN / >= 65536): they clamp into the valid range. */
+static void test_clkdiv_float_out_of_range_clamped(void)
+{
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_clkdiv(&c, 0.0F); /* below 1 → clamped to 1 */
+    TEST_ASSERT_EQUAL_UINT16(1U, c.clkdiv_int);
+    sm_config_set_clkdiv(&c, -5.0F); /* negative → clamped to 1 */
+    TEST_ASSERT_EQUAL_UINT16(1U, c.clkdiv_int);
+    sm_config_set_clkdiv(&c, 1.0e9F); /* huge → clamped, no UB */
+    TEST_ASSERT_TRUE(c.clkdiv_int >= 1U);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
 
+    RUN_TEST(test_set_pc_out_of_range_is_bounded);
+    RUN_TEST(test_clkdiv_float_out_of_range_clamped);
     RUN_TEST(test_set_x_and_y);
     RUN_TEST(test_set_pins_drives_pads);
     RUN_TEST(test_set_pindirs);

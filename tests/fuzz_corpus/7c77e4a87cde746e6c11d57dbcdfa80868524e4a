@@ -1,0 +1,4 @@
+; WSa).
+.program ws5set>8 ro:
+    nop   h pu
+.wrap

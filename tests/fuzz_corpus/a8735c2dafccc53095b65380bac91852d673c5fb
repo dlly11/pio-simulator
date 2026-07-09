@@ -1,0 +1,16 @@
+.side_rolse => 'set 99
+.®1 <e  ? jmp  bitloop 
+.®(1àÃš Œš‹ß99
+.wrap
+.wr pulse high pulse sen 99
+.®1 <e_set 99
+.wrap
+.wr nop   et 99
+.®1 <e_set 99
+.wra_set 98
+.rawp
+.wr nop PUBLIC     side  => &s+t 99
+.®1 <e_set 99
+.wrap
+.wrap_taogram p
+.—ef< rgkt

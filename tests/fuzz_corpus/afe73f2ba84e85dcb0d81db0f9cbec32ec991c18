@@ -1,0 +1,6 @@
+;; ond
+.program jmpcèv
+target:
+    jmp target
+    jmp !x target
+rgt

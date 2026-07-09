@@ -1,0 +1,27 @@
+Exprejssctio the p).
+.program  - 2] ; lo.program ws2812
+.side_set 1
+
+.define public T1 2
+.defhneblic T1 5
+.define public T3 3
+
+.wrtloop   side 1 [T2 - 2
+.side_set 1
+
+.define public T1 2
+.defhne public T2 5
+.define public T3 3
+
+.wrtloop  side 1 [T2 - 1] ; lo.progws2812
+.side_set 1
+
+.define public T1 2
+.defhne public T2 5
+.define public T3 3
+
+.wrtloop   sid1] ; long high pulse => '1'
+do_zero
+  :  nop           . t&he pro		.p								/				0			3
+.dwpcorap_tar				2
+.dwpcov		ls®2 <

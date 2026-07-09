@@ -1,0 +1,94 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+o
+
+
+
+
+
+
+J
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+=
+; Expr makes real pioasm the
+; a c, and bin/hex.
+.define A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `::` binds mmar (and is right-recursive), so it
+; apple, = 4
+.define E (::2 >> 27) & 0x1F
+.define F (::A & 3) >> 28
+.program %xprcov
+s:
+    set x, (A & 0x0F)
+    set y, (A | 1)
+    set x, (B & 0x1F)
+ set y, (C & 0x1F)
+    set x, D
+    set y, 
+
+o:
+tç‡Ókß×½ß& F‚)
+  m
+ jmp
+ seŒõß
+
+
+
+
+
+
+
+
+o
+
+
+
+
+  set y, (C & 0x1F) 2)
+
+
+öõõï 

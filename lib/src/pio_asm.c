@@ -98,6 +98,11 @@ static bool parse_uint(const char *s_in, uint32_t *out)
         } else {
             return false;
         }
+        /* Reject literals that don't fit in 32 bits rather than silently wrapping
+         * into a bogus operand. */
+        if (v > ((UINT32_MAX - digit) / (uint32_t)base)) {
+            return false;
+        }
         v = (v * (uint32_t)base) + digit;
     }
     *out = v;
@@ -179,7 +184,12 @@ typedef struct {
     const asm_ctx_t *ctx;
     const char *p;
     bool ok;
+    int depth; /* recursion guard: nested "(" / "::" — see expr_reverse */
 } expr_t;
+
+/* Cap on nested sub-expressions. Real programs never nest anywhere near this;
+ * the bound stops a pathological "((((…" input from exhausting the stack. */
+#define EXPR_MAX_DEPTH 64
 
 static void expr_skip_ws(expr_t *e)
 {
@@ -359,19 +369,30 @@ static int64_t expr_shift(expr_t *e) /* << >> — loosest binary */
  * applies to the whole expression to its right (right-recursive). */
 static int64_t expr_reverse(expr_t *e)
 {
+    /* Both nested parens (via expr_primary) and "::" recurse through here, so a
+     * single depth check bounds all recursion. */
+    if (++e->depth > EXPR_MAX_DEPTH) {
+        e->ok = false;
+        e->depth--;
+        return 0;
+    }
     expr_skip_ws(e);
+    int64_t v;
     if ((e->p[0] == ':') && (e->p[1] == ':')) {
         e->p += 2;
-        return (int64_t)pio_reverse32((uint32_t)expr_reverse(e));
+        v = (int64_t)pio_reverse32((uint32_t)expr_reverse(e));
+    } else {
+        v = expr_shift(e);
     }
-    return expr_shift(e);
+    e->depth--;
+    return v;
 }
 
 /* Resolve an integer operand: a full expression (literal / define / label /
  * arithmetic). Truncated to 32 bits. */
 static bool resolve_uint(const asm_ctx_t *ctx, const char *s, uint32_t *out)
 {
-    expr_t e = {ctx, s, true};
+    expr_t e = {ctx, s, true, 0};
     int64_t v = expr_reverse(&e);
     expr_skip_ws(&e);
     if (!e.ok || (*e.p != '\0')) {
@@ -1737,6 +1758,12 @@ bool pio_asm_load_program(pio_sim_t *pio, uint8_t sm, uint8_t offset, const pio_
         }
         relocated[i] = insn;
     }
+    /* The relocated program (and its wrap window / start PC) must fit inside the
+     * 32-word instruction memory; otherwise the SM would advance its PC past the
+     * end of pio->insn and read out of bounds. Reject a load that doesn't fit. */
+    if (((uint32_t)offset + prog->count) > PIO_SIM_INSN_COUNT) {
+        return false;
+    }
     pio_sim_load(pio, offset, relocated, prog->count);
     /* Apply the program's structural config (wrap, side-set) directly — the
      * pio_sm_t is a public struct, and doing so avoids reshaping/clearing the
@@ -1799,6 +1826,8 @@ void pio_asm_apply_program_config(pio_sim_t *pio, uint8_t sm, const pio_program_
         double d = prog->clock_div;
         if (d < 1.0) {
             d = 1.0;
+        } else if (d > 65535.0) {
+            d = 65535.0; /* clamp to the 16-bit integer divisor, not truncate */
         }
         uint32_t whole = (uint32_t)d;
         uint32_t frac = (uint32_t)(((d - (double)whole) * 256.0) + 0.5);

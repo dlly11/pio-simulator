@@ -179,6 +179,23 @@ static void test_chain_to_next_channel(void)
     TEST_ASSERT_FALSE(pio_dma_channel_is_busy(&dma, 2));
 }
 
+/* An out-of-range chain_to must be clamped so the `1u << chain_to` trigger in
+ * the engine is never a shift by >= 32 (UB). Verified under the sanitizer CI
+ * build; here we just confirm it is clamped and the transfer still completes. */
+static void test_chain_to_out_of_range_clamped(void)
+{
+    pio_dma_channel_config_t c = pio_dma_channel_get_default_config(0);
+    channel_config_set_chain_to(&c, 200);
+    TEST_ASSERT_TRUE(c.chain_to < PIO_SIM_DMA_NUM_CHANNELS);
+
+    load_echo_prog();
+    static uint32_t src[2] = {0xAAU, 0xBBU};
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(src), 2, true);
+    tick_all(100); /* must not invoke shift UB on completion-chain */
+    TEST_ASSERT_FALSE(pio_dma_channel_is_busy(&dma, 0));
+}
+
 static uint8_t cb_hits;
 static uint8_t cb_last_ch;
 
@@ -523,6 +540,7 @@ int main(void)
     RUN_TEST(test_size8_and_bswap);
     RUN_TEST(test_ring_wraps_read_side);
     RUN_TEST(test_chain_to_next_channel);
+    RUN_TEST(test_chain_to_out_of_range_clamped);
     RUN_TEST(test_irq_on_complete_and_ack);
     RUN_TEST(test_irq_quiet_defers_to_null_trigger);
     RUN_TEST(test_abort_midstream_and_retrigger);

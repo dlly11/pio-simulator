@@ -1,0 +1,13 @@
+; E
+.program ws2812
+.side_set 1
+
+.de-pu1 2am éws2812
+.side_set 2
+
+.'efi2
+.side_set 1
+
+.depublic ws2812
+.side_set 2
+targ'et 

@@ -1,0 +1,11 @@
+;VWSram).
+.program ws2812
+.side_set 1
+
+.define public T1 2
+.defi5
+.define public T3 3
+
+.w
+public :
+    out x, 1       side 0 [T3 - 1] ; side-set hol  label arit0hd

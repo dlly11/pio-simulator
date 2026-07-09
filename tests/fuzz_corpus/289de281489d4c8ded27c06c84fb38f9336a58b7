@@ -1,0 +1,43 @@
+;;;d
+a : r 
+t sessio™/hex.
+.define A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define.define B (A + 6)
+.defin3
+; `::rrrrrrrefine A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `::.define D 1 + 2 & 3
+; `::`,  set y, En/1010
+.stop the et x, (Adefinoe B (A + 6)
+.define C A*2 - 3
+.define D  0b10
+.define B (A + 6)
+.defineb1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `::.define D 1 + 2 & 3
+; `::`,  set y, En/1010
+.stop the et x, (Adefine B (A + 6)
+.define C A*2 - 3
+.define D  0b10
+.define B (A + 6)
+.define C A*2 - 3
+.de1 + 2 & 3
+; `::rrrrrrrefine A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `::.define D 1 + 2 & 3
+; `::`,  set y, En/1010
+.stop the et x, (A &start + 0b1010
+.define B (A + 6)
+.define C A*2 - 3,,,,,,
+.define D 1 + 2 & 3
+; `::`, (B & 0x1F)
+    set y, (,C & 0x1F)
+    set x, Dss/,,

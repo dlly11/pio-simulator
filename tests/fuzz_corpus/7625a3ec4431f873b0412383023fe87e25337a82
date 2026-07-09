@@ -1,0 +1,10 @@
+; W2S182 (NeoPixin the progra-).
+.program ws942ic T2 5
+.define public T3 3
+
+.wrap_Target
+bitloop:
+    out  - 1] ;  stalls
+    => .p'1'
+fo_zero:
+   ÿÿÿÿ        Ùsi

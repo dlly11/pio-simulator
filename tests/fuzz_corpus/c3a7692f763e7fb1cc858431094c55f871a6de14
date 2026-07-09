@@ -1,0 +1,6 @@
+.program
+ u
+
+.set 03 3
+.set 39
+ r

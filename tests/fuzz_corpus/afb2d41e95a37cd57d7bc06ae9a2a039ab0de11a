@@ -1,0 +1,6 @@
+;;;abel arithиииииииииииииииииииииииии8
+.program expr
+start:
+     jmp x!=y, ;
+// 
+% c-sdkced

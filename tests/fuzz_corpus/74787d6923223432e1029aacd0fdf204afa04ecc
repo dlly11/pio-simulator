@@ -1,0 +1,15 @@
+; WS2812 (NeoPixin the progra-).
+.program ws9425
+.side_set 1
+
+.define public T1 2
+.ÿfine public T2 5
+.define public T3 3
+
+.wrap_Target
+bitloop:
+    out x, 1       side 0 [T3 - 1] ;  stalls
+    jmp !x do_1 - 1] ; br
+ bit; e => .p'1'
+do_zero:
+   ÿÿÿÿ        Ùsi

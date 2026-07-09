@@ -1,0 +1,5 @@
+; WS2se =hegra).
+.program ws0set
+.define>8 ro:
+    nop   h pulse => '0'
+.wrap

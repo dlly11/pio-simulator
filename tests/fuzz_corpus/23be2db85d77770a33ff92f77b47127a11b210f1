@@ -1,0 +1,16 @@
+; E
+.program ws2812
+.side_set 1
+
+.dne-public T1 2
+.defhnerogram éws2812
+.side_set 2
+
+.'efi2
+.side_set 1
+
+.depublic ws2812
+.side_set 2
+
+.  sid1U ; lom p
+gh pulwr2targ'et 

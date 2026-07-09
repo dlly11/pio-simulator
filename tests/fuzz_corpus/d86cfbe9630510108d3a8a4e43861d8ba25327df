@@ -1,0 +1,80 @@
+.program p
+.de 3
+
+.wrap_target
+bitlooratarget:public m p
+.deÿÿzÿõ²{Pğublic T6 3
+
+.wrapde 3
+
+getbitloop:
+    èß‘p   "    et
+bitloop:
+op:
+ipneub lic T6 3
+
+.wrap_target
+bitloop:
+    out x, 1     p_target
+bitloop:
+    o:
+ p_target
+bitloop:
+    o:
+  èß‘ade 3
+
+getbitloop:
+    èß‘p   "    et
+bitloop:
+op:
+ipneub lic T6 3
+
+.wrap_target
+bitloop:
+    out x, 1     p_target
+bitloop:
+    o:
+ p_target
+bitloop:
+    o:
+  èß‘arget
+bitloop:
+    o:
+    nop   "    side 0 _target
+bitloop:
+    :
+    o:
+    ng   5
+.define public T6 3
+
+.wrap_target
+bitlou^blic T2  3
+
+.wrap_target
+bitloop:
+    o:
+  èß‘p   "    et
+bp:
+ipneub lic T6 3
+
+.wrap_target
+b^blic T2  3
+
+.wrap_target
+bitloop:
+    o:
+  èß‘arget
+bitloop:
+    o:
+        o:
+    nop   "    side 0 _target
+bitloop:
+    :
+    o:
+    ng   5
+.define public T6 3
+
+.wrap_target
+bitlou^blic T2  3
+
+.ne public 

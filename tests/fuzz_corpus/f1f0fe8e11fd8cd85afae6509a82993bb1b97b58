@@ -1,0 +1,33 @@
+;;;d
+art  s:  
+ession/hex.
+.define A 0b1010
+.define B (A + 6)
+&lefine C A*2 - 3
+.define D 1 + 2 & 3
+`, (B & 1x1F)
+  ‚  set y, (  defines, label arithrrrRrrrrrrrrrrrrrrrrrrrrrrrrrsion/hex.
+.define A 0b1010
+.define B (A + 6)
+.definÙe C A*2 - 3
+.define D 1 + 2 & 3
+; `::`,  set y, En/hex.
+.define A 0b1010
+.stop and bin/hex.
+.s; instruction operands take a
+; bin/hex.
+.define A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `::`, (B & 0x1F)
+    set y, (C & 0x1F)
+    set x, Dssion/hex.
+.define A 0b1010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+; `::`, n/hex.
+.define A 0b1010
+.stop the et x, (A &àÏ‡ÅF)
+    seart

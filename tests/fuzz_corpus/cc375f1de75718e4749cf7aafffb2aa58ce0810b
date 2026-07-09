@@ -1,0 +1,20 @@
+; WS2812 ram).
+.program ws2812
+.side_set 1
+
+.de public    bitloop:
+ è  out x, 1      0 [
+do_
+.in 4
+)..one:
+    jmp  bitloop   side 1 [T2 - 2] ; l
+.in 4
+..
+;seolds low even while OUT stal_target
+biws
+.in 4
+..
+; , 1   s
+do_
+.in 4
+)..     side 0 [Ten :while O

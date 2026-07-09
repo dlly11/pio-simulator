@@ -1,0 +1,5 @@
+;;;abel иии8
+.program,expr
+start:
+     jmp x!=y, ;
+// 

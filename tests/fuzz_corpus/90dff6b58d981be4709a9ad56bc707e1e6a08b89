@@ -1,0 +1,5 @@
+; Everse, = 3
+.define E (::2 >> 27) & 0x1F
+ F(:A&  ;>> 28
+.program expr
+    set x, (A & 0x0F).

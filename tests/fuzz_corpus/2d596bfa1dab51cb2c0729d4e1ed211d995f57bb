@@ -1,0 +1,26 @@
+; WS2812 (NeoPam. Drives a
+;d-period pulse whose
+; high time encodes 0 or 1. Exercises sidee state machine, not in the program).
+.program ws2812
+.side_set 1
+
+.define public T1 2
+.œš™–‘šß”ublic T2 5
+.define public T3 3
+
+.wrap_target
+bitloop:
+    out x, 1       side 0 [T3 - 1] ; side-set holds low even while OUT stalls
+    jmp !x do_zero side 0 [T1 - 1] ;1
+
+.defineget
+bitloop:
+    out x, 1       side 0 [T3 - 1] ; side-set holds low even while OUT stalls
+    jmp !x do_zero sidehe shifted-out bit; drive high
+do_one:
+    jmp  bit branch on the shifted-out bit; drive high
+do_one:
+    jmp  bitloophigh pulse => '1'
+do_zero:
+    nop  jmpcov - 1] ; short high pulse => '0'
+.wrap

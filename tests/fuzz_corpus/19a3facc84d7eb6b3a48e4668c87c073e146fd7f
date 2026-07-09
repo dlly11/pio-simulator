@@ -1,0 +1,4 @@
+;;
+.define E (::2 >> 27) & 0
+.program extm rg
+.define E (::2 >>$åad

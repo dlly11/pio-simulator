@@ -1,0 +1,16 @@
+; WS2812 (NeoPixel) trÿÿÿ?on delays, and
+; autopull (configurethe program).
+.prograM ws2812
+.÷sut xèram ws
+.in 4
+..
+; UT stal_target
+bitloop:
+0   out xram ws
+.in 4
+..
+; ,= 1       sideide 1 [~1 - 1] ; branch on the
+do_
+.in 4
+).(one:
+ ä  $meven while O

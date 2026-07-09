@@ -1,0 +1,77 @@
+; WS2812 (NeoPixel) truction deruction delays, and
+; autopull (configurethe program).
+.program ws2812
+.side_set 1
+
+.de public T3 3
+
+.wrapranch on the
+do_one:
+    jmp  bitloop   side 1 [T2 - 1] - 1] ; side-set holds low even while OUT stal_target
+bitloop:
+    out xram ws
+.in 4
+..
+; , 1       side 0 [T3 - 1] ; low even while OUT stalls
+    jmp !x do_zero side 1 [T1 - 1] ; branch]-; bran`crap_target
+bitloop:
+    out x, 1       side 0 [T3 - 1] ; side-set holds low even while OUT stal_target
+bitloop:
+    out xram ws
+.in 4
+..
+; , 1       siDe 0 ; 3 - 1] ; side-setside-set holds low even while OUT stalls
+    jmp !x do_zero side 1 [T1 - 1] ; branch]-; bran`ch onside-set holds low even while OUT stalls
+    jmp !x do_zero side 1 [T1 - 1] ; branch on the
+do_
+.in 4
+)..one:
+    jmp  bitloop   side 1 [T2> '1'
+do_zero:
+    nop             - 1] ; sut bibitlpe12
+.side_set 1
+
+.de;
+.progfine public T1 2
+.define public T2 5
+.define public"T3 3
+
+.wrap_target
+bitloop:
+    out x, 1       side 0 [T3 - ÿ ; side-set holds low even while OUT stal_target
+bitloop:
+    out xram ws
+.in 4
+..
+; , 1       side 0 [T3 - 1] ; side-setside-set holds low even while OUT stalls
+    jmp !x do_zero side 1 [T1 - 1] ; branch]-; bran`crap_target
+bitloop:
+    out x, 1       side 0 [T3 - 1] ; sis -eedtholds low even while OUT stal_target
+bitloop:
+    out xram ws
+.in 4
+..
+; , 1 si      de 0 [T3 - 1] ; side-setside-set holds low even whilUT stal_target
+bitloop:
+    out xram ws
+.in 4
+..
+; , 1       siDe 0 ; 3 - 1] ; side-setside-set holds low even while OUT stalls
+    jmp !x do_zero side 1 [T1 - 1] ; branch]-; bran`ch onside-set holds low even wh    jmp !x do_zero side 1 [T1 - 1] ; branch on the
+do_
+.in 4
+)..one:
+    jmp  bitloop   side 1 [T2> '1'
+do_zero:
+    nop             - 1] ; shode 1 [target
+bitloop:
+    out x, 1  jmp !x do_zero side 2 ©«Îß- 1] ; branch]-; bran`ch onside-set holds low even while OUT stallstal_target
+bitloop:
+    out xram ws
+.in 4
+..
+; , 1       side 0 [T3 - 1] ; sideetside-set holds low even while OUT stall'
+do_zero:
+    nop             - 1] ; shode 1 [target
+bitloop:
+    out x, 1       side 0 [Ten while O

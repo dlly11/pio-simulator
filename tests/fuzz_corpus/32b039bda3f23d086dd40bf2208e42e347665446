@@ -1,0 +1,6 @@
+.program p
+ out x, 1 [
+.defi1
+.wrap_target
+bitloop:
+   

@@ -391,17 +391,57 @@ static void test_shift_expression_out_of_range_rejected(void)
 }
 
 /* Arithmetic in a constant expression must not invoke signed-overflow UB: a
- * huge product/sum/negation wraps in the unsigned domain (found by fuzzing —
- * the sanitizer CI build turns any residual UB here into a failure). The result
- * is masked to the instruction field, so wrapping is observationally fine. */
+ * product of two valid 32-bit operands overflows int64 and wraps in the
+ * unsigned domain (found by fuzzing — the sanitizer CI build turns any residual
+ * UB here into a failure). The result is masked to the instruction field, so
+ * wrapping is observationally fine. */
 static void test_expression_overflow_is_defined(void)
 {
     pio_program_t p;
     TEST_ASSERT_TRUE(
         pio_asm_assemble(".program p\n.define A 2777777777 * 3983219825\n set x, A\n", NULL, &p));
-    TEST_ASSERT_TRUE(pio_asm_assemble(".program p\n set x, (9223372036854775807 + 1)\n", NULL, &p));
-    TEST_ASSERT_TRUE(
-        pio_asm_assemble(".program p\n set x, -(-9223372036854775807 - 1)\n", NULL, &p));
+    /* 0xFFFFFFFF * 0xFFFFFFFF ~= 1.8e19 > INT64_MAX — wraps, no UB. */
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program p\n set x, (4294967295 * 4294967295)\n", NULL, &p));
+}
+
+/* A numeric literal that overflows 32 bits is rejected, not silently wrapped
+ * into a bogus operand (hardening; sanitizer build guards the arithmetic). */
+static void test_numeric_literal_overflow_rejected(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program p\n set x, 99999999999999999999\n", NULL, &p));
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program p\n set x, 0x1FFFFFFFF\n", NULL, &p));
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program p\n.define A 0xFFFFFFFF\n set x, 1\n", NULL, &p));
+}
+
+/* Deeply nested parentheses must fail cleanly via the depth guard rather than
+ * recursing until the stack is exhausted (found by fuzzing). */
+static void test_expression_deep_nesting_bounded(void)
+{
+    char src[256];
+    size_t k = 0;
+    const char *pre = ".program p\n set x, ";
+    for (const char *q = pre; *q; q++) {
+        src[k++] = *q;
+    }
+    for (int i = 0; i < 100; i++) {
+        src[k++] = '(';
+    }
+    src[k++] = '1';
+    src[k++] = '\n';
+    src[k] = '\0';
+    pio_program_t p;
+    TEST_ASSERT_FALSE(pio_asm_assemble(src, NULL, &p)); /* no crash, graceful reject */
+}
+
+/* Loading a program at an offset where it would not fit in the 32-word
+ * instruction memory is rejected rather than corrupting the wrap window / PC. */
+static void test_load_past_instruction_memory_rejected(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program p\n set x, 1\n set y, 2\n set x, 3\n", NULL, &p));
+    TEST_ASSERT_FALSE(pio_asm_load_program(&pio, 0, 30, &p)); /* 30 + 3 > 32 */
+    TEST_ASSERT_TRUE(pio_asm_load_program(&pio, 0, 29, &p));  /* 29 + 3 == 32, fits */
 }
 
 /* An optional side-set sets the enable bit only on instructions that name one. */
@@ -842,6 +882,9 @@ int main(void)
     RUN_TEST(test_spaced_delay_expression);
     RUN_TEST(test_shift_expression_out_of_range_rejected);
     RUN_TEST(test_expression_overflow_is_defined);
+    RUN_TEST(test_numeric_literal_overflow_rejected);
+    RUN_TEST(test_expression_deep_nesting_bounded);
+    RUN_TEST(test_load_past_instruction_memory_rejected);
     RUN_TEST(test_optional_sideset);
     RUN_TEST(test_public_labels_and_verbatim);
     RUN_TEST(test_hex_comments_and_case);

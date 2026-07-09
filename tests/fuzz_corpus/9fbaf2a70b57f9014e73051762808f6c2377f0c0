@@ -1,0 +1,13 @@
+; Expression operators and prec
+.program exp2cov
+start:
+    session/hex.
+.define A 0010
+.define B (A + 6)
+.define C A*2 - 3
+.define D 1 + 2 & 3
+c, and bin/hex.
+.define A 0b10
+.define B (A + 6)
+.define C A*2 - 3
+.define j?mp start

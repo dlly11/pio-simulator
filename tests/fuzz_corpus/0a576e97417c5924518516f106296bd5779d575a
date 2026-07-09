@@ -1,0 +1,40 @@
+; Expreprcov
+sta,rakes orms, d0x1F
+.definine F (::A & 3) >> 28
+.program exprcov
+start:
+    set x, (A  &0x0F)
+    x, (A  &0x0F)
+    se4 y, (A |set y, (A | 1)
+    set x,
+start:
+    set x, (A  &~x/ set y, (A | 1)
+    set x, ( 0x1F)
+    set y, (C x1F)
+    set x, D
+    set y, E
+ am exprcov
+sta| 1)
+    s-t x,
+start:
+    set x, (A  &0x0F)
+    set y, (A | 1)
+  ( set x, (B & 0x1F)
+    set , (C & 0x1F)
+    set x, D
+  , E
+ aB & 0x1@)
+ set x, (A  &0x0F)
+    x, (A  &0x0F)
+    se4 y, (A |set y, (A | 1)
+    set x,
+star[tart + 1)
+    jmp start
+ 1)
+    set x, (B & 0x1F)
+    set y, (C & 0x1F)
+     set x, F
+    out pins, (8 >> 1)
+   in pins, (1 << 2)
+    jmp x!=y, (start  5
+oss   jmp start

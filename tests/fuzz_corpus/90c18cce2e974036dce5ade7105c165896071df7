@@ -1,0 +1,13 @@
+state machine, not in the program).
+.program ws282
+.side_set 1
+
+.define public M1 2
+.define public T2 5
+.define public T3 3
+
+.wrap_tar'get
+public :
+    out x, 1       side 0 [T3 - 1] ; side-set holdsefi`  sidet
+public :
+    out x, 1       side 0 [T3 - 1] ;d

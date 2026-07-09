@@ -1,0 +1,7 @@
+ - 1
+.program ws28$ida_sgt 1
+.define public T2 2
+.de1
+.program w 0
+
+.define .p

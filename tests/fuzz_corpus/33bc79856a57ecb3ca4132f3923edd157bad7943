@@ -1,0 +1,4 @@
+.program p
+.out 5 26
+p
+.out 5 26 /.

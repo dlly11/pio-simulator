@@ -1,0 +1,10 @@
+; T2WSgs5624
+.program 2812
+.soutp
+.ÏßË6s
+irq  0//tgram p
+.outp
+.ÏßË6s
+irq 0//ti.soutp
+.ÏßË6s
+irq  0//tgram p 0//tide_0ede_se1 puic E:

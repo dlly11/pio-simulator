@@ -1,0 +1,21 @@
+.pys, and
+; autopull (configue, not in the program).
+.program ws2@812
+.side_set 1
+
+.define public T2 2
+.define public T2 5
+.define public T3 3
+
+.wrap_target
+bitloop:
+    ou e_set 1
+
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+.rget
+b e_set 0
+
+.define pubÿÿÿÿÿÿÿÿÿÿÿ,ÿÿ; Expreÿÿÿÿÿÿÿÿÿs
