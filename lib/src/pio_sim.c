@@ -106,7 +106,10 @@ static uint64_t pads_live(const pio_pads_t *p)
 
 /* The input view the PIO logic sees, before the synchroniser: the wire level
  * gated by the pad's input enable (IE=0 reads 0; RP2350 isolation also gates
- * the input) and transformed by INOVER. */
+ * the input) and transformed by INOVER. INOVER is an IO_BANK0 override applied
+ * upstream of the PIO's own two-stage synchroniser (matching silicon), which
+ * is why it is folded in here — into what feeds in_sync[0] — rather than at the
+ * SM read. */
 static uint64_t pads_input_view(const pio_pads_t *p)
 {
     uint64_t v = pads_live(p) & p->pad_ie;

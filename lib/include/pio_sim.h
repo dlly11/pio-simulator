@@ -24,8 +24,8 @@
  *    its pads) from one thread.
  *  - Lifetimes: a pio_sim_group_t must outlive its member blocks' use — group
  *    init repoints each block's `pads` into the group (a later pio_sim_init on
- *    a member resets that member to its own pads). A pio_sim_dma_t's `buf` and
- *    `chain` targets must outlive the transfer.
+ *    a member resets that member to its own pads). DMA endpoint memory
+ *    (pio_dma.h) must outlive the transfers that reference it.
  *  - The structs are transparent for test convenience; prefer the accessors,
  *    and never write pin/pad fields directly (see the pio_sm_t note).
  */
@@ -664,8 +664,9 @@ uint64_t pio_sim_run_until_tx_drained(pio_sim_t *pio, uint8_t sm, uint64_t max_t
  * A group ties several blocks to one system clock so they advance in lockstep,
  * and (on RP2350) wires their inter-PIO IRQ links into a ring so block i's
  * `next` is block i+1 and its `prev` is block i-1 (wrapping), matching the
- * PIO0→PIO1→PIO2→PIO0 ordering. Each block keeps its own pad model; bridge pins
- * between blocks with a device hook if you need shared GPIOs. */
+ * PIO0→PIO1→PIO2→PIO0 ordering. By default each block keeps its own pad model;
+ * pio_sim_group_init_shared points all blocks at one shared pad set so they
+ * drive and sample the same GPIOs (or bridge pins with a device hook). */
 typedef struct {
     pio_sim_t *blk[PIO_SIM_NUM_PIO];
     uint8_t count;
@@ -822,8 +823,8 @@ void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn);
 /* IRQ / WAIT-IRQ index field, bits [4:3] select the addressing mode; bits [2:0]
  * are the IRQ flag index.
  *   0x00 = this PIO    0x10 = SM-relative    0x08 = previous PIO    0x18 = next PIO
- * prev/next address a neighbouring PIO block, which the single-block simulator
- * does not model (see pio_sim.c). */
+ * prev/next address a neighbouring PIO block, linked via pio_sim_set_irq_neighbors
+ * or pio_sim_group_init; an unlinked direction has no effect. */
 #define PIO_IRQ_MODE_MASK 0x18U
 #define PIO_IRQ_REL 0x10U
 #define PIO_IRQ_PREV 0x08U

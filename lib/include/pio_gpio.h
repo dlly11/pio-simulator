@@ -80,6 +80,7 @@ typedef enum {
 /** Route pin `pin` (physical GPIO number) to function `f`. A PIO block only
  * drives pins routed to its own FUNC_PIOn; inputs stay visible regardless. */
 void pio_sim_gpio_set_function(pio_sim_t *pio, uint8_t pin, pio_gpio_func_t f);
+/** Read back the FUNCSEL currently routed to `pin`. */
 pio_gpio_func_t pio_sim_gpio_get_function(const pio_sim_t *pio, uint8_t pin);
 
 /** Output/OE/input overrides at the mux boundary (GPIOx_CTRL OUTOVER/OEOVER/
