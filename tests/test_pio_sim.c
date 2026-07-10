@@ -1864,6 +1864,27 @@ static void test_fdebug_flags(void)
     TEST_ASSERT_EQUAL_UINT8(0U, pio_sim_sm_get_rx_fifo_level(&pio, 0));
 }
 
+/* FDEBUG is a sticky write-1-to-clear register: neither restart nor re-init
+ * clears it (matching the SDK / silicon); only pio_sim_sm_clear_fdebug does. */
+static void test_fdebug_sticky_across_init_and_restart(void)
+{
+    const uint16_t prog[] = {
+        pio_sim_encode_pull(false, true), /* blocking PULL on empty TX -> TXSTALL */
+        pio_sim_encode_jmp(PIO_COND_ALWAYS, 0),
+    };
+    load_prog(prog, 2);
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_TRUE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
+
+    pio_sim_sm_restart(&pio, 0); /* restart preserves it... */
+    TEST_ASSERT_TRUE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
+    pio_sim_sm_init(&pio, 0, 0, &cfg); /* ...and so does a re-init */
+    TEST_ASSERT_TRUE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
+
+    pio_sim_sm_clear_fdebug(&pio, 0, PIO_FDEBUG_TXSTALL); /* only WC1 clears it */
+    TEST_ASSERT_EQUAL_UINT8(0U, (uint8_t)(pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL));
+}
+
 /* ── System interrupt lines (IRQ0 / IRQ1) ──────────────────────────────────── */
 
 static void test_system_irq_lines(void)
@@ -2451,6 +2472,7 @@ int main(void)
     RUN_TEST(test_input_sync_bypass);
     RUN_TEST(test_sm_mask_enabled);
     RUN_TEST(test_fdebug_flags);
+    RUN_TEST(test_fdebug_sticky_across_init_and_restart);
     RUN_TEST(test_system_irq_lines);
     RUN_TEST(test_intr_irq_flag_routing);
     RUN_TEST(test_irq_enable_force_read_back);

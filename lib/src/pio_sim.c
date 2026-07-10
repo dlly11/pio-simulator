@@ -545,7 +545,10 @@ void pio_sim_sm_init(pio_sim_t *pio, uint8_t sm, uint8_t initial_pc, const pio_s
     s->exec_pending = false;
     s->exec_insn = 0;
     s->clk_accum = 0;
-    s->fdebug = 0;
+    /* FDEBUG is a sticky write-1-to-clear register independent of SM reset: the
+     * SDK's pio_sm_init/pio_sm_restart both leave it standing (clear it
+     * explicitly with pio_sim_sm_clear_fdebug). pio_sim_sm_restart preserves it
+     * too, so the two reset paths agree. */
     s->enabled = false;
     /* Keep the PC in range like pio_sim_sm_set_pc does, so an out-of-range
      * initial_pc can't desync the post-commit PC increment. */

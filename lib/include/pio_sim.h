@@ -303,9 +303,11 @@ void pio_sim_load(pio_sim_t *pio, uint8_t offset, const uint16_t *insns, uint8_t
 
 /** Reset a single state machine's execution state: PC to wrap_bottom, X/Y/OSR/ISR
  * and their counts, delay/stall/pending-exec, the clock accumulator, and both
- * FIFOs (the join capacity is preserved). Note this is broader than the SDK's
- * pio_sm_restart, which leaves the PC and scratch registers untouched; reposition
- * the PC afterwards with pio_sim_sm_set_pc if you need a specific start address. */
+ * FIFOs (the join capacity is preserved). The sticky FDEBUG flags are preserved
+ * (cleared only via pio_sim_sm_clear_fdebug), matching pio_sim_sm_init. Note this
+ * is broader than the SDK's pio_sm_restart, which leaves the PC and scratch
+ * registers untouched; reposition the PC afterwards with pio_sim_sm_set_pc if you
+ * need a specific start address. */
 void pio_sim_sm_restart(pio_sim_t *pio, uint8_t sm);
 
 /** Enable or disable a state machine. */
@@ -497,7 +499,8 @@ void sm_config_set_out_special(pio_sm_config *c, bool sticky, bool has_enable_pi
                                uint8_t enable_bit_index);
 
 /** Apply `c` to `sm`, reset it, and set its PC to `initial_pc` (SDK
- * pio_sm_init). */
+ * pio_sm_init). Clears the FIFOs but preserves the sticky FDEBUG flags, which
+ * are cleared only via pio_sim_sm_clear_fdebug (as on hardware). */
 void pio_sim_sm_init(pio_sim_t *pio, uint8_t sm, uint8_t initial_pc, const pio_sm_config *c);
 /** Apply `c` to `sm` without resetting its execution state (SDK
  * pio_sm_set_config). Like the hardware, the FIFOs are cleared only when the
