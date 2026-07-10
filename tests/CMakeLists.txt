@@ -9,9 +9,24 @@ target_include_directories(unity PUBLIC
 target_compile_definitions(unity PUBLIC UNITY_INCLUDE_CONFIG_H)
 target_compile_options(unity PRIVATE -w)
 
+# Hold the test code to the library's full warning set (defined in the root
+# CMakeLists) so a -Wconversion/-Wshadow regression in a test can't slip through.
+# -Werror only on a standalone build, matching the library and examples; unity
+# itself stays at -w above. Not applied to the fuzz harness: libFuzzer's entry
+# point has no prototype, which trips -Wmissing-prototypes.
+function(pio_sim_test_warnings target)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${target} PRIVATE ${PIO_SIM_WARNING_FLAGS})
+        if(PROJECT_IS_TOP_LEVEL)
+            target_compile_options(${target} PRIVATE -Werror)
+        endif()
+    endif()
+endfunction()
+
 foreach(t test_pio_sim test_pio_asm test_pio_gpio test_pio_clk test_pio_dma)
     add_executable(${t} ${t}.c)
     target_link_libraries(${t} PRIVATE pio_sim unity)
+    pio_sim_test_warnings(${t})
     add_test(NAME ${t} COMMAND ${t})
 endforeach()
 
@@ -20,6 +35,7 @@ add_executable(test_pio_programs test_pio_programs.c)
 target_link_libraries(test_pio_programs PRIVATE pio_sim unity)
 target_compile_definitions(test_pio_programs PRIVATE
     TESTS_PIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/pio")
+pio_sim_test_warnings(test_pio_programs)
 add_test(NAME test_pio_programs COMMAND test_pio_programs)
 
 # ── libFuzzer harness for the assembler (clang only) ─────────────────────────
@@ -85,6 +101,7 @@ if(PIOASM_EXECUTABLE)
     add_executable(test_pio_asm_vs_pioasm test_pio_asm_vs_pioasm.c)
     add_dependencies(test_pio_asm_vs_pioasm pioasm_golden)
     target_link_libraries(test_pio_asm_vs_pioasm PRIVATE pio_sim unity)
+    pio_sim_test_warnings(test_pio_asm_vs_pioasm)
     target_include_directories(test_pio_asm_vs_pioasm PRIVATE ${_gen})
     target_compile_definitions(test_pio_asm_vs_pioasm PRIVATE
         TESTS_PIO_DIR="${_pio_dir}" PIOASM_JSON_DIR="${_gen}")

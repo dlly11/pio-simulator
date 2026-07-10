@@ -657,8 +657,7 @@ static void test_assemble_directives_and_apply(void)
     TEST_ASSERT_EQUAL_UINT8(2U, p.count); /* nop + .word */
     TEST_ASSERT_EQUAL_HEX16(0x1234, p.insns[1]);
 
-    pio_sim_t pio;
-    pio_sim_init(&pio);
+    pio_sim_init(&pio); /* the file-scope pio, freshly inited for this apply */
     pio_asm_apply_program_config(&pio, 0, &p);
     TEST_ASSERT_EQUAL_INT(PIO_SHIFT_LEFT, pio.sm[0].out_dir);
     TEST_ASSERT_TRUE(pio.sm[0].autopull);
@@ -684,8 +683,7 @@ static void test_clock_div_matches_set_clkdiv_truncation(void)
     pio_program_t p;
     TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program s\n.clock_div 2.502\n    nop\n", NULL, &p),
                              p.error);
-    pio_sim_t pio;
-    pio_sim_init(&pio);
+    pio_sim_init(&pio); /* the file-scope pio, freshly inited for this apply */
     pio_asm_apply_program_config(&pio, 0, &p);
 
     pio_sm_config cfg = pio_get_default_sm_config();
@@ -718,8 +716,7 @@ static void test_mov_status_irq_next_prev_directive(void)
     TEST_ASSERT_EQUAL_INT(PIO_STATUS_IRQ_SET, p.mov_status_sel);
 
     /* Applied config lands on the SM. */
-    pio_sim_t pio;
-    pio_sim_init(&pio);
+    pio_sim_init(&pio); /* the file-scope pio, freshly inited for this apply */
     TEST_ASSERT_TRUE(
         pio_asm_assemble(".program s\n.mov_status irq next set 3\n    nop\n", NULL, &p));
     pio_asm_apply_program_config(&pio, 0, &p);
