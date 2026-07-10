@@ -254,6 +254,61 @@ static void test_assemble_side_set_count_range(void)
                              p.error);
 }
 
+/* A label may not start with a digit: the reference grammar (expr_primary) never
+ * starts an identifier on one, so such a label could never be used. */
+static void test_assemble_label_rejects_leading_digit(void)
+{
+    pio_program_t p;
+    const char *bad = ".program t\n"
+                      "3foo:\n"
+                      "    nop\n";
+    TEST_ASSERT_FALSE(pio_asm_assemble(bad, NULL, &p));
+    TEST_ASSERT_EQUAL_INT(2, p.error_line);
+}
+
+/* A duplicate label is an error (pioasm rejects it) rather than being silently
+ * shadowed by the first definition. */
+static void test_assemble_duplicate_label_rejected(void)
+{
+    pio_program_t p;
+    const char *bad = ".program t\n"
+                      "loop:\n"
+                      "    nop\n"
+                      "loop:\n"
+                      "    nop\n";
+    TEST_ASSERT_FALSE(pio_asm_assemble(bad, NULL, &p));
+    TEST_ASSERT_EQUAL_INT(4, p.error_line);
+}
+
+/* .pio_version must not exceed the build target (features it can't encode). */
+static void test_assemble_pio_version_vs_target(void)
+{
+    pio_program_t p;
+#if PIO_SIM_PIO_VERSION < 1
+    /* v0 build: declaring rp2350 exceeds the target. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.pio_version rp2350\nnop\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(2, p.error_line);
+#else
+    /* v1 build: rp2350 is within the target. */
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program t\n.pio_version rp2350\nnop\n", NULL, &p),
+                             p.error);
+#endif
+    /* Declaring the base version is always within range. */
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program t\n.pio_version rp2040\nnop\n", NULL, &p),
+                             p.error);
+}
+
+#if PIO_SIM_HAS_IRQ_PREVNEXT
+/* `rel` and `prev`/`next` are mutually exclusive in the encoding; `wait irq`
+ * must reject the combination just as `irq` does (it used to drop it silently). */
+static void test_assemble_wait_irq_rel_rejects_prev_next(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    wait 1 irq prev 2 rel\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(2, p.error_line);
+}
+#endif
+
 static void test_select_program_by_name(void)
 {
     /* A file with both programs; select swd_read explicitly. */
@@ -915,7 +970,7 @@ static void test_instruction_operand_range_errors(void)
     /* In-range operands still assemble, including count 32 (encoded as field 0). */
     TEST_ASSERT_TRUE(pio_asm_assemble(".program t\n    jmp 31\n    wait 1 gpio 31\n"
                                       "    wait 0 irq 7\n    irq 7\n    set x, 31\n"
-                                      "    in pins, 32\n    out pins, 1\n.pio_version 1\n",
+                                      "    in pins, 32\n    out pins, 1\n.pio_version 0\n",
                                       NULL, &p));
 }
 
@@ -1061,6 +1116,12 @@ int main(void)
 #endif
     RUN_TEST(test_assemble_rel_rejected_on_wait_pin);
     RUN_TEST(test_assemble_side_set_count_range);
+    RUN_TEST(test_assemble_label_rejects_leading_digit);
+    RUN_TEST(test_assemble_duplicate_label_rejected);
+    RUN_TEST(test_assemble_pio_version_vs_target);
+#if PIO_SIM_HAS_IRQ_PREVNEXT
+    RUN_TEST(test_assemble_wait_irq_rel_rejects_prev_next);
+#endif
     RUN_TEST(test_select_program_by_name);
     RUN_TEST(test_jmp_conditions);
     RUN_TEST(test_wait_sources);

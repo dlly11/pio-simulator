@@ -881,6 +881,10 @@ static bool enc_wait(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
         pa_set_error(ctx, "wait index out of range (0..31)");
         return false;
     }
+    if (rel && (prev || next)) {
+        pa_set_error(ctx, "wait irq rel cannot combine with prev/next");
+        return false;
+    }
     if (rel) {
         *base = pio_sim_encode_wait_irq_rel((uint8_t)pol, (uint8_t)idx);
         return true;
@@ -1582,6 +1586,13 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
             }
             out->pio_version = (int)v;
         }
+        /* The directive is metadata, but it must not contradict the build target:
+         * a program declaring a newer PIO than the assembler was built for would
+         * use features this binary can't encode. */
+        if (out->pio_version > PIO_SIM_PIO_VERSION) {
+            pa_set_error(ps->ctx, "program .pio_version exceeds the build target");
+            return LINE_ERROR;
+        }
     } else if (ieq(tok[0], ".clock_div")) {
         double d = 0.0;
         if ((nt < 2U) || !parse_double(tok[1], &d)) {
@@ -1669,12 +1680,22 @@ static bool handle_label(pa_parse_state_t *ps, char **line_io)
             pa_set_error(ctx, "too many labels");
         } else if (namelen >= sizeof(ctx->labels[0].name)) {
             pa_set_error(ctx, "label name too long");
+        } else if ((line[0] >= '0') && (line[0] <= '9')) {
+            /* strspn's charset includes digits, but expr_primary never starts an
+             * identifier on one, so a digit-leading label could never be
+             * referenced. Reject it to match pioasm and the reference grammar. */
+            pa_set_error(ctx, "label name cannot start with a digit");
         } else {
-            (void)memcpy(ctx->labels[ctx->label_count].name, line, namelen);
-            ctx->labels[ctx->label_count].name[namelen] = '\0';
-            ctx->labels[ctx->label_count].index = ps->idx;
-            ctx->labels[ctx->label_count].is_public = is_public;
-            ctx->label_count++;
+            char *slot = ctx->labels[ctx->label_count].name;
+            (void)memcpy(slot, line, namelen);
+            slot[namelen] = '\0';
+            if (find_label(ctx, slot) >= 0) {
+                pa_set_error(ctx, "duplicate label"); /* pioasm errors; don't shadow */
+            } else {
+                ctx->labels[ctx->label_count].index = ps->idx;
+                ctx->labels[ctx->label_count].is_public = is_public;
+                ctx->label_count++;
+            }
         }
     }
     char *rest = &colon[1];
