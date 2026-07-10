@@ -1312,6 +1312,9 @@ static bool parse_shift_dir_cfg(pa_parse_state_t *ps, char *tok[], uint8_t nt, b
     if ((nt < 2U) || !resolve_uint(ps->ctx, tok[1], &count)) {
         return false;
     }
+    if (count > 32U) {
+        return false; /* pin count exceeds the 32-pin SM window */
+    }
     pio_shift_dir_t dir = PIO_SHIFT_RIGHT; /* pioasm default */
     bool autoshift = false;
     uint32_t threshold = 32;
@@ -1326,6 +1329,8 @@ static bool parse_shift_dir_cfg(pa_parse_state_t *ps, char *tok[], uint8_t nt, b
             autoshift = false;
         } else if (!resolve_uint(ps->ctx, tok[i], &threshold)) {
             return false;
+        } else if (threshold > 32U) {
+            return false; /* shift threshold is a 5-bit field (1..32; 0 encodes 32) */
         } else {
             /* threshold captured */
         }
@@ -1382,6 +1387,9 @@ static bool parse_mov_status(pa_parse_state_t *ps, char *tok[], uint8_t nt)
     uint32_t n = 0;
     if (!resolve_uint(ps->ctx, tok[nt - 1U], &n)) {
         return false;
+    }
+    if (n > 31U) {
+        return false; /* STATUS_N is a 5-bit field (FIFO compare level / IRQ index) */
     }
     out->mov_status_n = (uint8_t)n;
     out->has_mov_status = true;
@@ -1483,6 +1491,10 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
             pa_set_error(ps->ctx, "bad .origin");
             return LINE_ERROR;
         }
+        if (v >= PIO_SIM_INSN_COUNT) {
+            pa_set_error(ps->ctx, ".origin out of range (0..31)");
+            return LINE_ERROR;
+        }
         out->has_origin = true;
         out->origin = (uint8_t)v;
     } else if (ieq(tok[0], ".pio_version")) {
@@ -1537,6 +1549,10 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
             pa_set_error(ps->ctx, "bad .set");
             return LINE_ERROR;
         }
+        if (v > 32U) {
+            pa_set_error(ps->ctx, ".set pin count out of range (0..32)");
+            return LINE_ERROR;
+        }
         out->set_cfg.set = true;
         out->set_cfg.count = (uint8_t)v;
     } else if (ieq(tok[0], ".lang_opt")) {
@@ -1580,8 +1596,12 @@ static bool handle_label(pa_parse_state_t *ps, char **line_io)
         return false;
     }
     asm_ctx_t *ctx = ps->ctx;
-    if ((ps->pass == 1) && (ctx->label_count < MAX_LABELS)) {
-        if (namelen < sizeof(ctx->labels[0].name)) {
+    if (ps->pass == 1) {
+        if (ctx->label_count >= MAX_LABELS) {
+            pa_set_error(ctx, "too many labels");
+        } else if (namelen >= sizeof(ctx->labels[0].name)) {
+            pa_set_error(ctx, "label name too long");
+        } else {
             (void)memcpy(ctx->labels[ctx->label_count].name, line, namelen);
             ctx->labels[ctx->label_count].name[namelen] = '\0';
             ctx->labels[ctx->label_count].index = ps->idx;
@@ -1644,7 +1664,11 @@ static line_result_t process_line(pa_parse_state_t *ps, char *line)
     if (!ps->in_program) {
         return LINE_OK;
     }
-    if (handle_label(ps, &line)) {
+    bool label_only = handle_label(ps, &line);
+    if (!ps->ctx->out->ok) {
+        return LINE_ERROR; /* label table overflow / name too long */
+    }
+    if (label_only) {
         return LINE_OK; /* label-only line */
     }
     return handle_instruction(ps, line);

@@ -63,16 +63,21 @@ typedef struct {
     uint8_t sm;
 } pio_dma_addr_t;
 
+/** Memory endpoint at `p`. The buffer must outlive every transfer that uses it
+ *  (the engine holds the pointer, it does not copy). */
 pio_dma_addr_t pio_dma_addr_mem(void *p);
+/** TX-FIFO endpoint of state machine `sm` on attached block `pio_index`. */
 pio_dma_addr_t pio_dma_addr_txf(uint8_t pio_index, uint8_t sm);
+/** RX-FIFO endpoint of state machine `sm` on attached block `pio_index`. */
 pio_dma_addr_t pio_dma_addr_rxf(uint8_t pio_index, uint8_t sm);
 
 /* ── TREQ / DREQ numbering (matches the datasheet DREQ table) ──────────────── */
 
 #define PIO_DMA_DREQ_PIO_TX(pio_index, sm) ((uint8_t)(((pio_index) * 8U) + (sm)))
 #define PIO_DMA_DREQ_PIO_RX(pio_index, sm) ((uint8_t)(((pio_index) * 8U) + 4U + (sm)))
-#define PIO_DMA_TREQ_TIMER(n) ((uint8_t)(0x3BU + (n))) /* pacing timer 0..3 */
-#define PIO_DMA_TREQ_FORCE 0x3FU                       /* unpaced: always ready */
+/* Pacing timer n in [0, PIO_SIM_DMA_NUM_TIMERS). */
+#define PIO_DMA_TREQ_TIMER(n) ((uint8_t)(0x3BU + (n)))
+#define PIO_DMA_TREQ_FORCE 0x3FU /* unpaced: always ready */
 
 /* ── Channel configuration (mirrors CHx_CTRL) ──────────────────────────────────
  * Build a config with pio_dma_channel_get_default_config() then the
@@ -98,6 +103,9 @@ typedef struct {
 /* SDK-named config mutators (config value only, no controller object). */
 void channel_config_set_read_increment(dma_channel_config *c, bool incr);
 void channel_config_set_write_increment(dma_channel_config *c, bool incr);
+/** Data-request source: a PIO_DMA_DREQ_PIO_* level, PIO_DMA_TREQ_TIMER(n), or
+ *  PIO_DMA_TREQ_FORCE. An unrecognised value leaves the channel permanently
+ *  un-paced (never ready) rather than erroring — pick from the macros above. */
 void channel_config_set_dreq(dma_channel_config *c, uint8_t dreq);
 void channel_config_set_chain_to(dma_channel_config *c, uint8_t chain_to);
 void channel_config_set_transfer_data_size(dma_channel_config *c, pio_dma_size_t size);
@@ -251,10 +259,10 @@ void pio_dma_irqn_acknowledge_channel(pio_dma_t *d, uint8_t irq_index, uint8_t c
 /** Raw completion flags, INTR (sim extension read-back). */
 uint32_t pio_dma_get_intr(const pio_dma_t *d);
 /** Line status, INTS = (INTR & INTE) | INTF (sim extension read-back). */
-uint32_t pio_dma_get_ints(const pio_dma_t *d, uint8_t line);
+uint32_t pio_dma_get_ints(const pio_dma_t *d, uint8_t irq_index);
 /** INTE / INTF register read-back for line `line` (sim extensions). */
-uint32_t pio_dma_get_inte(const pio_dma_t *d, uint8_t line);
-uint32_t pio_dma_get_intf(const pio_dma_t *d, uint8_t line);
+uint32_t pio_dma_get_inte(const pio_dma_t *d, uint8_t irq_index);
+uint32_t pio_dma_get_intf(const pio_dma_t *d, uint8_t irq_index);
 /** Force (or clear) channel `ch`'s IRQ on line `irq_index` — INTF. Sim
  * extension: the SDK exposes no DMA force helper. */
 void pio_dma_irqn_force_channel(pio_dma_t *d, uint8_t irq_index, uint8_t ch, bool on);

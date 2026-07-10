@@ -234,6 +234,19 @@ static void test_irq_on_complete_and_ack(void)
     TEST_ASSERT_EQUAL_HEX32(0U, pio_dma_get_ints(&dma, 1));
 }
 
+/* Enabling an IRQ mask with bits above the implemented channel count keeps the
+ * INTE image clean (only real channels), matching the other register paths. */
+static void test_irqn_mask_ignores_out_of_range_bits(void)
+{
+    pio_dma_irqn_set_channel_mask_enabled(&dma, 0, 0xFFFFFFFFU, true);
+    uint32_t valid = (PIO_SIM_DMA_NUM_CHANNELS >= 32U)
+                         ? 0xFFFFFFFFU
+                         : (((uint32_t)1U << PIO_SIM_DMA_NUM_CHANNELS) - 1U);
+    TEST_ASSERT_EQUAL_HEX32(valid, pio_dma_get_inte(&dma, 0));
+    pio_dma_irqn_set_channel_mask_enabled(&dma, 0, 0xFFFFFFFFU, false);
+    TEST_ASSERT_EQUAL_HEX32(0U, pio_dma_get_inte(&dma, 0));
+}
+
 static void test_irq_quiet_defers_to_null_trigger(void)
 {
     static uint32_t src[1] = {7};
@@ -576,6 +589,7 @@ int main(void)
     RUN_TEST(test_chain_to_next_channel);
     RUN_TEST(test_chain_to_out_of_range_clamped);
     RUN_TEST(test_irq_on_complete_and_ack);
+    RUN_TEST(test_irqn_mask_ignores_out_of_range_bits);
     RUN_TEST(test_irq_quiet_defers_to_null_trigger);
     RUN_TEST(test_abort_midstream_and_retrigger);
     RUN_TEST(test_single_channel_abort);

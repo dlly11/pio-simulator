@@ -59,7 +59,11 @@ void pio_pads_recompute_funcsel(pio_pads_t *p)
 
 void pio_sim_gpio_set_function(pio_sim_t *pio, uint8_t pin, pio_gpio_func_t f)
 {
-    pio->pads->funcsel[pin_idx(pin)] = (uint8_t)f;
+    /* FUNCSEL is a 5-bit hardware field, so real silicon truncates any wider
+     * value; mirror that (keeping the simulator-only LEGACY_ANY_PIO sentinel)
+     * so the getter never returns a value outside the documented enum. */
+    uint8_t raw = (f == PIO_GPIO_FUNC_LEGACY_ANY_PIO) ? (uint8_t)f : (uint8_t)((uint8_t)f & 0x1FU);
+    pio->pads->funcsel[pin_idx(pin)] = raw;
     pio_pads_recompute_funcsel(pio->pads);
 }
 
