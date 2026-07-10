@@ -866,6 +866,43 @@ static void test_too_many_labels_error(void)
     TEST_ASSERT_TRUE(strstr(p.error, "too many labels") != NULL);
 }
 
+/* Config directives reject malformed operands (each error branch is distinct
+ * from a generic parse failure). */
+static void test_config_directive_errors(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program a\n.clock_div xyz\n nop\n", NULL, &p));
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program a\n.clock_div -3\n nop\n", NULL, &p));
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program a\n.fifo bogus\n nop\n", NULL, &p));
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program a\n.pio_version zzz\n nop\n", NULL, &p));
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program a\n.word\n", NULL, &p)); /* no operand */
+    /* Instruction words are 16-bit: a wider .word is rejected, not truncated. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program a\n.word 0x1FFFF\n", NULL, &p));
+    TEST_ASSERT_TRUE(strstr(p.error, ".word") != NULL);
+    /* A 16-bit .word still assembles. */
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program a\n.word 0xC020\n", NULL, &p));
+    TEST_ASSERT_EQUAL_HEX16(0xC020U, p.insns[0]);
+}
+
+/* MOV accepts both `~` and `!` for the invert operator. */
+static void test_mov_invert_operand_forms(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program a\n mov x, ~y\n", NULL, &p));
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_mov(PIO_DST_X, PIO_MOV_INVERT, PIO_SRC_Y), p.insns[0]);
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program a\n mov x, !y\n", NULL, &p));
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_mov(PIO_DST_X, PIO_MOV_INVERT, PIO_SRC_Y), p.insns[0]);
+}
+
+/* Selecting the first (empty) program reports "no instructions". */
+static void test_empty_program_body_error(void)
+{
+    pio_program_t p;
+    /* Default selection picks program `a`, which has no instructions. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program a\n.program b\n nop\n", NULL, &p));
+    TEST_ASSERT_TRUE(strstr(p.error, "no instructions") != NULL);
+}
+
 /* Selecting a program name that isn't present yields no instructions. */
 static void test_no_instructions_error(void)
 {
@@ -968,6 +1005,9 @@ int main(void)
     RUN_TEST(test_program_too_long_reports_error);
     RUN_TEST(test_directive_range_errors);
     RUN_TEST(test_too_many_labels_error);
+    RUN_TEST(test_config_directive_errors);
+    RUN_TEST(test_mov_invert_operand_forms);
+    RUN_TEST(test_empty_program_body_error);
     RUN_TEST(test_no_instructions_error);
     RUN_TEST(test_operand_errors);
     RUN_TEST(test_sideset_and_delay_errors);

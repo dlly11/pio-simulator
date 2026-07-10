@@ -325,6 +325,46 @@ static void test_inover_inverts_through_sync_and_bypass(void)
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 12)); /* host still sees the wire */
 }
 
+static void test_oeover_low_and_invert_release_the_pad(void)
+{
+    /* PIO drives pin 13 high; a pull-down reveals when the pad goes hi-Z. */
+    drive_pin_high(&pio, 13);
+    pio_sim_run(&pio, 2);
+    pio_sim_pad_set_pulls(&pio, 13, false, true); /* pull-down */
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 13));  /* still driven high */
+
+    /* OEOVER=LOW forces the output-enable low → hi-Z → pull-down shows. */
+    pio_sim_gpio_set_oeover(&pio, 13, PIO_GPIO_OVERRIDE_LOW);
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 13));
+
+    /* OEOVER=INVERT flips the (high) function OE to low → hi-Z as well. */
+    pio_sim_gpio_set_oeover(&pio, 13, PIO_GPIO_OVERRIDE_INVERT);
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 13));
+
+    pio_sim_gpio_set_oeover(&pio, 13, PIO_GPIO_OVERRIDE_NORMAL);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 13)); /* driven high again */
+}
+
+static void test_inover_high_and_low_force_the_read(void)
+{
+    sm_config_set_in_pins(&cfg, 14);
+    const uint16_t prog[] = {pio_sim_encode_mov(PIO_DST_X, PIO_MOV_NONE, PIO_SRC_PINS),
+                             pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
+
+    /* INOVER=HIGH: the PIO reads 1 even though the wire is low. */
+    pio_sim_gpio_set_inover(&pio, 14, PIO_GPIO_OVERRIDE_HIGH);
+    load_prog(prog, 2);
+    pio_sim_run(&pio, 4);
+    TEST_ASSERT_EQUAL_UINT32(1U, pio_sim_sm_get_x(&pio, 0) & 1U);
+
+    /* INOVER=LOW: the PIO reads 0 even though the wire is driven high. */
+    pio_sim_gpio_set_inover(&pio, 14, PIO_GPIO_OVERRIDE_LOW);
+    pio_sim_set_pin(&pio, 14, true);
+    pio_sim_run(&pio, 4);
+    TEST_ASSERT_EQUAL_UINT32(0U, pio_sim_sm_get_x(&pio, 0) & 1U);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 14)); /* host still sees the high wire */
+}
+
 #if PIO_SIM_HAS_FUNCSEL_PIO2
 static void test_funcsel_pio2_third_block(void)
 {
@@ -370,6 +410,8 @@ int main(void)
     RUN_TEST(test_outover_inverts_and_forces);
     RUN_TEST(test_oeover_forces_drive_with_no_function);
     RUN_TEST(test_inover_inverts_through_sync_and_bypass);
+    RUN_TEST(test_oeover_low_and_invert_release_the_pad);
+    RUN_TEST(test_inover_high_and_low_force_the_read);
 #if PIO_SIM_HAS_FUNCSEL_PIO2
     RUN_TEST(test_funcsel_pio2_third_block);
 #endif

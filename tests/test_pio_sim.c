@@ -1160,9 +1160,15 @@ static void test_mov_status_override(void)
     pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5U, pio.sm[0].x);
 
+    /* The getter reports the active override and its value. */
+    uint32_t rb = 0;
+    TEST_ASSERT_TRUE(pio_sim_sm_get_status_value(&pio, 0, &rb));
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5U, rb);
+
     /* Clearing the override restores the normal FIFO-derived status. With
      * mov_status default (TX_LEVEL < 0), status reads all-zero. */
     pio_sim_sm_clear_status_value(&pio, 0);
+    TEST_ASSERT_FALSE(pio_sim_sm_get_status_value(&pio, 0, NULL)); /* NULL tolerated */
     pio_sim_sm_set_pc(&pio, 0, 0);
     pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_HEX32(0U, pio.sm[0].x);
@@ -2028,6 +2034,256 @@ static void test_clkdiv_float_out_of_range_clamped(void)
     TEST_ASSERT_TRUE(c.clkdiv_int >= 1U);
 }
 
+/* ── Y-side JMP conditions (mirror the X-side paths) ────────────────────────── */
+
+static void test_jmp_not_y_taken_when_zero(void)
+{
+    /* addr 0: jmp !y -> 2 ; addr 1: set x,1 (skipped) ; addr 2: set x,2 */
+    const uint16_t prog[] = {
+        pio_sim_encode_jmp(PIO_COND_NOTY, 2),
+        pio_sim_encode_set(PIO_DST_X, 1),
+        pio_sim_encode_set(PIO_DST_X, 2),
+    };
+    load_prog(prog, 3);
+    pio_sim_run(&pio, 2); /* y==0 so jump taken, then set x,2 */
+    TEST_ASSERT_EQUAL_UINT32(2U, pio.sm[0].x);
+}
+
+static void test_jmp_y_dec_loop_counts(void)
+{
+    /* set y,3 ; loop: jmp y-- loop ; set x,1.  Mirror of the X-- decrement. */
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_Y, 3),
+        pio_sim_encode_jmp(PIO_COND_YDEC, 1),
+        pio_sim_encode_set(PIO_DST_X, 1),
+    };
+    load_prog(prog, 3);
+    /* y=3: taken (y->2), taken (y->1), taken (y->0), not taken (y-- wraps) →
+     * fall through. 1 + 4 jmp cycles + 1 = 6. */
+    pio_sim_run(&pio, 6);
+    TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].x);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFU, pio.sm[0].y); /* wrapped on final dec */
+}
+
+static void test_jmp_x_ne_y_taken_when_unequal(void)
+{
+    /* x=5, y=7 (unequal) → jmp x!=y taken. */
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_X, 5),     pio_sim_encode_set(PIO_DST_Y, 7),
+        pio_sim_encode_jmp(PIO_COND_XNEY, 4), pio_sim_encode_set(PIO_DST_X, 1), /* skipped */
+        pio_sim_encode_set(PIO_DST_X, 2),                                       /* jump target */
+    };
+    load_prog(prog, 5);
+    pio_sim_run(&pio, 4); /* set x, set y, jmp taken, set x,2 */
+    TEST_ASSERT_EQUAL_UINT32(2U, pio.sm[0].x);
+}
+
+static void test_jmp_x_ne_y_not_taken_when_equal(void)
+{
+    /* x=6, y=6 (equal) → jmp x!=y falls through to set x,3. */
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_X, 6),
+        pio_sim_encode_set(PIO_DST_Y, 6),
+        pio_sim_encode_jmp(PIO_COND_XNEY, 4),
+        pio_sim_encode_set(PIO_DST_X, 3), /* fall-through executes */
+        pio_sim_encode_set(PIO_DST_X, 9),
+    };
+    load_prog(prog, 5);
+    pio_sim_run(&pio, 4); /* set x, set y, jmp not taken, set x,3 */
+    TEST_ASSERT_EQUAL_UINT32(3U, pio.sm[0].x);
+}
+
+/* ── Computed jumps: MOV/OUT to PC ─────────────────────────────────────────── */
+
+static void test_mov_pc_jumps_to_register(void)
+{
+    /* set x,3 ; mov pc,x -> PC=3 ; set y,1 (skipped) ; set y,9 (target) */
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_X, 3),
+        pio_sim_encode_mov(PIO_MOV_DST_PC, PIO_MOV_NONE, PIO_SRC_X),
+        pio_sim_encode_set(PIO_DST_Y, 1),
+        pio_sim_encode_set(PIO_DST_Y, 9),
+    };
+    load_prog(prog, 4);
+    pio_sim_run(&pio, 3); /* set x, mov pc (jump), set y,9 */
+    TEST_ASSERT_EQUAL_UINT32(9U, pio.sm[0].y);
+}
+
+static void test_out_pc_jumps_to_osr_bits(void)
+{
+    /* pull 3 ; out pc,5 -> PC = low 5 bits of OSR = 3 ; set y,1 (skip) ; set y,8 */
+    sm_config_set_out_shift(&cfg, true, false, 32); /* shift right */
+    const uint16_t prog[] = {
+        pio_sim_encode_pull(false, true),
+        pio_sim_encode_out(PIO_OUT_DST_PC, 5),
+        pio_sim_encode_set(PIO_DST_Y, 1),
+        pio_sim_encode_set(PIO_DST_Y, 8),
+    };
+    load_prog(prog, 4);
+    pio_sim_sm_put(&pio, 0, 3U);
+    pio_sim_run(&pio, 3); /* pull, out pc (jump to 3), set y,8 */
+    TEST_ASSERT_EQUAL_UINT32(8U, pio.sm[0].y);
+}
+
+/* ── IN right-shift direction (mirror of the covered left-shift) ───────────── */
+
+static void test_in_pins_shift_right(void)
+{
+    sm_config_set_in_pins(&cfg, 0);
+    sm_config_set_in_shift(&cfg, true, false, 32); /* shift right */
+    pio_sim_set_pin(&pio, 0, true);
+    pio_sim_set_pin(&pio, 1, true); /* 4-bit sample = 0b0011 = 3 */
+    const uint16_t prog[] = {pio_sim_encode_in(PIO_SRC_PINS, 4)};
+    load_prog(prog, 1);
+    pio_sim_sync_settle(&pio); /* static input: skip the 2-cycle settle */
+    pio_sim_run(&pio, 1);
+    /* right shift: isr = (isr >> 4) | (data << 28) = 3 << 28. */
+    TEST_ASSERT_EQUAL_HEX32(0x30000000U, pio.sm[0].isr);
+    TEST_ASSERT_EQUAL_UINT8(4U, pio.sm[0].isr_count);
+}
+
+/* ── Conditional PUSH/PULL (iffull / ifempty no-ops) ───────────────────────── */
+
+static void test_push_iffull_noop_below_threshold(void)
+{
+    /* push threshold 32; in x,1 leaves isr_count=1 < 32, so `push iffull` is a
+     * no-op — nothing reaches the RX FIFO and the ISR is retained. */
+    sm_config_set_in_shift(&cfg, false, false, 32);
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_X, 1),
+        pio_sim_encode_in(PIO_SRC_X, 1),
+        pio_sim_encode_push(true, true), /* iffull, block */
+    };
+    load_prog(prog, 3);
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_TRUE(pio_sim_sm_is_rx_fifo_empty(&pio, 0));
+    TEST_ASSERT_EQUAL_UINT8(1U, pio.sm[0].isr_count);
+}
+
+static void test_pull_ifempty_noop_when_osr_not_empty(void)
+{
+    /* pull threshold 32; after out null,1 the OSR shift count is 1 < 32, so
+     * `pull ifempty` is a no-op and does not consume the second queued word. */
+    sm_config_set_out_shift(&cfg, true, false, 32); /* shift right */
+    const uint16_t prog[] = {
+        pio_sim_encode_pull(false, true),        /* OSR <- A */
+        pio_sim_encode_out(PIO_OUT_DST_NULL, 1), /* osr_count = 1 */
+        pio_sim_encode_pull(true, true),         /* ifempty: no-op */
+    };
+    load_prog(prog, 3);
+    pio_sim_sm_put(&pio, 0, 0xAAAAAAAAU); /* A, pulled */
+    pio_sim_sm_put(&pio, 0, 0x12345678U); /* B, must stay queued */
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_EQUAL_UINT8(1U, pio.sm[0].tx.count); /* B still in TX FIFO */
+}
+
+static void test_push_noblock_on_full_rx_drops_and_clears_isr(void)
+{
+    /* All-noblock pushes: the first four fill the depth-4 RX FIFO, and the fifth
+     * push drops the word, clears the ISR, and sets RXSTALL. The 3-instruction
+     * loop never stalls, so the fifth push lands exactly at cycle 15 (5 * 3) —
+     * stopping there makes the post-drop ISR state deterministic. */
+    sm_config_set_in_shift(&cfg, false, false, 32);
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_X, 1),
+        pio_sim_encode_in(PIO_SRC_X, 8),   /* isr = 1, isr_count = 8 */
+        pio_sim_encode_push(false, false), /* noblock push */
+    };
+    load_prog(prog, 3);
+    pio_sim_run(&pio, 15);
+    TEST_ASSERT_TRUE(pio_sim_sm_is_rx_fifo_full(&pio, 0));
+    TEST_ASSERT_EQUAL_UINT8(4U, pio.sm[0].rx.count);
+    TEST_ASSERT_TRUE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_RXSTALL) != 0U);
+    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].isr_count); /* ISR cleared on the drop */
+}
+
+/* ── MOV/OUT to ISR / OSR / EXEC destinations ──────────────────────────────── */
+
+static void test_mov_to_isr_and_osr(void)
+{
+    /* mov isr,x sets isr and resets isr_count; mov osr,y sets osr, osr_count. */
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_X, 0x15),
+        pio_sim_encode_mov(PIO_MOV_DST_ISR, PIO_MOV_NONE, PIO_SRC_X),
+        pio_sim_encode_set(PIO_DST_Y, 0x0A),
+        pio_sim_encode_mov(PIO_MOV_DST_OSR, PIO_MOV_NONE, PIO_SRC_Y),
+    };
+    load_prog(prog, 4);
+    pio_sim_run(&pio, 4);
+    TEST_ASSERT_EQUAL_HEX32(0x15U, pio.sm[0].isr);
+    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].isr_count);
+    TEST_ASSERT_EQUAL_HEX32(0x0AU, pio.sm[0].osr);
+    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].osr_count);
+}
+
+static void test_out_isr_sets_shift_count(void)
+{
+    /* out isr,N loads the ISR from the OSR and sets isr_count = N. */
+    sm_config_set_out_shift(&cfg, true, false, 32); /* shift right */
+    const uint16_t prog[] = {
+        pio_sim_encode_pull(false, true),
+        pio_sim_encode_out(PIO_OUT_DST_ISR, 8),
+    };
+    load_prog(prog, 2);
+    pio_sim_sm_put(&pio, 0, 0xFFU);
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_EQUAL_HEX32(0xFFU, pio.sm[0].isr);
+    TEST_ASSERT_EQUAL_UINT8(8U, pio.sm[0].isr_count);
+}
+
+static void test_mov_exec_injects_instruction(void)
+{
+    /* MOV EXEC runs the moved value as the next instruction (a distinct
+     * injection path from OUT EXEC). Stage the instruction word in the OSR via
+     * pull, then mov exec,osr runs it. */
+    sm_config_set_out_shift(&cfg, true, false, 32);
+    const uint16_t prog[] = {
+        pio_sim_encode_pull(false, true),
+        pio_sim_encode_mov(PIO_MOV_DST_EXEC, PIO_MOV_NONE, PIO_SRC_OSR),
+        pio_sim_encode_set(PIO_DST_Y, 1), /* runs after the injected insn */
+    };
+    load_prog(prog, 3);
+    pio_sim_sm_put(&pio, 0, pio_sim_encode_set(PIO_DST_Y, 6));
+    pio_sim_run(&pio, 3); /* pull, mov exec arms, injected `set y,6` runs */
+    TEST_ASSERT_EQUAL_UINT32(6U, pio.sm[0].y);
+}
+
+/* ── WAIT polarity 0 (wait-for-low) and plain WAIT PIN ─────────────────────── */
+
+static void test_wait_gpio_low(void)
+{
+    /* wait 0 gpio 7: satisfied while pin 7 is low, stalls once it goes high. */
+    const uint16_t prog[] = {
+        pio_sim_encode_wait(0, PIO_WAIT_GPIO, 7),
+        pio_sim_encode_set(PIO_DST_Y, 1),
+    };
+    pio_sim_set_pin(&pio, 7, true); /* start high: wait-for-low must stall */
+    load_prog(prog, 2);
+    pio_sim_sync_settle(&pio);
+    pio_sim_run(&pio, 4);
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y); /* stalled while high */
+    pio_sim_set_pin(&pio, 7, false);
+    pio_sim_run(&pio, 4); /* +2 synchroniser cycles, then WAIT + SET */
+    TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);
+}
+
+static void test_wait_pin_high_satisfied(void)
+{
+    /* Plain `wait 1 pin 2` (IN-pin-relative), satisfied by a high pin. */
+    sm_config_set_in_pins(&cfg, 3); /* in_base 3, so pin index 2 -> GPIO 5 */
+    const uint16_t prog[] = {
+        pio_sim_encode_wait(1, PIO_WAIT_PIN, 2),
+        pio_sim_encode_set(PIO_DST_Y, 1),
+    };
+    load_prog(prog, 2);
+    pio_sim_run(&pio, 4); /* stalls: GPIO 5 low */
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y);
+    pio_sim_set_pin(&pio, 5, true);
+    pio_sim_sync_settle(&pio);
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -2074,8 +2330,23 @@ int main(void)
     RUN_TEST(test_jmp_not_x_taken_when_zero);
     RUN_TEST(test_jmp_x_dec_loop_counts);
     RUN_TEST(test_jmp_pin);
+    RUN_TEST(test_jmp_not_y_taken_when_zero);
+    RUN_TEST(test_jmp_y_dec_loop_counts);
+    RUN_TEST(test_jmp_x_ne_y_taken_when_unequal);
+    RUN_TEST(test_jmp_x_ne_y_not_taken_when_equal);
+    RUN_TEST(test_mov_pc_jumps_to_register);
+    RUN_TEST(test_out_pc_jumps_to_osr_bits);
+    RUN_TEST(test_in_pins_shift_right);
+    RUN_TEST(test_push_iffull_noop_below_threshold);
+    RUN_TEST(test_pull_ifempty_noop_when_osr_not_empty);
+    RUN_TEST(test_push_noblock_on_full_rx_drops_and_clears_isr);
+    RUN_TEST(test_mov_to_isr_and_osr);
+    RUN_TEST(test_out_isr_sets_shift_count);
+    RUN_TEST(test_mov_exec_injects_instruction);
 
     RUN_TEST(test_wait_gpio_high);
+    RUN_TEST(test_wait_gpio_low);
+    RUN_TEST(test_wait_pin_high_satisfied);
     RUN_TEST(test_wait_irq_clears_flag);
 
     RUN_TEST(test_irq_set_and_clear);
