@@ -931,9 +931,9 @@ static void test_symbol_name_too_long_rejected(void)
     TEST_ASSERT_FALSE(pio_asm_assemble(
         ".program t\n set x, BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n", NULL, &p));
     /* A name exactly at the 31-char limit still works. */
-    TEST_ASSERT_TRUE(pio_asm_assemble(
-        ".program t\n.define CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC 5\n set x, CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n",
-        NULL, &p));
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program t\n.define CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC 5\n set "
+                                      "x, CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n",
+                                      NULL, &p));
     TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 5), p.insns[0]);
 }
 

@@ -41,7 +41,8 @@ static char *read_program(const char *base)
     char *buf = malloc(len + 1U);
     TEST_ASSERT_NOT_NULL(buf);
     size_t got = fread(buf, 1, len, f);
-    if (got > len) { /* fread never over-reads, but bound it so the '\0' index is provably in range */
+    /* fread never over-reads, but bound it so the '\0' index is provably in range. */
+    if (got > len) {
         got = len;
     }
     /* `got` is bounded by `len` above and `buf` holds `len + 1` bytes, so this is
