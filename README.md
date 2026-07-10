@@ -13,8 +13,8 @@ SDK, no RTOS.
   checked bit-exact against the real `pioasm` in CI.
 - **Models the whole block** — shared GPIO pads, DMA, a clock tree and multi-PIO
   groups, all behind one chip-level tick.
-- **Pure C11, zero dependencies** — only `<stdint.h>`, `<stdbool.h>`, `<stdio.h>`,
-  `<stdlib.h>` and `<string.h>`. MIT-licensed.
+- **Pure C11, zero dependencies** — only `<stddef.h>`, `<stdint.h>`, `<stdbool.h>`,
+  `<stdio.h>`, `<stdlib.h>` and `<string.h>`. MIT-licensed.
 
 ## Contents
 
@@ -224,8 +224,10 @@ The in-tree assembler also tracks the program-config directives in
 state: `.clock_div`, `.fifo`, `.mov_status`, and the `.in`/`.out`/`.set` shift
 config **and pin counts** (`.out`/`.set` set the OUT/SET pin counts; `.in` sets
 the RP2350 IN pin count, which has no RP2040 equivalent and is ignored there).
-`.origin` and `.pio_version` are recorded as metadata only — `.origin` is
-advisory since the load address is passed explicitly to `pio_asm_load_program`.
+`.pio_version` is metadata (rejected only if it exceeds the build target).
+`.origin` drives placement through `pio_asm_load_program_at_origin`, and is
+advisory for the plain `pio_asm_load_program`, which takes the load address
+explicitly.
 
 ## Scope
 
@@ -285,12 +287,11 @@ No CMake handy? The library is dependency-free, so a bare compiler run works too
 
 ```sh
 gcc -std=c11 -Wall -Wextra -DPIO_SIM_PIO_VERSION=1 \
-    -I lib/include -I lib/config -I lib/src -I third_party/unity/src \
+    -I lib/include -I lib/config -I third_party/unity/src \
     -I tests -DUNITY_INCLUDE_CONFIG_H \
     lib/src/*.c tests/test_pio_sim.c third_party/unity/src/unity.c -o test_sim && ./test_sim
 ```
 
-(`-I lib/src` is needed — the sources share a private `pio_sim_internal.h`.)
 Select the chip with `-DPIO_SIM_PIO_VERSION=0` (RP2040) or `=1` (RP2350, the
 default). Note `-DPIO_SIM_PLATFORM=…` only works through CMake; as a bare `-D`
 it does nothing — use `PIO_SIM_PIO_VERSION` for direct compiler builds.
