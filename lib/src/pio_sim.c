@@ -433,6 +433,15 @@ void pio_sim_sm_clear_status_value(pio_sim_t *pio, uint8_t sm)
     pio->sm[SM_IDX(sm)].status_override = false;
 }
 
+bool pio_sim_sm_get_status_value(const pio_sim_t *pio, uint8_t sm, uint32_t *value)
+{
+    const pio_sm_t *s = &pio->sm[SM_IDX(sm)];
+    if (s->status_override && (value != NULL)) {
+        *value = s->status_value;
+    }
+    return s->status_override;
+}
+
 /* Apply a FIFO-join mode to an SM: reshape the TX/RX capacities and clear both
  * (changing the join reshapes the storage, as on hardware). */
 static void apply_fifo_join(pio_sm_t *s, pio_fifo_join_t join)

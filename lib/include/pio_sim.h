@@ -399,6 +399,11 @@ void pio_sim_sm_set_status_value(pio_sim_t *pio, uint8_t sm, uint32_t value);
  * the normal FIFO/IRQ-derived status (sim extension). */
 void pio_sim_sm_clear_status_value(pio_sim_t *pio, uint8_t sm);
 
+/** Read back the MOV STATUS override (sim extension). Returns true if an
+ * override is active, writing its value to *value when non-NULL; returns false
+ * when the normal FIFO/IRQ-derived status is in effect. */
+bool pio_sim_sm_get_status_value(const pio_sim_t *pio, uint8_t sm, uint32_t *value);
+
 /* FIFO join: 0 = none (4+4), 1 = join TX (8 TX, 0 RX), 2 = join RX (8 RX, 0 TX).
  * RP2350 adds the random-access RX modes (4-entry register file addressed by
  * the MOV-RX-FIFO instructions): PUT (SM writes, system reads), GET (system
