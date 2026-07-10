@@ -149,12 +149,17 @@ jobs:
           -DPIO_SIM_PLATFORM=${{ matrix.platform }}
           -DPIO_SIM_BUILD_EXAMPLES=ON
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-      - name: Run clang-tidy on the library and examples
+      - name: Run clang-tidy on the library, examples, and tests
+        # Only the deterministic test executables are analysed here: the fuzz
+        # harness and the pioasm differential test are conditionally built and so
+        # are absent from this job's compile_commands.json.
         run: >
           clang-tidy-21 -p build lib/src/pio_sim.c lib/src/pio_gpio.c lib/src/pio_clk.c
           lib/src/pio_dma.c lib/src/pio_chip.c lib/src/pio_asm.c
           examples/01_blink.c examples/02_fifo_echo.c examples/03_uart_tx.c
           examples/04_ws2812.c examples/05_spi_dma.c examples/06_chip_bus.c
+          tests/test_pio_sim.c tests/test_pio_asm.c tests/test_pio_gpio.c
+          tests/test_pio_clk.c tests/test_pio_dma.c tests/test_pio_programs.c
 
   format:
     runs-on: ubuntu-24.04

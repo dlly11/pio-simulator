@@ -145,7 +145,9 @@ static void test_functional_pad_fields_read_back(void)
     pio_sim_gpio_set_function(&pio, 5, PIO_GPIO_FUNC_NULL);
     TEST_ASSERT_EQUAL_INT(PIO_GPIO_FUNC_NULL, pio_sim_gpio_get_function(&pio, 5));
     /* FUNCSEL is a 5-bit field: a wider value truncates (as on real silicon)
-     * rather than reading back as an out-of-enum value. */
+     * rather than reading back as an out-of-enum value. The out-of-range enum
+     * cast is the point of the test. */
+    /* NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange) */
     pio_sim_gpio_set_function(&pio, 5, (pio_gpio_func_t)(0x20U | (unsigned)PIO_GPIO_FUNC_SIO));
     TEST_ASSERT_EQUAL_INT(PIO_GPIO_FUNC_SIO, pio_sim_gpio_get_function(&pio, 5));
 }

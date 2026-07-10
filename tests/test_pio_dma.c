@@ -362,6 +362,8 @@ static void test_abort_midstream_and_retrigger(void)
 static void test_transfer_size_out_of_range_clamped(void)
 {
     dma_channel_config c = pio_dma_channel_get_default_config(0);
+    /* Deliberately out-of-range size to exercise the clamp. */
+    /* NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange) */
     channel_config_set_transfer_data_size(&c, (pio_dma_size_t)7);
     TEST_ASSERT_EQUAL_INT(DMA_SIZE_32, c.data_size);
 
@@ -403,8 +405,11 @@ static void test_sniffer_crc32_check_value(void)
     pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_CRC32R, false);
     pio_dma_sniffer_set_output_invert_enabled(&dma, true);
     pio_dma_sniffer_set_data_accumulator(&dma, 0xFFFFFFFFU);
-    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst),
-                              pio_dma_addr_mem((void *)(uintptr_t)msg), 9, true);
+    /* uintptr_t launders away const (the API takes void*) without tripping
+     * -Wcast-qual; the int-to-ptr round-trip is harmless in a test. */
+    /* NOLINTNEXTLINE(performance-no-int-to-ptr) */
+    pio_dma_addr_t msg_addr = pio_dma_addr_mem((void *)(uintptr_t)msg);
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), msg_addr, 9, true);
     tick_all(12);
     TEST_ASSERT_EQUAL_HEX32(0xCBF43926U, pio_dma_sniffer_get_data_accumulator(&dma));
 }
@@ -421,8 +426,9 @@ static void test_sniffer_crc16_ccitt_check_value(void)
     channel_config_set_sniff_enable(&c, true);
     pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_CRC16, false);
     pio_dma_sniffer_set_data_accumulator(&dma, 0xFFFFU);
-    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst),
-                              pio_dma_addr_mem((void *)(uintptr_t)msg), 9, true);
+    /* NOLINTNEXTLINE(performance-no-int-to-ptr) — see the CRC32 test above. */
+    pio_dma_addr_t msg_addr = pio_dma_addr_mem((void *)(uintptr_t)msg);
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), msg_addr, 9, true);
     tick_all(12);
     TEST_ASSERT_EQUAL_HEX32(0x29B1U, pio_dma_sniffer_get_data_accumulator(&dma));
 }
