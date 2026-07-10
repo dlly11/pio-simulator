@@ -227,7 +227,9 @@ bool pio_dma_tick(pio_dma_t *d);
 /* ── Pacing timers ─────────────────────────────────────────────────────────── */
 
 /** Timer `timer` requests transfers at clk_sys × numerator / denominator
- * (denominator 0 disables). SDK dma_timer_set_fraction. */
+ * (denominator 0 disables). SDK dma_timer_set_fraction. `timer` is taken
+ * modulo PIO_SIM_DMA_NUM_TIMERS, so an index at or above that count wraps
+ * rather than being rejected. */
 void pio_dma_timer_set_fraction(pio_dma_t *d, uint8_t timer, uint16_t numerator,
                                 uint16_t denominator);
 

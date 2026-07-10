@@ -398,10 +398,14 @@ static void test_shift_expression_out_of_range_rejected(void)
 static void test_expression_overflow_is_defined(void)
 {
     pio_program_t p;
-    TEST_ASSERT_TRUE(
-        pio_asm_assemble(".program p\n.define A 2777777777 * 3983219825\n set x, A\n", NULL, &p));
+    /* The overflow happens during expression evaluation; the `& 31` only brings
+     * the (now in-range) result into the set operand's 0..31 field so the check
+     * added for out-of-range immediates doesn't mask the real thing under test. */
+    TEST_ASSERT_TRUE(pio_asm_assemble(
+        ".program p\n.define A 2777777777 * 3983219825\n set x, (A & 31)\n", NULL, &p));
     /* 0xFFFFFFFF * 0xFFFFFFFF ~= 1.8e19 > INT64_MAX — wraps, no UB. */
-    TEST_ASSERT_TRUE(pio_asm_assemble(".program p\n set x, (4294967295 * 4294967295)\n", NULL, &p));
+    TEST_ASSERT_TRUE(
+        pio_asm_assemble(".program p\n set x, ((4294967295 * 4294967295) & 31)\n", NULL, &p));
 }
 
 /* A numeric literal that overflows 32 bits is rejected, not silently wrapped
@@ -878,9 +882,19 @@ static void test_instruction_operand_range_errors(void)
     TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    wait 1 jmppin + 32\n", NULL, &p));
     TEST_ASSERT_TRUE(strstr(p.error, "jmppin") != NULL);
 #endif
-    /* In-range operands still assemble. */
+    /* set data is a 5-bit literal (0..31); an over-range value is an error, not
+     * a silently masked low-5-bits operand. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    set x, 32\n", NULL, &p));
+    TEST_ASSERT_TRUE(strstr(p.error, "set value out of range") != NULL);
+    /* in/out bit counts are 1..32 (the field encodes 32 as 0); 0 and >32 error. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    in pins, 33\n", NULL, &p));
+    TEST_ASSERT_TRUE(strstr(p.error, "in count out of range") != NULL);
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    out pins, 0\n", NULL, &p));
+    TEST_ASSERT_TRUE(strstr(p.error, "out count out of range") != NULL);
+    /* In-range operands still assemble, including count 32 (encoded as field 0). */
     TEST_ASSERT_TRUE(pio_asm_assemble(".program t\n    jmp 31\n    wait 1 gpio 31\n"
-                                      "    wait 0 irq 7\n    irq 7\n.pio_version 1\n",
+                                      "    wait 0 irq 7\n    irq 7\n    set x, 31\n"
+                                      "    in pins, 32\n    out pins, 1\n.pio_version 1\n",
                                       NULL, &p));
 }
 
@@ -894,10 +908,33 @@ static void test_too_many_labels_error(void)
     for (int i = 0; i < 33; i++) {
         k += snprintf(&src[k], sizeof(src) - (size_t)k, "l%d:\n", i);
     }
-    k += snprintf(&src[k], sizeof(src) - (size_t)k, "    nop\n");
+    (void)snprintf(&src[k], sizeof(src) - (size_t)k, "    nop\n");
     pio_program_t p;
     TEST_ASSERT_FALSE(pio_asm_assemble(src, NULL, &p));
     TEST_ASSERT_TRUE(strstr(p.error, "too many labels") != NULL);
+}
+
+/* An over-long symbol name is rejected rather than silently truncated. The
+ * symbol table stores names in a fixed 32-byte buffer (31 chars + NUL); a define
+ * or a reference longer than that must error, not collide with a distinct symbol
+ * that shares its first 31 characters. Label declarations already error this way
+ * ("label name too long"), so defines and expression references match. */
+static void test_symbol_name_too_long_rejected(void)
+{
+    pio_program_t p;
+    /* 40-char define name (> 31): rejected at the declaration. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(
+        ".program t\n.define AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA 1\n nop\n", NULL, &p));
+    TEST_ASSERT_TRUE(strstr(p.error, "define name too long") != NULL);
+    /* A 40-char identifier *referenced* in an expression is rejected too, rather
+     * than truncated to 31 chars and matched against a shorter symbol. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(
+        ".program t\n set x, BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n", NULL, &p));
+    /* A name exactly at the 31-char limit still works. */
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program t\n.define CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC 5\n set "
+                                      "x, CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n",
+                                      NULL, &p));
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 5), p.insns[0]);
 }
 
 /* Config directives reject malformed operands (each error branch is distinct
@@ -1040,6 +1077,7 @@ int main(void)
     RUN_TEST(test_directive_range_errors);
     RUN_TEST(test_instruction_operand_range_errors);
     RUN_TEST(test_too_many_labels_error);
+    RUN_TEST(test_symbol_name_too_long_rejected);
     RUN_TEST(test_config_directive_errors);
     RUN_TEST(test_mov_invert_operand_forms);
     RUN_TEST(test_empty_program_body_error);

@@ -35,10 +35,20 @@ static char *read_program(const char *base)
     TEST_ASSERT_NOT_NULL_MESSAGE(f, path);
     (void)fseek(f, 0, SEEK_END);
     long n = ftell(f);
+    TEST_ASSERT_TRUE(n > 0);
     (void)fseek(f, 0, SEEK_SET);
-    char *buf = malloc((size_t)n + 1U);
+    size_t len = (size_t)n;
+    char *buf = malloc(len + 1U);
     TEST_ASSERT_NOT_NULL(buf);
-    size_t got = fread(buf, 1, (size_t)n, f);
+    size_t got = fread(buf, 1, len, f);
+    /* fread never over-reads, but bound it so the '\0' index is provably in range. */
+    if (got > len) {
+        got = len;
+    }
+    /* `got` is bounded by `len` above and `buf` holds `len + 1` bytes, so this is
+     * in range; the analyzer flags the ftell-derived length as tainted, but the
+     * corpus path is a trusted build-time constant, not external input. */
+    /* NOLINTNEXTLINE(clang-analyzer-security.ArrayBound) */
     buf[got] = '\0';
     (void)fclose(f);
     return buf;
@@ -135,7 +145,7 @@ static void test_uart_tx_frame_decodes(void)
     TEST_ASSERT_EQUAL_UINT8(0U, w[12]); /* window 1: start bit low  */
     uint8_t got = 0;
     for (uint8_t k = 0; k < 8U; k++) {
-        uint8_t bit = w[8U * (2U + k) + 4U]; /* windows 2..9 = data LSB-first */
+        uint8_t bit = w[(8U * (2U + k)) + 4U]; /* windows 2..9 = data LSB-first */
         got |= (uint8_t)(bit << k);
     }
     TEST_ASSERT_EQUAL_HEX8(byte, got);

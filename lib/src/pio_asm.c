@@ -239,10 +239,15 @@ static int64_t expr_primary(expr_t *e)
         size_t k = 0;
         while (((*e->p >= 'a') && (*e->p <= 'z')) || ((*e->p >= 'A') && (*e->p <= 'Z')) ||
                ((*e->p >= '0') && (*e->p <= '9')) || (*e->p == '_')) {
-            if (k < (sizeof(id) - 1U)) {
-                id[k] = *e->p;
-                k++;
+            if (k >= (sizeof(id) - 1U)) {
+                /* Refuse to silently truncate; an over-long name would otherwise
+                 * alias a different symbol. Matches the ".../name too long" gate
+                 * on define and label declarations. */
+                e->ok = false;
+                return 0;
             }
+            id[k] = *e->p;
+            k++;
             e->p++;
         }
         id[k] = '\0';
@@ -435,9 +440,13 @@ static bool resolve_uint_join(const asm_ctx_t *ctx, char *const tok[], uint8_t f
     return resolve_uint(ctx, buf, out);
 }
 
-/* Record a `.define`d symbol; a later definition of the same name overrides. */
+/* Record a `.define`d symbol; a later definition of the same name overrides.
+ * Returns false on failure (over-long name or table full). */
 static bool add_define(asm_ctx_t *ctx, const char *name, uint32_t value)
 {
+    if (strlen(name) >= sizeof(ctx->defines[0].name)) {
+        return false;
+    }
     for (uint8_t i = 0; i < ctx->define_count; i++) {
         if (strcmp(ctx->defines[i].name, name) == 0) {
             ctx->defines[i].value = value;
@@ -911,6 +920,11 @@ static bool enc_in(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
         pa_set_error(ctx, "bad in operands");
         return false;
     }
+    if ((cnt < 1U) || (cnt > 32U)) {
+        pa_set_error(ctx, "in count out of range (1..32)");
+        return false;
+    }
+    /* The 5-bit bit-count field encodes 32 as 0. */
     *base = pio_sim_encode_in((uint8_t)src, (uint8_t)(cnt & 0x1FU));
     return true;
 }
@@ -927,6 +941,11 @@ static bool enc_out(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
         pa_set_error(ctx, "bad out operands");
         return false;
     }
+    if ((cnt < 1U) || (cnt > 32U)) {
+        pa_set_error(ctx, "out count out of range (1..32)");
+        return false;
+    }
+    /* The 5-bit bit-count field encodes 32 as 0. */
     *base = pio_sim_encode_out((uint8_t)dest, (uint8_t)(cnt & 0x1FU));
     return true;
 }
@@ -1111,6 +1130,10 @@ static bool enc_set(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
     uint32_t val;
     if ((dest < 0) || !resolve_uint_join(ctx, tok, 2, n, &val)) {
         pa_set_error(ctx, "bad set operands");
+        return false;
+    }
+    if (val > 31U) {
+        pa_set_error(ctx, "set value out of range (0..31)");
         return false;
     }
     *base = pio_sim_encode_set((uint8_t)dest, (uint8_t)(val & 0x1FU));
@@ -1465,6 +1488,10 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
             if ((nt < (uint8_t)(ni + 2U)) ||
                 !resolve_uint_join(ps->ctx, tok, (uint8_t)(ni + 1U), nt, &val)) {
                 pa_set_error(ps->ctx, "bad .define");
+                return LINE_ERROR;
+            }
+            if (strlen(tok[ni]) >= sizeof(ps->ctx->defines[0].name)) {
+                pa_set_error(ps->ctx, "define name too long");
                 return LINE_ERROR;
             }
             if (!add_define(ps->ctx, tok[ni], val)) {
