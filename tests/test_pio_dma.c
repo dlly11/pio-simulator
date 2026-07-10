@@ -455,6 +455,34 @@ static void test_sniffer_sum_and_parity(void)
                             pio_dma_sniffer_get_data_accumulator(&dma)); /* lane XOR */
 }
 
+/* SUM/EVEN must honour the transfer width like the CRC modes. A FIFO source
+ * always yields a full 32-bit word, so an 8-bit sniffed drain must fold only the
+ * low byte: 4 * 0xFF = 0x3FC, not 4 * 0xFFFFFFFF truncated to 0xFFFFFFFC. */
+static void test_sniffer_sum_masks_transfer_width(void)
+{
+    load_echo_prog();
+    static uint32_t in[4] = {0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU};
+    static uint8_t out[4] = {0};
+    dma_channel_config c;
+    /* Feed full 32-bit words into TX; the echo SM moves each to RX intact. */
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(in), 4, true);
+    /* Drain RX one byte per element with the SUM sniffer enabled. */
+    c = pio_dma_channel_get_default_config(1);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_sniff_enable(&c, true);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_RX(0, 0));
+    pio_dma_sniffer_enable(&dma, 1, PIO_DMA_SNIFF_SUM, false);
+    pio_dma_sniffer_set_data_accumulator(&dma, 0);
+    pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_mem(out), pio_dma_addr_rxf(0, 0), 4, true);
+    tick_all(100);
+    TEST_ASSERT_EQUAL_HEX32(0x3FCU, pio_dma_sniffer_get_data_accumulator(&dma));
+    TEST_ASSERT_EQUAL_HEX8(0xFFU, out[0]); /* the low byte was the one transferred */
+}
+
 static void test_pacing_timer_quarter_rate(void)
 {
     /* Timer 0 at X/Y = 1/4: one transfer every 4 ticks. */
@@ -671,6 +699,7 @@ int main(void)
     RUN_TEST(test_sniffer_crc32_check_value);
     RUN_TEST(test_sniffer_crc16_ccitt_check_value);
     RUN_TEST(test_sniffer_sum_and_parity);
+    RUN_TEST(test_sniffer_sum_masks_transfer_width);
     RUN_TEST(test_pacing_timer_quarter_rate);
     RUN_TEST(test_one_transfer_per_tick_and_priority);
     RUN_TEST(test_channel_count_matches_platform);

@@ -461,9 +461,11 @@ static void apply_fifo_join(pio_sm_t *s, pio_fifo_join_t join)
     case PIO_FIFO_JOIN_RX_GET:
     case PIO_FIFO_JOIN_RX_PUTGET:
 #if PIO_SIM_HAS_RXFIFO_MOV
-        /* RP2350 random-access RX: a 4-entry register file addressed by the
-         * MOV-RX-FIFO instructions; the TX FIFO is disabled. */
-        s->tx.cap = 0;
+        /* RP2350 random-access RX: the RX FIFO becomes a 4-entry register file
+         * addressed by the MOV-RX-FIFO instructions. Only the RX FIFO is
+         * repurposed — the TX FIFO stays a normal 4-deep FIFO (RP2350 datasheet
+         * §11.6: FJOIN_RX_PUT/GET affect the RX FIFO alone). */
+        s->tx.cap = PIO_SIM_FIFO_DEPTH;
         s->rx.cap = PIO_SIM_FIFO_DEPTH;
 #else
         /* RP2040: these modes do not exist; behave as the default 4+4 split. */
@@ -1703,6 +1705,7 @@ void pio_sim_group_init(pio_sim_group_t *g, pio_sim_t *const *blocks, uint8_t co
         count = PIO_SIM_NUM_PIO;
     }
     g->count = count;
+    g->shared = false; /* pio_sim_group_init_shared sets this true after init */
     for (uint8_t i = 0; i < count; i++) {
         g->blk[i] = blocks[i];
     }

@@ -288,6 +288,12 @@ static uint32_t crc_update_lsb(uint32_t crc, uint8_t byte, uint32_t poly)
 static void dma_sniff(pio_dma_t *d, uint32_t value, uint8_t bytes)
 {
     uint32_t crc = d->sniff.data;
+    /* Only the low `bytes` bytes of the element are transferred; mask off the
+     * high bytes so SUM/EVEN honour the transfer width like the CRC modes (which
+     * already fold exactly `bytes` bytes). Without this, a sub-word FIFO source
+     * leaks its high bytes into the accumulator. */
+    uint32_t mask = (bytes >= 4U) ? 0xFFFFFFFFU : (uint32_t)(((uint32_t)1U << (8U * bytes)) - 1U);
+    value &= mask;
     switch (d->sniff.calc) {
     case (uint8_t)PIO_DMA_SNIFF_CRC32:
         for (uint8_t i = 0; i < bytes; i++) {

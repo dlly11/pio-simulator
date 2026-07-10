@@ -233,6 +233,27 @@ static void test_assemble_rel_rejected_on_wait_pin(void)
     TEST_ASSERT_EQUAL_INT(2, p.error_line);
 }
 
+/* The side-set count (data bits + the optional enable bit) shares a 5-bit field
+ * with the delay, so it must be 0..5; pioasm rejects anything wider. */
+static void test_assemble_side_set_count_range(void)
+{
+    pio_program_t p;
+    /* Six data bits overflow the field. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.side_set 6\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(2, p.error_line);
+    /* Five data bits plus the optional enable bit is also six. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.side_set 5 opt\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(2, p.error_line);
+    /* A wrapping expression must not slip through as a huge count. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.side_set 0-1\n", NULL, &p));
+    /* Exactly five bits is the legal maximum: five data bits (side mandatory)... */
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program t\n.side_set 5\nnop side 0\n", NULL, &p),
+                             p.error);
+    /* ...or four data bits plus the optional enable bit. */
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program t\n.side_set 4 opt\nnop\n", NULL, &p),
+                             p.error);
+}
+
 static void test_select_program_by_name(void)
 {
     /* A file with both programs; select swd_read explicitly. */
@@ -1039,6 +1060,7 @@ int main(void)
     RUN_TEST(test_assemble_wait_jmppin);
 #endif
     RUN_TEST(test_assemble_rel_rejected_on_wait_pin);
+    RUN_TEST(test_assemble_side_set_count_range);
     RUN_TEST(test_select_program_by_name);
     RUN_TEST(test_jmp_conditions);
     RUN_TEST(test_wait_sources);

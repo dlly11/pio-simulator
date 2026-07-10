@@ -1292,7 +1292,7 @@ static uint8_t tokenize_copy(const char *line, char tmp[MAX_LINE], char *tok[MAX
     return tokenize(tmp, tok, MAX_TOKENS, truncated);
 }
 
-static void parse_side_set(pa_parse_state_t *ps, char *tok[], uint8_t nt, uint32_t bits)
+static bool parse_side_set(pa_parse_state_t *ps, char *tok[], uint8_t nt, uint32_t bits)
 {
     pio_program_t *out = ps->ctx->out;
     bool opt = false;
@@ -1306,9 +1306,17 @@ static void parse_side_set(pa_parse_state_t *ps, char *tok[], uint8_t nt, uint32
             /* Unrecognised modifier ignored. */
         }
     }
+    /* Data bits plus the optional enable bit share a 5-bit side-set/delay field.
+     * Check `bits` first so a wrapped expression (e.g. 0xFFFFFFFF) is caught
+     * before the `+ opt` add wraps back into range. */
+    if ((bits > 5U) || ((bits + (opt ? 1U : 0U)) > 5U)) {
+        pa_set_error(ps->ctx, "side-set count out of range (0..5)");
+        return false;
+    }
     out->sideset_bits = (uint8_t)(bits + (opt ? 1U : 0U));
     out->sideset_opt = opt;
     out->sideset_pindirs = pindirs;
+    return true;
 }
 
 /* Parse a non-negative decimal/float for .clock_div (e.g. "2.5"). */
@@ -1511,7 +1519,9 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
                 pa_set_error(ps->ctx, "bad .side_set");
                 return LINE_ERROR;
             }
-            parse_side_set(ps, tok, nt, bits);
+            if (!parse_side_set(ps, tok, nt, bits)) {
+                return LINE_ERROR;
+            }
         }
     } else if (ieq(tok[0], ".wrap_target")) {
         if (ps->pass == 1) {

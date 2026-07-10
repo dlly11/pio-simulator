@@ -1382,6 +1382,26 @@ static void test_rxfifo_mode_enforced(void)
     TEST_ASSERT_EQUAL_HEX32(0x22222222U, pio.sm[0].isr); /* ISR untouched */
 }
 
+/* The RX register-file modes repurpose only the RX FIFO; the TX FIFO stays a
+ * normal 4-deep FIFO (regression: it was wrongly disabled, so puts always
+ * overflowed and a blocking PULL stalled forever). */
+static void test_rxfifo_mode_leaves_tx_fifo(void)
+{
+    sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX_PUTGET);
+    const uint16_t prog[] = {pio_sim_encode_pull(false, true)}; /* pull block */
+    load_prog(prog, 1);
+    /* TX behaves as a 4-deep FIFO: four puts succeed, the fifth overflows. */
+    for (uint32_t i = 0; i < 4U; i++) {
+        TEST_ASSERT_TRUE(pio_sim_sm_put(&pio, 0, 0x10U + i));
+    }
+    TEST_ASSERT_EQUAL_UINT8(4U, pio_sim_sm_get_tx_fifo_level(&pio, 0));
+    TEST_ASSERT_FALSE(pio_sim_sm_put(&pio, 0, 99U)); /* full -> overflow, not accepted */
+    /* A blocking PULL drains it instead of stalling forever. */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_HEX32(0x10U, pio.sm[0].osr); /* first-pushed word */
+    TEST_ASSERT_EQUAL_UINT8(3U, pio_sim_sm_get_tx_fifo_level(&pio, 0));
+}
+
 /* Operand bit 4 discriminates the indexed RX-FIFO MOV from PUSH/PULL: a
  * PUSH/PULL word with only reserved low bits set must still execute as a
  * PUSH/PULL, not be misrouted to the RX register file. */
@@ -2395,6 +2415,7 @@ int main(void)
     RUN_TEST(test_mov_rxfifo_y_indexed);
     RUN_TEST(test_rxfifo_host_index_access);
     RUN_TEST(test_rxfifo_mode_enforced);
+    RUN_TEST(test_rxfifo_mode_leaves_tx_fifo);
     RUN_TEST(test_mov_rxfifo_discriminator_bit4);
 #endif
     RUN_TEST(test_irq_next_prev_have_no_local_effect);
