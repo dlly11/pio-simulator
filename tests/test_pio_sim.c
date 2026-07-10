@@ -439,6 +439,21 @@ static void test_pin_priority_same_cycle_higher_sm_wins(void)
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* SM1 (higher) wins -> low */
 }
 
+/* Pin *direction* (OE) resolves by priority, not a union: when two SMs drive the
+ * same pin's direction oppositely, the highest-numbered SM wins (RP2040 §3.5.6.1),
+ * so a lower SM can flip a pad back to input instead of it being stuck an output. */
+static void test_pindir_priority_higher_sm_wins(void)
+{
+    /* SM0 output, SM1 (higher) input -> input wins (a union would say output). */
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, 5, 1, true);
+    pio_sim_sm_set_consecutive_pindirs(&pio, 1, 5, 1, false);
+    TEST_ASSERT_FALSE(pio_sim_pin_is_pio_output(&pio, 5));
+
+    /* Flip the higher SM to output: it now drives output, so the pad is output. */
+    pio_sim_sm_set_consecutive_pindirs(&pio, 1, 5, 1, true);
+    TEST_ASSERT_TRUE(pio_sim_pin_is_pio_output(&pio, 5));
+}
+
 /* Without OUT_STICKY a pin write is a one-shot event: SM1 writes pin 5 low, and
  * on a *later* cycle SM0 writes it high with no competing write — SM0's write
  * lands (last writer), regardless of SM numbers. */
@@ -2350,6 +2365,7 @@ int main(void)
     RUN_TEST(test_out_inline_enable_gates_write);
     RUN_TEST(test_multi_sm_pin_priority_and_override);
     RUN_TEST(test_pin_priority_same_cycle_higher_sm_wins);
+    RUN_TEST(test_pindir_priority_higher_sm_wins);
     RUN_TEST(test_pin_no_sticky_last_writer_wins);
     RUN_TEST(test_out_sticky_retains_priority_each_cycle);
     RUN_TEST(test_out_count_clamped_to_32);

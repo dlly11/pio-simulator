@@ -115,15 +115,20 @@ typedef struct {
 
     /* Per-SM output registers. out_pin_val latches the value of pins written via
      * OUT/SET/MOV PINS or side-set; out_pin_oe marks the pins driven as outputs
-     * (the pindir register); wrote_this_cycle records which pins were actually
-     * written during the current SM cycle. The pad applies each cycle's writes
-     * with highest-SM-wins priority (hardware collates only *simultaneous*
-     * writes — see resolve_pads); unwritten pins hold their latched level.
-     * Mutate these only through the API / instructions, never directly, or the
-     * resolved pad state desynchronises. */
+     * (the pindir register); wrote_this_cycle records which pins had their level
+     * actually written during the current SM cycle. dir_driven is the persistent
+     * set of pins whose *direction* this SM drives (any pindir write adds a pin;
+     * an inline-enable release removes it): the pad resolves each pin's direction
+     * from the highest-numbered SM that drives it, so a conflict is priority — not
+     * a union — and a released pin falls through to a lower SM (see resolve_pads).
+     * The pad applies same-cycle level writes with the same highest-SM-wins
+     * priority; unwritten pins hold their latched level. Mutate these only through
+     * the API / instructions, never directly, or the resolved pad state
+     * desynchronises. */
     uint64_t out_pin_val;
     uint64_t out_pin_oe;
     uint64_t wrote_this_cycle;
+    uint64_t dir_driven;
 
     /* EXECCTRL output controls (sm_config_set_out_special). out_inline_en uses bit
      * out_en_sel of the OUT data as an output enable; when it is 0 the OUT does not
