@@ -1478,6 +1478,10 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
             pa_set_error(ps->ctx, "bad .word");
             return LINE_ERROR;
         }
+        if (w > 0xFFFFU) {
+            pa_set_error(ps->ctx, ".word out of range (16-bit)");
+            return LINE_ERROR;
+        }
         if (ps->pass == 2) {
             out->insns[ps->idx] = (uint16_t)w;
         }
