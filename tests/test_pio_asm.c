@@ -827,6 +827,45 @@ static void test_program_too_long_reports_error(void)
     TEST_ASSERT_TRUE(strstr(p.error, "exceeds") != NULL);
 }
 
+/* Config directives reject out-of-range values instead of silently truncating
+ * them into their (narrow) hardware fields. */
+static void test_directive_range_errors(void)
+{
+    pio_program_t p;
+    /* .origin addresses the 32-word instruction memory (0..31). */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.origin 32\n    nop\n", NULL, &p));
+    TEST_ASSERT_TRUE(strstr(p.error, ".origin") != NULL);
+    /* Value that would truncate to a valid-looking origin (288 & 0xFF == 32). */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.origin 288\n    nop\n", NULL, &p));
+    /* .set pin count is bounded by the 32-pin window. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.set 33\n    nop\n", NULL, &p));
+    /* .in/.out pin count and shift threshold are field-bounded. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.in 33\n    nop\n", NULL, &p));
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.out 8 left auto 33\n    nop\n", NULL, &p));
+    /* .mov_status level/index is a 5-bit field. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.mov_status txfifo < 40\n    nop\n", NULL, &p));
+    /* In-range values still assemble. */
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program t\n.origin 31\n.set 5\n.in 32\n"
+                                      ".out 8 left auto 32\n.mov_status txfifo < 4\n    nop\n",
+                                      NULL, &p));
+}
+
+/* More labels than the table holds is reported distinctly, not silently dropped
+ * (which would surface later as a confusing "unknown label"). */
+static void test_too_many_labels_error(void)
+{
+    char src[1024];
+    int k = snprintf(src, sizeof(src), ".program big\n");
+    /* 33 label-only lines exceeds MAX_LABELS (32). */
+    for (int i = 0; i < 33; i++) {
+        k += snprintf(&src[k], sizeof(src) - (size_t)k, "l%d:\n", i);
+    }
+    k += snprintf(&src[k], sizeof(src) - (size_t)k, "    nop\n");
+    pio_program_t p;
+    TEST_ASSERT_FALSE(pio_asm_assemble(src, NULL, &p));
+    TEST_ASSERT_TRUE(strstr(p.error, "too many labels") != NULL);
+}
+
 /* Selecting a program name that isn't present yields no instructions. */
 static void test_no_instructions_error(void)
 {
@@ -927,6 +966,8 @@ int main(void)
     RUN_TEST(test_more_dest_src_fields);
     RUN_TEST(test_arity_errors);
     RUN_TEST(test_program_too_long_reports_error);
+    RUN_TEST(test_directive_range_errors);
+    RUN_TEST(test_too_many_labels_error);
     RUN_TEST(test_no_instructions_error);
     RUN_TEST(test_operand_errors);
     RUN_TEST(test_sideset_and_delay_errors);
