@@ -236,9 +236,13 @@ void pio_dma_timer_set_fraction(pio_dma_t *d, uint8_t timer, uint16_t numerator,
 /** Enable the sniffer on channel `ch` with CRC/checksum `mode`. */
 void pio_dma_sniffer_enable(pio_dma_t *d, uint8_t ch, pio_dma_sniff_calc_t mode,
                             bool force_channel_enable);
+/** Turn the sniffer off (SNIFF_CTRL EN=0); the accumulator is left untouched. */
 void pio_dma_sniffer_disable(pio_dma_t *d);
+/** Bit-invert the value returned by the accumulator getter (SNIFF_CTRL OUT_INV). */
 void pio_dma_sniffer_set_output_invert_enabled(pio_dma_t *d, bool invert);
+/** Bit-reverse the value returned by the accumulator getter (SNIFF_CTRL OUT_REV). */
 void pio_dma_sniffer_set_output_reverse_enabled(pio_dma_t *d, bool reverse);
+/** Seed the sniff accumulator (SNIFF_DATA), e.g. a CRC preload. */
 void pio_dma_sniffer_set_data_accumulator(pio_dma_t *d, uint32_t seed_value);
 /** SNIFF_DATA with the invert/reverse output options applied. */
 uint32_t pio_dma_sniffer_get_data_accumulator(const pio_dma_t *d);

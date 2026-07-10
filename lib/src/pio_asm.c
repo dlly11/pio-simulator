@@ -741,6 +741,10 @@ static bool enc_jmp(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
         pa_set_error(ctx, "unknown jmp target/label");
         return false;
     }
+    if (addr > 31U) {
+        pa_set_error(ctx, "jmp target out of range (0..31)");
+        return false;
+    }
     *base = pio_sim_encode_jmp(cond, (uint8_t)addr);
     return true;
 }
@@ -773,6 +777,10 @@ static bool enc_wait(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
     } else {
         if (!resolve_uint(ctx, tok[1], &pol)) {
             pa_set_error(ctx, "bad wait polarity");
+            return false;
+        }
+        if (pol > 1U) {
+            pa_set_error(ctx, "wait polarity out of range (0..1)");
             return false;
         }
         si = 2U;
@@ -812,6 +820,10 @@ static bool enc_wait(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
                 return false;
             }
         }
+        if (idx > 31U) {
+            pa_set_error(ctx, "jmppin index out of range (0..31)");
+            return false;
+        }
         *base = pio_sim_encode_wait_jmppin((uint8_t)pol, (uint8_t)idx);
         return true;
     }
@@ -847,6 +859,17 @@ static bool enc_wait(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
     uint32_t idx;
     if (!resolve_uint_join(ctx, tok, idx_from, idx_to, &idx)) {
         pa_set_error(ctx, "bad wait index");
+        return false;
+    }
+    /* An IRQ index is 3-bit (0..7): mode bits [4:3] select rel/prev/next and a
+     * larger value would corrupt them. GPIO/PIN indices are 5-bit pin numbers. */
+    if (source == PIO_WAIT_IRQ) {
+        if (idx > 7U) {
+            pa_set_error(ctx, "wait irq index out of range (0..7)");
+            return false;
+        }
+    } else if (idx > 31U) {
+        pa_set_error(ctx, "wait index out of range (0..31)");
         return false;
     }
     if (rel) {
@@ -1047,6 +1070,10 @@ static bool enc_irq(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
     uint32_t idx;
     if (!resolve_uint_join(ctx, tok, idx_from, idx_to, &idx)) {
         pa_set_error(ctx, "bad irq index");
+        return false;
+    }
+    if (idx > 7U) { /* 3-bit flag number; mode bits [4:3] carry rel/prev/next */
+        pa_set_error(ctx, "irq index out of range (0..7)");
         return false;
     }
     if (rel && (prev || next)) {
@@ -1512,8 +1539,8 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
             out->pio_version = 1;
         } else {
             uint32_t v = 0;
-            if (!resolve_uint(ps->ctx, tok[1], &v)) {
-                pa_set_error(ps->ctx, "bad .pio_version");
+            if (!resolve_uint(ps->ctx, tok[1], &v) || (v > 1U)) {
+                pa_set_error(ps->ctx, "bad .pio_version (expected 0, 1, rp2040, or rp2350)");
                 return LINE_ERROR;
             }
             out->pio_version = (int)v;
