@@ -266,7 +266,7 @@ void pio_dma_irqn_acknowledge_channel(pio_dma_t *d, uint8_t irq_index, uint8_t c
 uint32_t pio_dma_get_intr(const pio_dma_t *d);
 /** Line status, INTS = (INTR & INTE) | INTF (sim extension read-back). */
 uint32_t pio_dma_get_ints(const pio_dma_t *d, uint8_t irq_index);
-/** INTE / INTF register read-back for line `line` (sim extensions). */
+/** INTE / INTF register read-back for `irq_index` (sim extensions). */
 uint32_t pio_dma_get_inte(const pio_dma_t *d, uint8_t irq_index);
 uint32_t pio_dma_get_intf(const pio_dma_t *d, uint8_t irq_index);
 /** Force (or clear) channel `ch`'s IRQ on line `irq_index` — INTF. Sim

@@ -303,7 +303,9 @@ typedef struct pio_sim {
 /** Reset the whole block: clears instruction memory, all SMs, pins, and IRQs. */
 void pio_sim_init(pio_sim_t *pio);
 
-/** Load `count` instruction words at `offset` into shared instruction memory. */
+/** Load `count` instruction words at `offset` into shared instruction memory.
+ * Words that would land past the 32-word memory (offset + i >= 32) are silently
+ * dropped, consistent with this header's other out-of-range masking. */
 void pio_sim_load(pio_sim_t *pio, uint8_t offset, const uint16_t *insns, uint8_t count);
 
 /** Reset a single state machine's execution state: PC to wrap_bottom, X/Y/OSR/ISR
