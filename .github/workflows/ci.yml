@@ -186,6 +186,7 @@ jobs:
           tests/test_pio_sim.c tests/test_pio_asm.c
           tests/test_pio_gpio.c tests/test_pio_clk.c tests/test_pio_dma.c
           tests/test_pio_programs.c tests/fuzz_pio_asm.c
+          tests/unity_config.h
           tests/consumer/main.c
           tests/test_pio_asm_vs_pioasm.c
           examples/01_blink.c examples/02_fifo_echo.c examples/03_uart_tx.c
@@ -196,6 +197,10 @@ jobs:
   # the point). The library sources are instrumented into the harness.
   fuzz:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false # a v0 crash shouldn't hide the v1 result (and vice versa)
+      matrix:
+        platform: [RP2350, RP2040]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -209,7 +214,7 @@ jobs:
       - name: Build the fuzzer
         run: >
           cmake -B build-fuzz -G Ninja -DCMAKE_C_COMPILER=clang-21
-          -DPIO_SIM_PLATFORM=RP2350 -DPIO_SIM_BUILD_FUZZERS=ON
+          -DPIO_SIM_PLATFORM=${{ matrix.platform }} -DPIO_SIM_BUILD_FUZZERS=ON
           && cmake --build build-fuzz --target fuzz_pio_asm
       - name: Fuzz (60s smoke)
         # First dir is where libFuzzer writes new finds (scratch); the seed

@@ -311,7 +311,7 @@ in `.clang-tidy`) over the library. To reproduce locally:
 # formatting (no changes => clean) — the same file set CI checks
 clang-format --dry-run --Werror lib/src/*.c lib/src/pio_sim_internal.h \
     lib/include/*.h lib/config/*.h \
-    tests/test_*.c tests/fuzz_pio_asm.c tests/consumer/main.c
+    tests/test_*.c tests/fuzz_pio_asm.c tests/unity_config.h tests/consumer/main.c
 
 # static analysis: needs a compile database for the include paths / feature defines
 cmake -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
