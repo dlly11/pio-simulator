@@ -196,12 +196,16 @@ ctest --test-dir build --output-on-failure
 No CMake handy? The library is dependency-free, so a bare compiler run works too:
 
 ```sh
-gcc -std=c11 -Wall -Wextra -I lib/include -I lib/config -I lib/src -I third_party/unity/src \
+gcc -std=c11 -Wall -Wextra -DPIO_SIM_PIO_VERSION=1 \
+    -I lib/include -I lib/config -I lib/src -I third_party/unity/src \
     -I tests -DUNITY_INCLUDE_CONFIG_H \
     lib/src/*.c tests/test_pio_sim.c third_party/unity/src/unity.c -o test_sim && ./test_sim
 ```
 
 (`-I lib/src` is needed — the sources share a private `pio_sim_internal.h`.)
+Select the chip with `-DPIO_SIM_PIO_VERSION=0` (RP2040) or `=1` (RP2350, the
+default). Note `-DPIO_SIM_PLATFORM=…` only works through CMake; as a bare `-D`
+it does nothing — use `PIO_SIM_PIO_VERSION` for direct compiler builds.
 This compiles only `test_pio_sim`; swap in another `tests/test_*.c` for a
 different suite, or use CMake + `ctest` to build and run all six at once.
 
