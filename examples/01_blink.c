@@ -62,25 +62,25 @@ int main(void)
 
     /* 6. Tick the clock and watch the pin. Print two full periods. */
     printf("cycle : GPIO%d\n", BLINK_PIN);
-    int highs = 0;
-    int lows = 0;
+    uint8_t level[8];
     for (int cycle = 0; cycle < 8; cycle++) {
         pio_sim_tick(&pio);
-        bool level = pio_sim_get_pin(&pio, BLINK_PIN);
-        printf("  %2d   :  %d\n", cycle, level ? 1 : 0);
-        if (level) {
-            highs++;
-        } else {
-            lows++;
-        }
+        level[cycle] = pio_sim_get_pin(&pio, BLINK_PIN) ? 1U : 0U;
+        printf("  %2d   :  %d\n", cycle, level[cycle]);
     }
 
-    /* Sanity check so CI's "run the example" step catches a regression: over two
-     * periods the pin spends equal time high and low. */
-    if (highs != 4 || lows != 4) {
-        (void)fprintf(stderr, "unexpected waveform: %d high, %d low\n", highs, lows);
-        return 1;
+    /* Sanity check so CI's "run the example" step catches a regression. Each set
+     * carries a [1] delay, so the pin holds each level for two cycles: the exact
+     * waveform is 1,1,0,0 repeated — a total count alone would pass many wrong
+     * shapes (e.g. 1,0,1,0 or an inverted phase). */
+    static const uint8_t expect[8] = {1, 1, 0, 0, 1, 1, 0, 0};
+    for (int cycle = 0; cycle < 8; cycle++) {
+        if (level[cycle] != expect[cycle]) {
+            (void)fprintf(stderr, "unexpected waveform at cycle %d: got %u, expected %u\n", cycle,
+                          level[cycle], expect[cycle]);
+            return 1;
+        }
     }
-    printf("OK: square wave, 50%% duty over 8 cycles\n");
+    printf("OK: period-4 square wave (1,1,0,0 repeated) over 8 cycles\n");
     return 0;
 }

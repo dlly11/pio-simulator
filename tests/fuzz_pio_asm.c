@@ -31,8 +31,17 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     (void)pio_asm_assemble(src, NULL, &prog);
 
     /* Also exercise selecting a named program: use the input's own first line
-     * as the name so the program-selection path sees fuzzed names too. */
-    (void)pio_asm_assemble(src, src, &prog);
+     * as the name so the program-selection path sees fuzzed names too. A real
+     * name is a single line, so terminate at the first newline (passing the
+     * whole multi-line buffer would never match a `.program <name>`). */
+    char name[64];
+    size_t nlen = 0;
+    while ((nlen < (sizeof(name) - 1U)) && (src[nlen] != '\0') && (src[nlen] != '\n')) {
+        name[nlen] = src[nlen];
+        nlen++;
+    }
+    name[nlen] = '\0';
+    (void)pio_asm_assemble(src, name, &prog);
 
     free(src);
     return 0;

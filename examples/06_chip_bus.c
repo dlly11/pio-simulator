@@ -166,6 +166,14 @@ int main(void)
         (void)fprintf(stderr, "byte mismatch across the bus\n");
         return 1;
     }
+    /* The producer commits exactly 2 instructions (out + nop) per bit for every
+     * bit of the message, then stalls on autopull once the TX FIFO drains. */
+    const unsigned long expect_insns = 2UL * 8UL * n;
+    if (prod_insns != expect_insns) {
+        (void)fprintf(stderr, "trace mismatch: expected %lu producer instructions, counted %lu\n",
+                      expect_insns, prod_insns);
+        return 1;
+    }
     printf("OK: two PIO blocks exchanged %u bytes over shared GPIO via DMA\n", n);
     return 0;
 }

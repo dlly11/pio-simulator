@@ -101,6 +101,14 @@ int main(void)
         (void)fprintf(stderr, "decode mismatch: sent 0x%02X, got 0x%02X\n", byte, got);
         return 1;
     }
+    /* One frame commits exactly: pull + set + 8 * (out + jmp) = 18 instructions
+     * (the trailing pull then stalls on the empty FIFO, committing nothing). */
+    const unsigned long expect_insns = 18;
+    if (committed != expect_insns) {
+        (void)fprintf(stderr, "trace mismatch: expected %lu instructions, counted %lu\n",
+                      expect_insns, committed);
+        return 1;
+    }
     printf("OK: UART frame transmitted and decoded\n");
     return 0;
 }
