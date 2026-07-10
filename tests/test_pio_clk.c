@@ -112,6 +112,23 @@ static void test_ns_to_ticks_ceils(void)
 #endif
 }
 
+/* An invalid clock tree makes pio_clk_sys_hz return the 0 sentinel, and every
+ * tick converter must propagate it as 0 rather than dividing by zero. */
+static void test_invalid_tree_returns_zero(void)
+{
+    clk.clksys_div_int = 0; /* invalid divider → tree fails validation */
+    TEST_ASSERT_EQUAL_INT(PIO_CLK_ERR_DIV_RANGE, pio_clk_validate(&clk));
+    TEST_ASSERT_EQUAL_UINT64(0ULL, pio_clk_sys_hz(&clk));
+    TEST_ASSERT_EQUAL_UINT64(0ULL, pio_clk_ticks_to_ns(&clk, 100));
+    TEST_ASSERT_EQUAL_UINT64(0ULL, pio_clk_ticks_to_us(&clk, 100));
+    TEST_ASSERT_EQUAL_UINT64(0ULL, pio_clk_ns_to_ticks(&clk, 100));
+    TEST_ASSERT_EQUAL_UINT64(0ULL, pio_clk_us_to_ticks(&clk, 100));
+    /* A zero refdiv is likewise rejected (guards the VCO divide). */
+    pio_clk_init_default(&clk);
+    clk.pll_refdiv = 0;
+    TEST_ASSERT_EQUAL_INT(PIO_CLK_ERR_REFDIV_RANGE, pio_clk_validate(&clk));
+}
+
 static void test_us_roundtrip_large_counts(void)
 {
     /* An hour of ticks converts without overflow and round-trips. */
@@ -132,6 +149,7 @@ int main(void)
     RUN_TEST(test_bypass_pll_runs_from_xosc);
     RUN_TEST(test_ticks_to_ns_exact_and_rounded);
     RUN_TEST(test_ns_to_ticks_ceils);
+    RUN_TEST(test_invalid_tree_returns_zero);
     RUN_TEST(test_us_roundtrip_large_counts);
     return UNITY_END();
 }

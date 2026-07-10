@@ -150,6 +150,71 @@ static void test_ring_wraps_read_side(void)
     }
 }
 
+/* Write-side ring (mirror of the read-side test): four words wrap into a
+ * two-word destination window, so the last two overwrite the first two. */
+static void test_ring_wraps_write_side(void)
+{
+    load_echo_prog();
+    static uint32_t in[4] = {0x11U, 0x22U, 0x33U, 0x44U};
+    _Alignas(8) static uint32_t out[2] = {0};
+    dma_channel_config c;
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(in), 4, true);
+    c = pio_dma_channel_get_default_config(1);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_ring(&c, true, 3); /* wrap WRITE addr, 2^3 bytes = two words */
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_RX(0, 0));
+    pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_mem(out), pio_dma_addr_rxf(0, 0), 4, true);
+    tick_all(120);
+    /* Words 3 and 4 land back in slots 0 and 1. */
+    TEST_ASSERT_EQUAL_HEX32(0x33U, out[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x44U, out[1]);
+}
+
+/* An RX-paced channel with no producer finds the RX FIFO empty and stalls,
+ * transferring nothing (mirror of the TX-pacing test). */
+static void test_rx_dreq_pacing_stalls_on_empty_fifo(void)
+{
+    static uint32_t out[8] = {0};
+    dma_channel_config c = pio_dma_channel_get_default_config(0);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_RX(0, 0));
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(out), pio_dma_addr_rxf(0, 0), 8, true);
+    tick_all(20);
+    TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 0));
+    TEST_ASSERT_EQUAL_UINT32(8U, pio_dma_channel_get_trans_count(&dma, 0)); /* nothing moved */
+}
+
+/* Config-error endpoints (read a TX FIFO, write an RX FIFO, or a NULL memory
+ * pointer) are "never ready": the channel stays busy and moves no data rather
+ * than faulting or moving garbage. */
+static void test_config_error_endpoints_never_ready(void)
+{
+    static uint32_t buf[4] = {1, 2, 3, 4};
+    /* Read from a TX FIFO (a write-only endpoint), unpaced. */
+    dma_channel_config c = pio_dma_channel_get_default_config(0);
+    channel_config_set_dreq(&c, PIO_DMA_TREQ_FORCE);
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(buf), pio_dma_addr_txf(0, 0), 4, true);
+    /* Write to an RX FIFO (a read-only endpoint), unpaced. */
+    c = pio_dma_channel_get_default_config(1);
+    channel_config_set_dreq(&c, PIO_DMA_TREQ_FORCE);
+    pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_rxf(0, 0), pio_dma_addr_mem(buf), 4, true);
+    /* NULL memory endpoint, unpaced. */
+    c = pio_dma_channel_get_default_config(2);
+    channel_config_set_dreq(&c, PIO_DMA_TREQ_FORCE);
+    pio_dma_channel_configure(&dma, 2, &c, pio_dma_addr_mem(buf), pio_dma_addr_mem(NULL), 4, true);
+    tick_all(20);
+    TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 0));
+    TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 1));
+    TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 2));
+    TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_get_trans_count(&dma, 0));
+    TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_get_trans_count(&dma, 1));
+    TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_get_trans_count(&dma, 2));
+}
+
 static void test_chain_to_next_channel(void)
 {
     load_echo_prog();
@@ -586,6 +651,9 @@ int main(void)
     RUN_TEST(test_tx_dreq_pacing_respects_fifo_depth);
     RUN_TEST(test_size8_and_bswap);
     RUN_TEST(test_ring_wraps_read_side);
+    RUN_TEST(test_ring_wraps_write_side);
+    RUN_TEST(test_rx_dreq_pacing_stalls_on_empty_fifo);
+    RUN_TEST(test_config_error_endpoints_never_ready);
     RUN_TEST(test_chain_to_next_channel);
     RUN_TEST(test_chain_to_out_of_range_clamped);
     RUN_TEST(test_irq_on_complete_and_ack);
