@@ -50,11 +50,14 @@ target_include_directories(pio_sim
 # consumers must compile against the same value the library was built with.
 target_compile_definitions(pio_sim PUBLIC PIO_SIM_PIO_VERSION=${PIO_SIM_PIO_VERSION})
 
+# Shared warning set. Reused by the examples (examples/CMakeLists.txt) so the
+# public-API reference code is held to the same standard as the library itself.
+set(PIO_SIM_WARNING_FLAGS
+    -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion
+    -Wcast-qual -Wcast-align -Wundef -Wwrite-strings -Wstrict-prototypes
+    -Wmissing-prototypes -Wdouble-promotion -Wformat=2 -Wswitch-enum)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(pio_sim PRIVATE
-        -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion
-        -Wcast-qual -Wcast-align -Wundef -Wwrite-strings -Wstrict-prototypes
-        -Wmissing-prototypes -Wdouble-promotion -Wformat=2 -Wswitch-enum)
+    target_compile_options(pio_sim PRIVATE ${PIO_SIM_WARNING_FLAGS})
     # Treat warnings as errors only for a standalone (top-level) build, so
     # embedders aren't broken by a different compiler's warning set.
     if(PROJECT_IS_TOP_LEVEL)

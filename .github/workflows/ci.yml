@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   build-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false # a gcc failure shouldn't hide the clang result (and vice versa)
       matrix:
@@ -41,7 +41,7 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   sanitizers:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -58,21 +58,37 @@ jobs:
           sudo bash /tmp/llvm.sh 21
       - name: Configure (ASan + UBSan)
         # Clang's ASan/UBSan give the most actionable diagnostics; pin clang-21.
+        # Build the examples too so their API-exercising paths run instrumented.
         run: >
           cmake -B build-san -G Ninja
           -DCMAKE_C_COMPILER=clang-21
           -DPIO_SIM_PLATFORM=${{ matrix.platform }}
+          -DPIO_SIM_BUILD_EXAMPLES=ON
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
       - name: Build
         run: cmake --build build-san
       - name: Test
         run: ctest --test-dir build-san --output-on-failure
+      - name: Run examples (instrumented)
+        run: |
+          set -euo pipefail
+          count=0
+          for ex in build-san/examples/*; do
+            [ -f "$ex" ] && [ -x "$ex" ] || continue
+            echo "== $ex =="
+            "$ex"
+            count=$((count + 1))
+          done
+          if [ "$count" -lt 6 ]; then
+            echo "expected >=6 example binaries, ran $count" >&2
+            exit 1
+          fi
 
   # Encoding differential: cross-check pio_asm against the authoritative
   # Raspberry Pi pioasm, built from the pinned Pico SDK. Gates that the
   # in-tree assembler's instruction encodings stay bit-exact.
   differential:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -110,7 +126,7 @@ jobs:
   # gated v0/v1 surface is analysed exactly as built. Checks + WarningsAsErrors
   # live in .clang-tidy.
   clang-tidy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -141,7 +157,7 @@ jobs:
           examples/04_ws2812.c examples/05_spi_dma.c examples/06_chip_bus.c
 
   format:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Install clang-format
@@ -174,7 +190,7 @@ jobs:
   # short smoke each PR. Fails only if libFuzzer finds a crash/UB (which is
   # the point). The library sources are instrumented into the harness.
   fuzz:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -201,7 +217,7 @@ jobs:
   # test runs so v0- and v1-gated code both count. Fails under an 80% line-
   # coverage gate; the full HTML report is uploaded as an artifact.
   coverage:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -224,6 +240,7 @@ jobs:
           done
       - name: Report, gate at 80%, and render HTML
         run: |
+          set -o pipefail  # don't let a failing llvm-cov hide behind `| tee` / `| jq`
           llvm-profdata-21 merge -sparse prof/*.profraw -o merged.profdata
           OBJS=$(find build-RP2040 build-RP2350 -type f -name 'test_pio_*' \
             ! -name '*.profraw' | sed 's/^/-object /' | tr '\n' ' ')
@@ -255,7 +272,7 @@ jobs:
   # Prove the install/packaging works: install pio_sim to a prefix, then build
   # a standalone consumer that find_package()s it and links pio_sim::pio_sim.
   install-consumer:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Install toolchain
@@ -277,7 +294,7 @@ jobs:
   # exits non-zero if its built-in sanity check fails, so this proves the
   # examples stay correct against the live API (not just that they compile).
   examples:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -295,8 +312,16 @@ jobs:
           cmake --build build
       - name: Run every example
         run: |
+          set -euo pipefail
+          count=0
           for ex in build/examples/*; do
             [ -f "$ex" ] && [ -x "$ex" ] || continue
             echo "== $ex =="
             "$ex"
+            count=$((count + 1))
           done
+          # Guard against a silently-empty build dir passing the job green.
+          if [ "$count" -lt 6 ]; then
+            echo "expected >=6 example binaries, ran $count" >&2
+            exit 1
+          fi

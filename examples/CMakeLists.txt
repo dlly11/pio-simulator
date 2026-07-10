@@ -14,7 +14,9 @@ foreach(example ${PIO_SIM_EXAMPLES})
     add_executable(${example} ${example}.c)
     target_link_libraries(${example} PRIVATE pio_sim)
     if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(${example} PRIVATE -Wall -Wextra -Wpedantic)
+        # Hold the reference programs to the library's full warning set so API
+        # misuse (e.g. -Wconversion) can't slip through the examples.
+        target_compile_options(${example} PRIVATE ${PIO_SIM_WARNING_FLAGS})
         # Match the library: warnings are errors only for a standalone build, so
         # embedders on a different compiler aren't broken by its warning set.
         if(PROJECT_IS_TOP_LEVEL)
