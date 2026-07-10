@@ -98,12 +98,55 @@ void pio_sim_gpio_set_inover(pio_sim_t *pio, uint8_t pin, pio_gpio_override_t o)
     set_override(&p->inover_inv, &p->inover_low, &p->inover_high, pin_bit(pin), o);
 }
 
+static pio_gpio_override_t get_override(uint64_t inv, uint64_t low, uint64_t high, uint64_t bit)
+{
+    if ((high & bit) != 0U) {
+        return PIO_GPIO_OVERRIDE_HIGH;
+    }
+    if ((low & bit) != 0U) {
+        return PIO_GPIO_OVERRIDE_LOW;
+    }
+    if ((inv & bit) != 0U) {
+        return PIO_GPIO_OVERRIDE_INVERT;
+    }
+    return PIO_GPIO_OVERRIDE_NORMAL;
+}
+
+pio_gpio_override_t pio_sim_gpio_get_outover(const pio_sim_t *pio, uint8_t pin)
+{
+    const pio_pads_t *p = pio->pads;
+    return get_override(p->outover_inv, p->outover_low, p->outover_high, pin_bit(pin));
+}
+
+pio_gpio_override_t pio_sim_gpio_get_oeover(const pio_sim_t *pio, uint8_t pin)
+{
+    const pio_pads_t *p = pio->pads;
+    return get_override(p->oeover_inv, p->oeover_low, p->oeover_high, pin_bit(pin));
+}
+
+pio_gpio_override_t pio_sim_gpio_get_inover(const pio_sim_t *pio, uint8_t pin)
+{
+    const pio_pads_t *p = pio->pads;
+    return get_override(p->inover_inv, p->inover_low, p->inover_high, pin_bit(pin));
+}
+
 void pio_sim_gpio_set_periph_output(pio_sim_t *pio, uint8_t pin, bool oe, bool level)
 {
     pio_pads_t *p = pio->pads;
     uint64_t bit = pin_bit(pin);
     mask_set(&p->periph_oe, bit, oe);
     mask_set(&p->periph_level, bit, level);
+}
+
+void pio_sim_gpio_get_periph_output(const pio_sim_t *pio, uint8_t pin, bool *oe, bool *level)
+{
+    uint64_t bit = pin_bit(pin);
+    if (oe != NULL) {
+        *oe = (pio->pads->periph_oe & bit) != 0U;
+    }
+    if (level != NULL) {
+        *level = (pio->pads->periph_level & bit) != 0U;
+    }
 }
 
 /* ── Pad registers ─────────────────────────────────────────────────────────── */

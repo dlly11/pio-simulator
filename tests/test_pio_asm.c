@@ -850,6 +850,40 @@ static void test_directive_range_errors(void)
                                       NULL, &p));
 }
 
+/* Instruction operands reject out-of-range values instead of silently
+ * truncating them into their (narrow) opcode fields. An oversized IRQ index is
+ * especially dangerous: the mode bits [4:3] would flip it into a rel/prev/next
+ * variant rather than the intended absolute flag. */
+static void test_instruction_operand_range_errors(void)
+{
+    pio_program_t p;
+    /* jmp target is the 5-bit address field (0..31). */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    jmp 32\n", NULL, &p));
+    TEST_ASSERT_TRUE(strstr(p.error, "jmp target") != NULL);
+    /* wait polarity is a single bit. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    wait 2 gpio 0\n", NULL, &p));
+    TEST_ASSERT_TRUE(strstr(p.error, "polarity") != NULL);
+    /* wait gpio/pin index is a 5-bit pin number. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    wait 1 gpio 32\n", NULL, &p));
+    /* wait irq index is only 3-bit; 8 would corrupt the mode bits. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    wait 1 irq 8\n", NULL, &p));
+    TEST_ASSERT_TRUE(strstr(p.error, "irq index") != NULL);
+    /* irq instruction index is likewise 3-bit. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    irq 8\n", NULL, &p));
+    TEST_ASSERT_TRUE(strstr(p.error, "irq index") != NULL);
+    /* Numeric .pio_version is only 0 or 1. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.pio_version 2\n    nop\n", NULL, &p));
+#if PIO_SIM_HAS_WAIT_JMPPIN
+    /* jmppin offset is a 5-bit index. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    wait 1 jmppin + 32\n", NULL, &p));
+    TEST_ASSERT_TRUE(strstr(p.error, "jmppin") != NULL);
+#endif
+    /* In-range operands still assemble. */
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program t\n    jmp 31\n    wait 1 gpio 31\n"
+                                      "    wait 0 irq 7\n    irq 7\n.pio_version 1\n",
+                                      NULL, &p));
+}
+
 /* More labels than the table holds is reported distinctly, not silently dropped
  * (which would surface later as a confusing "unknown label"). */
 static void test_too_many_labels_error(void)
@@ -1004,6 +1038,7 @@ int main(void)
     RUN_TEST(test_arity_errors);
     RUN_TEST(test_program_too_long_reports_error);
     RUN_TEST(test_directive_range_errors);
+    RUN_TEST(test_instruction_operand_range_errors);
     RUN_TEST(test_too_many_labels_error);
     RUN_TEST(test_config_directive_errors);
     RUN_TEST(test_mov_invert_operand_forms);

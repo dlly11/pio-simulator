@@ -90,11 +90,18 @@ void pio_sim_gpio_set_outover(pio_sim_t *pio, uint8_t pin, pio_gpio_override_t o
 void pio_sim_gpio_set_oeover(pio_sim_t *pio, uint8_t pin, pio_gpio_override_t o);
 void pio_sim_gpio_set_inover(pio_sim_t *pio, uint8_t pin, pio_gpio_override_t o);
 
+/** Read back the override configured above for `pin`. */
+pio_gpio_override_t pio_sim_gpio_get_outover(const pio_sim_t *pio, uint8_t pin);
+pio_gpio_override_t pio_sim_gpio_get_oeover(const pio_sim_t *pio, uint8_t pin);
+pio_gpio_override_t pio_sim_gpio_get_inover(const pio_sim_t *pio, uint8_t pin);
+
 /** Output of the currently selected non-PIO peripheral (SIO, UART, PWM…) on
  * `pin`: reaches the pad only while the pin's FUNCSEL selects a non-PIO
  * function. Models an on-chip driver — for an off-chip device on the wire use
  * pio_sim_set_pin / pio_sim_release_pin. */
 void pio_sim_gpio_set_periph_output(pio_sim_t *pio, uint8_t pin, bool oe, bool level);
+/** Read back the peripheral output set above (either pointer may be NULL). */
+void pio_sim_gpio_get_periph_output(const pio_sim_t *pio, uint8_t pin, bool *oe, bool *level);
 
 /* ── Pad registers (PADS_BANK0) ────────────────────────────────────────────── */
 

@@ -143,9 +143,9 @@ void pio_dma_channel_set_enabled(pio_dma_t *d, uint8_t ch, bool en) { d->ch[CH_I
 /* Raise the completion flag for `ch` and run its callback. */
 static void dma_raise_irq(pio_dma_t *d, uint8_t ch)
 {
-    d->intr |= (uint32_t)1U << ch;
-    if (d->ch[ch].on_complete != NULL) {
-        d->ch[ch].on_complete(d, ch, d->ch[ch].cb_ctx);
+    d->intr |= (uint32_t)1U << CH_IDX(ch);
+    if (d->ch[CH_IDX(ch)].on_complete != NULL) {
+        d->ch[CH_IDX(ch)].on_complete(d, ch, d->ch[CH_IDX(ch)].cb_ctx);
     }
 }
 

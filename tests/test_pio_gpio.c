@@ -6,6 +6,8 @@
 #include "pio_gpio.h"
 #include "pio_sim.h"
 
+#include <stddef.h> /* NULL, size_t */
+
 static pio_sim_t pio;
 
 static pio_sm_config cfg;
@@ -275,6 +277,34 @@ static void test_periph_output_drives_pad_when_selected(void)
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 8)); /* deselected again */
 }
 
+/* The override and peripheral-output getters read back exactly what was set. */
+static void test_override_and_periph_getters_roundtrip(void)
+{
+    const pio_gpio_override_t modes[] = {PIO_GPIO_OVERRIDE_NORMAL, PIO_GPIO_OVERRIDE_INVERT,
+                                         PIO_GPIO_OVERRIDE_LOW, PIO_GPIO_OVERRIDE_HIGH};
+    for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+        pio_sim_gpio_set_outover(&pio, 5, modes[i]);
+        pio_sim_gpio_set_oeover(&pio, 5, modes[(i + 1U) % 4U]);
+        pio_sim_gpio_set_inover(&pio, 5, modes[(i + 2U) % 4U]);
+        TEST_ASSERT_EQUAL_INT(modes[i], pio_sim_gpio_get_outover(&pio, 5));
+        TEST_ASSERT_EQUAL_INT(modes[(i + 1U) % 4U], pio_sim_gpio_get_oeover(&pio, 5));
+        TEST_ASSERT_EQUAL_INT(modes[(i + 2U) % 4U], pio_sim_gpio_get_inover(&pio, 5));
+    }
+
+    bool oe = false;
+    bool level = false;
+    pio_sim_gpio_set_periph_output(&pio, 9, true, true);
+    pio_sim_gpio_get_periph_output(&pio, 9, &oe, &level);
+    TEST_ASSERT_TRUE(oe);
+    TEST_ASSERT_TRUE(level);
+    pio_sim_gpio_set_periph_output(&pio, 9, false, false);
+    pio_sim_gpio_get_periph_output(&pio, 9, &oe, &level);
+    TEST_ASSERT_FALSE(oe);
+    TEST_ASSERT_FALSE(level);
+    /* NULL out-pointers are tolerated (matching pio_sim_pad_get_pulls). */
+    pio_sim_gpio_get_periph_output(&pio, 9, NULL, NULL);
+}
+
 static void test_outover_inverts_and_forces(void)
 {
     drive_pin_high(&pio, 10);
@@ -407,6 +437,7 @@ int main(void)
     RUN_TEST(test_funcsel_selects_between_shared_blocks);
     RUN_TEST(test_input_visible_when_funcsel_is_sio);
     RUN_TEST(test_periph_output_drives_pad_when_selected);
+    RUN_TEST(test_override_and_periph_getters_roundtrip);
     RUN_TEST(test_outover_inverts_and_forces);
     RUN_TEST(test_oeover_forces_drive_with_no_function);
     RUN_TEST(test_inover_inverts_through_sync_and_bypass);
