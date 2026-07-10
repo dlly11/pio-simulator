@@ -142,6 +142,10 @@ static void test_functional_pad_fields_read_back(void)
     TEST_ASSERT_EQUAL_INT(PIO_GPIO_FUNC_PIO0, pio_sim_gpio_get_function(&pio, 5));
     pio_sim_gpio_set_function(&pio, 5, PIO_GPIO_FUNC_NULL);
     TEST_ASSERT_EQUAL_INT(PIO_GPIO_FUNC_NULL, pio_sim_gpio_get_function(&pio, 5));
+    /* FUNCSEL is a 5-bit field: a wider value truncates (as on real silicon)
+     * rather than reading back as an out-of-enum value. */
+    pio_sim_gpio_set_function(&pio, 5, (pio_gpio_func_t)(0x20U | (unsigned)PIO_GPIO_FUNC_SIO));
+    TEST_ASSERT_EQUAL_INT(PIO_GPIO_FUNC_SIO, pio_sim_gpio_get_function(&pio, 5));
 }
 
 static void test_pads_reset_hw_matches_datasheet(void)

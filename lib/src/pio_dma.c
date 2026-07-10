@@ -27,6 +27,8 @@ bool pio_sim_sm_is_dreq_rx(const pio_sim_t *pio, uint8_t sm)
 
 #define CH_IDX(ch) ((uint8_t)((ch) % PIO_SIM_DMA_NUM_CHANNELS))
 #define LINE_IDX(l) ((uint8_t)((l) % PIO_SIM_DMA_NUM_IRQS))
+/* Bit mask of implemented channels (NUM_CHANNELS is 12/16, always < 32). */
+#define CH_VALID_MASK (((uint32_t)1U << PIO_SIM_DMA_NUM_CHANNELS) - 1U)
 
 /* ── Endpoints ─────────────────────────────────────────────────────────────── */
 
@@ -492,6 +494,9 @@ bool pio_dma_tick(pio_dma_t *d)
 void pio_dma_irqn_set_channel_mask_enabled(pio_dma_t *d, uint8_t irq_index, uint32_t channel_mask,
                                            bool enabled)
 {
+    /* Keep the INTE image clean: only implemented channels have a bit, matching
+     * every other register path in this file (intr, get_ints). */
+    channel_mask &= CH_VALID_MASK;
     if (enabled) {
         d->inte[LINE_IDX(irq_index)] |= channel_mask;
     } else {
@@ -517,13 +522,19 @@ void pio_dma_irqn_acknowledge_channel(pio_dma_t *d, uint8_t irq_index, uint8_t c
 
 uint32_t pio_dma_get_intr(const pio_dma_t *d) { return d->intr; }
 
-uint32_t pio_dma_get_ints(const pio_dma_t *d, uint8_t line)
+uint32_t pio_dma_get_ints(const pio_dma_t *d, uint8_t irq_index)
 {
-    return (d->intr & d->inte[LINE_IDX(line)]) | d->intf[LINE_IDX(line)];
+    return (d->intr & d->inte[LINE_IDX(irq_index)]) | d->intf[LINE_IDX(irq_index)];
 }
 
-uint32_t pio_dma_get_inte(const pio_dma_t *d, uint8_t line) { return d->inte[LINE_IDX(line)]; }
-uint32_t pio_dma_get_intf(const pio_dma_t *d, uint8_t line) { return d->intf[LINE_IDX(line)]; }
+uint32_t pio_dma_get_inte(const pio_dma_t *d, uint8_t irq_index)
+{
+    return d->inte[LINE_IDX(irq_index)];
+}
+uint32_t pio_dma_get_intf(const pio_dma_t *d, uint8_t irq_index)
+{
+    return d->intf[LINE_IDX(irq_index)];
+}
 
 void pio_dma_irqn_force_channel(pio_dma_t *d, uint8_t irq_index, uint8_t ch, bool on)
 {
