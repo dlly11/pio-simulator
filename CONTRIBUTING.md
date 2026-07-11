@@ -72,6 +72,19 @@ clang-tidy -p build lib/src/*.c examples/*.c \
     tests/test_pio_sim.c tests/test_pio_asm.c tests/test_pio_gpio.c \
     tests/test_pio_clk.c tests/test_pio_dma.c tests/test_pio_programs.c
 
+# Supplementary static analysis (cppcheck) — a second opinion over the library,
+# run against both feature surfaces (needs no build). Clean = exit 0. False
+# positives are suppressed inline in the source; .cppcheck-suppressions only
+# silences cppcheck's own environmental noise. (CI uses Ubuntu's packaged
+# cppcheck, so a newer local version may occasionally flag something extra.)
+for ver in 1 0; do
+  cppcheck --enable=warning,performance,portability --std=c11 \
+    --inline-suppr --error-exitcode=1 --quiet \
+    --suppressions-list=.cppcheck-suppressions \
+    -DPIO_SIM_PIO_VERSION=$ver -I lib/include -I lib/config -I lib/src \
+    lib/src lib/include
+done
+
 # Sanitizers
 cmake -B build-san -G Ninja -DCMAKE_C_COMPILER=clang \
   -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
@@ -111,6 +124,6 @@ llvm-cov report $(find build-cov-RP2040 build-cov-RP2350 -name 'test_pio_*' -typ
 ## Pull requests
 
 Branch off `main`, keep commits focused, and make sure the full CI matrix is
-green — build (gcc + clang-21 × RP2040/RP2350), sanitizers, clang-tidy, format,
-the pioasm differential, fuzz, the 80% coverage gate, and the install-consumer
-smoke.
+green — build (gcc + clang-21 × RP2040/RP2350), sanitizers, clang-tidy, cppcheck,
+format, the pioasm differential, fuzz, the 80% coverage gate, and the
+install-consumer smoke.
