@@ -378,3 +378,40 @@ jobs:
               -I lib/include -I lib/config -I lib/src \
               lib/src lib/include
           done
+
+  # Documentation-coverage gate: the same Doxyfile the Pages workflow deploys,
+  # run on every PR, failing if any public symbol is undocumented. This locks in
+  # the "every public symbol carries a doc comment" invariant (Doxyfile sets
+  # WARN_IF_UNDOCUMENTED, and each header is an @file) so new API can't merge
+  # without docs.
+  #
+  # Two classes of warning are filtered on purpose, neither a doc gap:
+  #  - "(macro definition)": the #define constants — mostly the low-level
+  #    instruction-encoding field values (PIO_OP_/COND_/SRC_/DST_/MOV_/…). The
+  #    encode_* functions are the documented API for building words; gating ~80
+  #    self-evident field constants is noise. Functions, types, enums and struct
+  #    members ARE gated.
+  #  - README \ref warnings: Doxygen renders README as the main page, and older
+  #    Doxygen (Ubuntu's) ignores MARKDOWN_ID_STYLE, emitting cosmetic \ref
+  #    warnings for the GitHub-style TOC anchors. "is not documented" excludes them.
+  doc-coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen
+      - name: Fail on any undocumented public symbol
+        run: |
+          set -euo pipefail
+          doxygen --version
+          # Capture Doxygen's warnings (stderr) without aborting on non-zero.
+          warnings=$(doxygen Doxyfile 2>&1 >/dev/null || true)
+          undocumented=$(printf '%s\n' "$warnings" \
+            | grep "is not documented" \
+            | { grep -v "(macro definition)" || true; })
+          if [ -n "$undocumented" ]; then
+            echo "Undocumented public symbols (add a Doxygen /** */ or /**< */):"
+            printf '%s\n' "$undocumented"
+            exit 1
+          fi
+          echo "All public symbols documented (functions, types, enums, members)."
