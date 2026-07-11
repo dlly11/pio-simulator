@@ -849,9 +849,22 @@ uint32_t pio_sim_get_intr(const pio_sim_t *pio)
     return intr;
 }
 
+/* Valid INTR/INTE/INTF source bits: SM RXNEMPTY[3:0], TXNFULL[7:4], and the
+ * routable IRQ flags (IRQ0-3 -> [11:8] on RP2040, IRQ0-7 -> [15:8] on RP2350).
+ * INTE/INTF writes are masked to these so the stored register image never holds
+ * a bit INTR can't source (silicon reads unimplemented bits as 0) — an INTF bit
+ * outside this set would otherwise leak straight into INTS. Mirrors pio_dma's
+ * CH_VALID_MASK discipline. */
+#if PIO_SIM_HAS_INTR_IRQ8
+#define PIO_SIM_INTS_VALID_MASK 0x0000FFFFU
+#else
+#define PIO_SIM_INTS_VALID_MASK 0x00000FFFU
+#endif
+
 void pio_sim_set_irqn_source_mask_enabled(pio_sim_t *pio, uint8_t line, uint32_t source_mask,
                                           bool enabled)
 {
+    source_mask &= PIO_SIM_INTS_VALID_MASK;
     if (enabled) {
         pio->irq_inte[line & 1U] |= source_mask;
     } else {
@@ -868,6 +881,7 @@ uint32_t pio_sim_get_inte(const pio_sim_t *pio, uint8_t line) { return pio->irq_
 
 void pio_sim_set_intf(pio_sim_t *pio, uint8_t line, uint32_t mask, bool on)
 {
+    mask &= PIO_SIM_INTS_VALID_MASK;
     if (on) {
         pio->irq_intf[line & 1U] |= mask;
     } else {
@@ -911,6 +925,23 @@ static bool isr_drain(pio_sm_t *sm)
     sm->isr = 0;
     sm->isr_count = 0;
     return true;
+}
+
+/* True when the RX FIFO is repurposed as the RP2350 4-entry register file
+ * (FJOIN_RX_PUT/GET/PUTGET). In those modes rx is addressed directly by the
+ * MOV-RX-FIFO ops and rx.count is not maintained, so an autopush/PUSH must NOT
+ * drain into it — silicon does not route the shift path into the register file.
+ * The caller treats it like a permanently-unavailable RX FIFO (RXSTALL). */
+static bool rx_fifo_is_register_file(const pio_sm_t *sm)
+{
+#if PIO_SIM_HAS_RXFIFO_MOV
+    return (sm->fifo_join == (uint8_t)PIO_FIFO_JOIN_RX_PUT) ||
+           (sm->fifo_join == (uint8_t)PIO_FIFO_JOIN_RX_GET) ||
+           (sm->fifo_join == (uint8_t)PIO_FIFO_JOIN_RX_PUTGET);
+#else
+    (void)sm;
+    return false;
+#endif
 }
 
 /* ── Instruction execution ─────────────────────────────────────────────────── */
@@ -1085,16 +1116,29 @@ static irq_target_t resolve_irq_target(uint8_t sm_idx, uint8_t field)
     uint8_t mode = (uint8_t)(field & PIO_IRQ_MODE_MASK);
     uint8_t base = (uint8_t)(field & 0x7U);
     irq_target_t t = {base, IRQ_BLOCK_SELF};
+    /* Mode is bits [4:3]: 00 self, 01 (0x08) prev, 10 (0x10) rel, 11 (0x18)
+     * next. prev/next inter-PIO routing exists only on RP2350. */
+#if !PIO_SIM_HAS_IRQ_PREVNEXT
+    /* RP2040 has no prev/next hardware: its IRQ index is bits[2:0] and the only
+     * mode bit is rel = bit 4 (pico-sdk _pio_encode_irq). Bit 3 is not part of
+     * the decode, so silicon ignores it. Fold a raw word that sets bit 3 down to
+     * its RP2040 meaning — self (bit 4 clear) or rel (bit 4 set) — so it acts on
+     * the local flag like hardware, instead of decoding a nonexistent prev/next
+     * target that would leave WAIT IRQ stalled forever. */
+    mode = (uint8_t)(mode & PIO_IRQ_REL);
+#endif
     switch (mode) {
     case PIO_IRQ_REL:
         t.index = (uint8_t)((base & 0x4U) | (((base & 0x3U) + sm_idx) & 0x3U));
         break;
+#if PIO_SIM_HAS_IRQ_PREVNEXT
     case PIO_IRQ_PREV:
         t.block = IRQ_BLOCK_PREV;
         break;
     case PIO_IRQ_NEXT:
         t.block = IRQ_BLOCK_NEXT;
         break;
+#endif
     default: /* this PIO, absolute index */
         break;
     }
@@ -1176,8 +1220,11 @@ static bool exec_in(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
      * and shift the same source bits into the ISR a second time. */
     bool will_autopush =
         sm->autopush && (((uint32_t)sm->isr_count + (uint32_t)count) >= sm->push_thresh);
-    if (will_autopush && pio_sim_sm_is_rx_fifo_full(pio, sm_idx)) {
-        sm->fdebug |= PIO_FDEBUG_RXSTALL; /* autopush blocked by a full RX FIFO */
+    if (will_autopush &&
+        (rx_fifo_is_register_file(sm) || pio_sim_sm_is_rx_fifo_full(pio, sm_idx))) {
+        /* Blocked by a full RX FIFO, or by a register-file join mode where the
+         * RX FIFO is not a live push target. */
+        sm->fdebug |= PIO_FDEBUG_RXSTALL;
         return true;
     }
     uint32_t data = read_source(pio, sm, src) & mask_n(count);
@@ -1287,8 +1334,11 @@ static bool exec_pushpull(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
         if (cond && (sm->isr_count < sm->push_thresh)) {
             return false; /* iffull but not full enough → nop */
         }
-        if (pio_sim_sm_is_rx_fifo_full(pio, sm_idx)) {
-            sm->fdebug |= PIO_FDEBUG_RXSTALL; /* PUSH blocked/dropped on full RX */
+        if (rx_fifo_is_register_file(sm) || pio_sim_sm_is_rx_fifo_full(pio, sm_idx)) {
+            /* Blocked/dropped on a full RX FIFO, or a register-file join mode
+             * where the RX FIFO is not a live push target (writing it would
+             * clobber a MOV-addressed slot). */
+            sm->fdebug |= PIO_FDEBUG_RXSTALL;
             if (block) {
                 return true;
             }

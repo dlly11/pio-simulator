@@ -794,6 +794,40 @@ static void test_sideset_drives_pin(void)
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 2));
 }
 
+/* Side-set with pindirs=true drives pin DIRECTION (OE), not level — the
+ * drive_pindirs branch, sibling of test_sideset_drives_pin. side 1 makes the
+ * side-set pin an output; side 0 makes it an input again. */
+static void test_sideset_pindirs_drives_direction(void)
+{
+    sm_config_set_sideset(&cfg, 1, false, true); /* 1 bit, no opt, pindirs */
+    sm_config_set_sideset_pins(&cfg, 3);
+    uint16_t s1 = (uint16_t)(pio_sim_encode_set(PIO_DST_X, 0) | (1U << 12U)); /* side 1 */
+    uint16_t s0 = pio_sim_encode_set(PIO_DST_X, 0);                           /* side 0 */
+    const uint16_t prog[] = {s1, s0};
+    load_prog(prog, 2);
+    TEST_ASSERT_FALSE(pio_sim_pin_is_pio_output(&pio, 3)); /* input at reset */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_TRUE(pio_sim_pin_is_pio_output(&pio, 3)); /* side 1 -> OE set */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_FALSE(pio_sim_pin_is_pio_output(&pio, 3)); /* side 0 -> OE cleared */
+}
+
+/* Autopush crossing the threshold on a TX-joined SM (RX capacity 0) must stall
+ * with RXSTALL, never drain — the zero-capacity is_rx_fifo_full boundary on the
+ * autopush path. The IN stalls before shifting, so the ISR is untouched. */
+static void test_autopush_into_tx_joined_sm_stalls(void)
+{
+    sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_TX); /* RX cap = 0 */
+    sm_config_set_in_shift(&cfg, false, true, 8);    /* autopush at 8 bits */
+    const uint16_t prog[] = {pio_sim_encode_in(PIO_SRC_X, 8)};
+    load_prog(prog, 1);
+    pio.sm[0].x = 0xFFU;
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_TRUE((pio.sm[0].fdebug & PIO_FDEBUG_RXSTALL) != 0U);
+    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].rx.count);  /* nothing drained */
+    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].isr_count); /* stalled before shifting */
+}
+
 static void test_delay_holds_pc(void)
 {
     /* SET x,1 [3] then SET y,1: the delay makes the SM idle 3 cycles. */
@@ -1435,22 +1469,53 @@ static void test_mov_rxfifo_discriminator_bit4(void)
     TEST_ASSERT_TRUE(pio_sim_sm_get(&pio, 0, &w));
     TEST_ASSERT_EQUAL_UINT32(1U, w);
 }
+
+/* In an RX register-file join mode the RX FIFO is not a live push target (it is
+ * addressed only by MOV rxfifo[]). A blocking PUSH must stall (RXSTALL) rather
+ * than drain the ISR into the register file — which would clobber a MOV slot and
+ * desync rx.count (is_rx_fifo_full never fires because the MOVs don't touch it). */
+static void test_push_into_rx_register_file_stalls(void)
+{
+    sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX_PUT);
+    const uint16_t prog[] = {pio_sim_encode_push(false, true)}; /* push block */
+    load_prog(prog, 1);
+    pio.sm[0].rx.buf[0] = 0xA5A5A5A5U; /* sentinel in register-file slot 0 */
+    pio.sm[0].isr = 0x12345678U;
+    pio.sm[0].isr_count = 32;
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_TRUE((pio.sm[0].fdebug & PIO_FDEBUG_RXSTALL) != 0U); /* blocked */
+    TEST_ASSERT_EQUAL_HEX32(0x12345678U, pio.sm[0].isr);             /* ISR untouched */
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5U, pio.sm[0].rx.buf[0]);       /* slot not clobbered */
+    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].rx.count);                 /* not desynced */
+}
 #endif /* PIO_SIM_HAS_RXFIFO_MOV */
 
-static void test_irq_next_prev_have_no_local_effect(void)
+static void test_irq_prev_next_encoding_decode(void)
 {
-    /* `irq 0 next`/`prev` target a neighbouring PIO block. With no neighbour
-     * linked (the default) they must raise no local flag, and crucially must not
-     * be misdecoded as `rel` (the `next` mode shares bit 4 with the rel bit). */
     const uint16_t prog[] = {
         (uint16_t)(pio_sim_encode_irq(false, false, 0) | PIO_IRQ_NEXT),
         (uint16_t)(pio_sim_encode_irq(false, false, 0) | PIO_IRQ_PREV),
     };
     load_prog(prog, 2);
     pio_sim_run(&pio, 4);
+#if PIO_SIM_HAS_IRQ_PREVNEXT
+    /* RP2350: `irq next`/`prev` target a neighbouring PIO block. With none linked
+     * (the default) they raise no local flag. */
     for (uint8_t f = 0; f < 8U; f++) {
         TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, f));
     }
+#else
+    /* RP2040 has no prev/next hardware: the index is bits[2:0] and rel is bit 4
+     * (pico-sdk _pio_encode_irq), so the reserved bit 3 is ignored by silicon.
+     * A raw word using the RP2350 prev/next encodings therefore acts on the
+     * LOCAL flag: PIO_IRQ_PREV (0x08, bit 4 clear) is absolute index 0, and
+     * PIO_IRQ_NEXT (0x18, bit 4 set) is rel index 0 -> flag 0 for SM0. Both set
+     * local IRQ 0; nothing else. */
+    TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 0));
+    for (uint8_t f = 1; f < 8U; f++) {
+        TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, f));
+    }
+#endif
 }
 
 #if PIO_SIM_HAS_WAIT_JMPPIN
@@ -1556,6 +1621,19 @@ static void test_gpio_base_offsets_output(void)
     pio_sim_run(&pio, 1);
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 18)); /* 16 + 2 */
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 2)); /* the un-offset pin stays low */
+}
+
+/* Top of the GPIOBASE window: with base 16, view pin 31 maps to physical GPIO 47
+ * (the last pin of the 32-pin window) — the edge of the window mapping. */
+static void test_gpio_base_window_top_edge(void)
+{
+    pio_sim_set_gpio_base(&pio, 16);
+    sm_config_set_set_pins(&cfg, 31, 1);
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, 31, 1, true); /* view pin 31 -> GPIO 47 */
+    const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_PINS, 1)};
+    load_prog(prog, 1);
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 47)); /* 16 + 31, the window's last pin */
 }
 
 static void test_gpio_base_offsets_input(void)
@@ -1958,6 +2036,23 @@ static void test_irq_enable_force_read_back(void)
     /* The other line of each mask stays untouched. */
     TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_inte(&pio, 1));
     TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_intf(&pio, 0));
+}
+
+/* INTE/INTF writes are masked to valid INTR source bits (RXNEMPTY[3:0],
+ * TXNFULL[7:4], IRQ[11:8] on v0 / IRQ[15:8] on v1), mirroring pio_dma's
+ * clean-register-image discipline. An out-of-range bit is dropped on write, so
+ * it neither reads back nor (for INTF, which ORs straight into INTS) leaks into
+ * the asserted state. */
+static void test_irq_enable_force_masks_invalid_bits(void)
+{
+    const uint32_t invalid = (uint32_t)1U << 20U; /* above every INTR source, both parts */
+    pio_sim_set_irqn_source_mask_enabled(&pio, 0, invalid | PIO_INTR_SM_TXNFULL(0), true);
+    TEST_ASSERT_EQUAL_HEX32(PIO_INTR_SM_TXNFULL(0),
+                            pio_sim_get_inte(&pio, 0)); /* invalid dropped */
+
+    pio_sim_set_intf(&pio, 1, invalid, true);
+    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_intf(&pio, 1)); /* not stored */
+    TEST_ASSERT_FALSE(pio_sim_get_irqn_asserted(&pio, 1));  /* and does not force the line */
 }
 
 /* ── #8: input synchroniser (always-on two-cycle delay) ────────────────────── */
@@ -2409,6 +2504,8 @@ int main(void)
     RUN_TEST(test_irq_set_and_clear);
 
     RUN_TEST(test_sideset_drives_pin);
+    RUN_TEST(test_sideset_pindirs_drives_direction);
+    RUN_TEST(test_autopush_into_tx_joined_sm_stalls);
     RUN_TEST(test_delay_holds_pc);
     RUN_TEST(test_clkdiv_slows_execution);
     RUN_TEST(test_clkdiv_fractional_cadence);
@@ -2454,8 +2551,9 @@ int main(void)
     RUN_TEST(test_rxfifo_mode_enforced);
     RUN_TEST(test_rxfifo_mode_leaves_tx_fifo);
     RUN_TEST(test_mov_rxfifo_discriminator_bit4);
+    RUN_TEST(test_push_into_rx_register_file_stalls);
 #endif
-    RUN_TEST(test_irq_next_prev_have_no_local_effect);
+    RUN_TEST(test_irq_prev_next_encoding_decode);
 #if PIO_SIM_HAS_WAIT_JMPPIN
     RUN_TEST(test_wait_jmppin);
     RUN_TEST(test_wait_jmppin_index_offset);
@@ -2470,6 +2568,7 @@ int main(void)
 #if PIO_SIM_HAS_GPIO_BASE
     RUN_TEST(test_gpio_base_offsets_output);
     RUN_TEST(test_gpio_base_offsets_input);
+    RUN_TEST(test_gpio_base_window_top_edge);
     RUN_TEST(test_gpio_base_get_roundtrips);
 #endif
 #if PIO_SIM_HAS_IRQ_PREVNEXT
@@ -2492,6 +2591,7 @@ int main(void)
     RUN_TEST(test_system_irq_lines);
     RUN_TEST(test_intr_irq_flag_routing);
     RUN_TEST(test_irq_enable_force_read_back);
+    RUN_TEST(test_irq_enable_force_masks_invalid_bits);
 
     RUN_TEST(test_input_sync_delays_jmp_pin_by_two_cycles);
     RUN_TEST(test_sync_settle_makes_static_input_immediate);

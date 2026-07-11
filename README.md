@@ -305,17 +305,22 @@ cross-checks the assembler's encodings against the real pioasm.
 ### Lint & format
 
 CI also runs `clang-format` (style in `.clang-format`) and `clang-tidy` (checks
-in `.clang-tidy`) over the library. To reproduce locally:
+in `.clang-tidy`) over the library, examples, and tests. To reproduce locally:
 
 ```sh
 # formatting (no changes => clean) — the same file set CI checks
 clang-format --dry-run --Werror lib/src/*.c lib/src/pio_sim_internal.h \
     lib/include/*.h lib/config/*.h \
-    tests/test_*.c tests/fuzz_pio_asm.c tests/unity_config.h tests/consumer/main.c
+    tests/test_*.c tests/fuzz_pio_asm.c tests/unity_config.h tests/consumer/main.c \
+    examples/*.c
 
-# static analysis: needs a compile database for the include paths / feature defines
-cmake -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-clang-tidy -p build lib/src/*.c
+# static analysis: needs a compile database for the include paths / feature
+# defines. Build the examples too so they appear in compile_commands.json (CI
+# tidies lib + examples + the deterministic test suites, with WarningsAsErrors).
+cmake -B build -G Ninja -DPIO_SIM_BUILD_EXAMPLES=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+clang-tidy -p build lib/src/*.c examples/*.c \
+    tests/test_pio_sim.c tests/test_pio_asm.c tests/test_pio_gpio.c \
+    tests/test_pio_clk.c tests/test_pio_dma.c tests/test_pio_programs.c
 ```
 
 ## Embedding

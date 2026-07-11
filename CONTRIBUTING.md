@@ -60,11 +60,17 @@ reads `PIO_SIM_PIO_VERSION`.)
 # Formatting (must be clean) — the same file set CI checks
 clang-format --dry-run --Werror lib/src/*.c lib/src/pio_sim_internal.h \
     lib/include/*.h lib/config/*.h \
-    tests/test_*.c tests/fuzz_pio_asm.c tests/unity_config.h tests/consumer/main.c
+    tests/test_*.c tests/fuzz_pio_asm.c tests/unity_config.h tests/consumer/main.c \
+    examples/*.c
 
-# Static analysis (clean, WarningsAsErrors)
-cmake -B build -G Ninja -DPIO_SIM_PLATFORM=RP2350 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-clang-tidy -p build lib/src/*.c
+# Static analysis (clean, WarningsAsErrors) — lib + examples + deterministic
+# test suites, exactly as CI runs it. Build the examples so they land in
+# compile_commands.json.
+cmake -B build -G Ninja -DPIO_SIM_PLATFORM=RP2350 \
+  -DPIO_SIM_BUILD_EXAMPLES=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+clang-tidy -p build lib/src/*.c examples/*.c \
+    tests/test_pio_sim.c tests/test_pio_asm.c tests/test_pio_gpio.c \
+    tests/test_pio_clk.c tests/test_pio_dma.c tests/test_pio_programs.c
 
 # Sanitizers
 cmake -B build-san -G Ninja -DCMAKE_C_COMPILER=clang \
@@ -76,12 +82,17 @@ cmake -B build-fuzz -G Ninja -DCMAKE_C_COMPILER=clang -DPIO_SIM_BUILD_FUZZERS=ON
 cmake --build build-fuzz --target fuzz_pio_asm
 mkdir -p /tmp/finds && ./build-fuzz/tests/fuzz_pio_asm -max_total_time=30 /tmp/finds tests/fuzz_corpus
 
-# Coverage (CI gates at 80% total lines)
-cmake -B build-cov -G Ninja -DCMAKE_C_COMPILER=clang -DPIO_SIM_COVERAGE=ON
-cmake --build build-cov
-( cd build-cov && LLVM_PROFILE_FILE="cov-%p.profraw" ctest )
-llvm-profdata merge -sparse build-cov/cov-*.profraw -o cov.profdata
-llvm-cov report $(find build-cov -name 'test_pio_*' -type f ! -name '*.profraw' | sed 's/^/-object /') \
+# Coverage (CI gates at 80% total lines, MERGING both platforms — a single
+# platform reads lower because it misses the other's v0/v1-gated code).
+for plat in RP2040 RP2350; do
+  cmake -B "build-cov-$plat" -G Ninja -DCMAKE_C_COMPILER=clang \
+    -DPIO_SIM_PLATFORM="$plat" -DPIO_SIM_COVERAGE=ON
+  cmake --build "build-cov-$plat"
+  ( cd "build-cov-$plat" && LLVM_PROFILE_FILE="cov-%p.profraw" ctest )
+done
+llvm-profdata merge -sparse build-cov-*/cov-*.profraw -o cov.profdata
+llvm-cov report $(find build-cov-RP2040 build-cov-RP2350 -name 'test_pio_*' -type f \
+  ! -name '*.profraw' | sed 's/^/-object /') \
   -instr-profile=cov.profdata -ignore-filename-regex='(tests|third_party|unity)'
 ```
 
