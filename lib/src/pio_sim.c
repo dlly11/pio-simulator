@@ -352,6 +352,11 @@ void sm_config_set_clkdiv(pio_sm_config *c, float div)
         div = 65535.99F;
     }
     uint16_t whole = (uint16_t)div;
+    /* whole == floor(div) after the clamp above, so (div - whole) is in [0, 1)
+     * and the product is in [0, 256) — always representable in uint8_t. cppcheck
+     * can't prove whole == floor(div), so it assumes the worst; suppress its
+     * false positive rather than add a provably-dead clamp branch. */
+    /* cppcheck-suppress floatConversionOverflow */
     uint8_t frac = (uint8_t)((div - (float)whole) * 256.0F);
     c->clkdiv_int = whole;
     c->clkdiv_frac = frac;

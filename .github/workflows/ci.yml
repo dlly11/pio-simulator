@@ -343,3 +343,29 @@ jobs:
             echo "expected >=6 example binaries, ran $count" >&2
             exit 1
           fi
+
+  # Supplementary static analysis: cppcheck over the library, a second opinion
+  # alongside clang-tidy. Runs both feature surfaces (v0/v1) via the config macro
+  # — no build needed. Genuine false positives are suppressed inline in the
+  # source; environmental noise lives in .cppcheck-suppressions. Fails the build
+  # on any finding (--error-exitcode). Ubuntu's packaged cppcheck is used, so the
+  # version is whatever the pinned runner image ships (reproducible per image).
+  cppcheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install cppcheck
+        run: sudo apt-get update && sudo apt-get install -y cppcheck
+      - name: Analyse both PIO versions
+        run: |
+          set -euo pipefail
+          cppcheck --version
+          for ver in 1 0; do
+            echo "== PIO_SIM_PIO_VERSION=$ver =="
+            cppcheck --enable=warning,performance,portability --std=c11 \
+              --inline-suppr --error-exitcode=1 --quiet \
+              --suppressions-list=.cppcheck-suppressions \
+              -DPIO_SIM_PIO_VERSION=$ver \
+              -I lib/include -I lib/config -I lib/src \
+              lib/src lib/include
+          done

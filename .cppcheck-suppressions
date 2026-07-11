@@ -1,0 +1,17 @@
+# cppcheck suppressions for the pio-simulator static-analysis gate.
+#
+# Genuine false positives are suppressed inline, in the source next to the code
+# (grep for "cppcheck-suppress"), so the justification lives with what it excuses.
+# This file only silences cppcheck's own environmental / informational output —
+# not findings about our code.
+
+# We deliberately don't feed cppcheck the system include path (it analyses our
+# sources, not libc), so it can't open <stdint.h> etc. Expected, not a finding.
+missingIncludeSystem
+
+# Informational epilogue, not a defect: the "active checkers" summary line.
+checkersReport
+
+# Informational: cppcheck caps branch analysis unless --check-level=exhaustive.
+# We run the normal level on purpose; this note isn't a finding.
+normalCheckLevelMaxBranches

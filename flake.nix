@@ -18,6 +18,7 @@
           packages = with pkgs; [
             llvmPackages_21.clang-tools # clang-format / clang-tidy (21), matching CI
             llvm_21 # llvm-cov, llvm-profdata (coverage)
+            cppcheck # supplementary static-analysis gate
             cmake
             ninja
             gcc # the CI matrix also builds with gcc
