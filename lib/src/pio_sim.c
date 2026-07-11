@@ -845,6 +845,12 @@ void pio_sim_irq_clear(pio_sim_t *pio, uint8_t irq)
     pio->irq = (uint8_t)(pio->irq & mask);
 }
 
+void pio_sim_irq_force(pio_sim_t *pio, uint8_t irq, bool on)
+{
+    uint8_t bit = (uint8_t)(1U << (irq & 7U));
+    pio->irq = (uint8_t)(on ? (pio->irq | bit) : (pio->irq & (uint8_t)~bit));
+}
+
 /* ── System interrupt lines ────────────────────────────────────────────────── */
 
 uint32_t pio_sim_get_intr(const pio_sim_t *pio)

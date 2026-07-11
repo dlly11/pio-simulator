@@ -645,7 +645,13 @@ void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm);
  * writes via `mov rxfifo[], isr` and the host reads with pio_sim_sm_rxfifo_get; in
  * GET mode the host writes with pio_sim_sm_rxfifo_put and the SM reads via
  * `mov osr, rxfifo[]`. These — not pio_sim_sm_get/put — are the host access
- * path for those modes. `index` is masked to the 4-entry file (index & 3). */
+ * path for those modes. `index` is masked to the 4-entry file (index & 3).
+ *
+ * These are unconditional debug accessors: they read/write the register file
+ * regardless of the current join mode, intentionally bypassing the RP2350
+ * RXFx_PUTGETn bus-window gating (readable only in PUT-only, writable only in
+ * GET-only). The device-fidelity direction gating that programs observe is
+ * enforced on the SM side (`mov rxfifo[]` / `mov osr, rxfifo[]`), not here. */
 /** Read RX register-file entry `index` (host read in FJOIN_RX_PUT mode). */
 uint32_t pio_sim_sm_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index);
 /** Write RX register-file entry `index` (host write in FJOIN_RX_GET mode). */
@@ -689,6 +695,10 @@ bool pio_sim_pin_is_pio_output(const pio_sim_t *pio, uint8_t pin);
 bool pio_sim_irq_get(const pio_sim_t *pio, uint8_t irq);
 /** Clear SM IRQ flag `irq` (masked: irq & 7) — the host-side acknowledge. */
 void pio_sim_irq_clear(pio_sim_t *pio, uint8_t irq);
+/** Force SM IRQ flag `irq` on/off from the host (masked: irq & 7) — models the
+ * IRQ_FORCE register, the SET counterpart to pio_sim_irq_clear (e.g. to unblock a
+ * `wait 1 irq` from the host side). */
+void pio_sim_irq_force(pio_sim_t *pio, uint8_t irq, bool on);
 
 /* ── System interrupt lines (IRQ0 / IRQ1) ──────────────────────────────────────
  * The PIO raises two system interrupt lines from a set of sources (the INTR

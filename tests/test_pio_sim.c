@@ -780,7 +780,7 @@ static void test_wait_irq_clears_flag(void)
         pio_sim_encode_set(PIO_DST_Y, 1),
     };
     load_prog(prog, 2);
-    pio.irq |= (1U << 3);
+    pio_sim_irq_force(&pio, 3, true);
     pio_sim_run(&pio, 2);
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);
     TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, 3)); /* WAIT 1 IRQ clears it */
@@ -800,6 +800,17 @@ static void test_irq_set_and_clear(void)
     TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 2));
     pio_sim_run(&pio, 1);
     TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, 2));
+}
+
+/* Host IRQ_FORCE: the SET counterpart to pio_sim_irq_clear, masked to irq & 7. */
+static void test_irq_force_sets_and_clears(void)
+{
+    pio_sim_irq_force(&pio, 5, true);
+    TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 5));
+    pio_sim_irq_force(&pio, 5, false);
+    TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, 5));
+    pio_sim_irq_force(&pio, 8, true); /* masks to flag 0 */
+    TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 0));
 }
 
 /* ── side-set / delay / clkdiv / wrap ──────────────────────────────────────── */
@@ -1007,7 +1018,7 @@ static void test_tx_empty_and_irq_clear_accessors(void)
     TEST_ASSERT_FALSE(pio_sim_sm_is_tx_fifo_empty(&pio, 0));
 
     /* IRQ set via the raw flag, cleared through the public accessor. */
-    pio.irq |= (uint8_t)(1U << 5U);
+    pio_sim_irq_force(&pio, 5, true);
     TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 5));
     pio_sim_irq_clear(&pio, 5);
     TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, 5));
@@ -1238,7 +1249,7 @@ static void test_mov_status_irq_flag(void)
     load_prog(prog, 1);
     pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_HEX32(0x0U, pio.sm[0].x); /* irq 3 clear */
-    pio.irq |= (uint8_t)(1U << 3U);
+    pio_sim_irq_force(&pio, 3, true);
     pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFU, pio.sm[0].x);
 }
@@ -1314,7 +1325,7 @@ static void test_wait_irq_rel(void)
     pio_sim_sm_set_enabled(&pio, 1, true);
     pio_sim_run(&pio, 4); /* stalls: flag 1 low */
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[1].y);
-    pio.irq |= (uint8_t)(1U << 1U);
+    pio_sim_irq_force(&pio, 1, true);
     pio_sim_run(&pio, 2);
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[1].y);
     TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, 1)); /* WAIT 1 IRQ clears it */
@@ -1755,11 +1766,11 @@ static void test_mov_status_irq_prev_next_blocks(void)
     load_prog(prog, 2);
     sm_config_set_wrap(&cfg, 0, 1);
 
-    pio.irq |= (uint8_t)(1U << 3U); /* LOCAL flag: must not affect prev/next */
+    pio_sim_irq_force(&pio, 3, true); /* LOCAL flag: must not affect prev/next */
     pio_sim_run(&pio, 2);
     TEST_ASSERT_EQUAL_HEX32(0x0U, pio.sm[0].x);
 
-    nbr.irq |= (uint8_t)(1U << 3U); /* neighbour flag: selects all-ones */
+    pio_sim_irq_force(&nbr, 3, true); /* neighbour flag: selects all-ones */
     pio_sim_run(&pio, 2);
     TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFU, pio.sm[0].x);
 
@@ -2529,7 +2540,7 @@ static void test_wait_irq_polarity0_waits_for_clear(void)
         pio_sim_encode_set(PIO_DST_Y, 1),
     };
     load_prog(prog, 2);
-    pio.irq |= (uint8_t)(1U << 4U); /* flag set: the pol-0 wait stalls */
+    pio_sim_irq_force(&pio, 4, true); /* flag set: the pol-0 wait stalls */
     pio_sim_run(&pio, 3);
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y);
     TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 4)); /* a pol-0 wait never clears */
@@ -2675,7 +2686,7 @@ static void test_wait_irq_neighbour_clears_and_parks(void)
     load_prog(prog, 2);
     pio_sim_run(&pio, 3);
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y); /* parked: neighbour flag clear */
-    a.irq |= (uint8_t)(1U << 2U);              /* raise flag 2 on the neighbour */
+    pio_sim_irq_force(&a, 2, true);            /* raise flag 2 on the neighbour */
     pio_sim_run(&pio, 2);
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y); /* un-parked */
     TEST_ASSERT_FALSE(pio_sim_irq_get(&a, 2)); /* WAIT 1 cleared the neighbour's flag */
@@ -2872,6 +2883,7 @@ int main(void)
     RUN_TEST(test_unwritten_fetch_is_flagged);
     RUN_TEST(test_two_instances_are_independent);
 
+    RUN_TEST(test_irq_force_sets_and_clears);
     RUN_TEST(test_wait_irq_polarity0_waits_for_clear);
     RUN_TEST(test_out_pindirs_drives_dirs);
     RUN_TEST(test_wait_pin_polarity0_waits_for_low);
