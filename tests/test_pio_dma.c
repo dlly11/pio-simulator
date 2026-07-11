@@ -375,6 +375,29 @@ static void test_transfer_size_out_of_range_clamped(void)
     TEST_ASSERT_EQUAL_HEX32(0xDEADBEEFU, dst);
 }
 
+/* The same clamp must also hold when data_size is written directly on the
+ * config struct (bypassing channel_config_set_transfer_data_size): a caller may
+ * hand-build the config, so pio_dma_channel_configure has to re-clamp on its
+ * register-write path. Without it, elem_bytes(1<<3)=8 makes the transfer move 8
+ * bytes and shift a uint32_t by up to 56 bits — a shift-UB the ASan/UBSan CI
+ * catches, and here the guard tail (dst[4..7]) also pins it on a normal build. */
+static void test_transfer_size_out_of_range_raw_config_clamped(void)
+{
+    dma_channel_config c = pio_dma_channel_get_default_config(0);
+    /* Deliberately out-of-range, set directly (not via the clamping setter). */
+    /* NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange) */
+    c.data_size = (pio_dma_size_t)3;
+
+    /* Contiguous 8-byte buffers: only the low 4 bytes must move (32-bit), the
+     * high 4 (guard) must stay 0xA5 — an in-array, host-portable overrun check. */
+    static unsigned char src[8] = {0xEF, 0xBE, 0xAD, 0xDE, 0x11, 0x22, 0x33, 0x44};
+    static unsigned char dst[8] = {0, 0, 0, 0, 0xA5, 0xA5, 0xA5, 0xA5};
+    static const unsigned char want[8] = {0xEF, 0xBE, 0xAD, 0xDE, 0xA5, 0xA5, 0xA5, 0xA5};
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), pio_dma_addr_mem(src), 1, true);
+    (void)pio_dma_tick(&dma);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, dst, 8);
+}
+
 /* The single-channel abort wrapper stops just its channel (SDK
  * dma_channel_abort), leaving others untouched. */
 static void test_single_channel_abort(void)
@@ -817,6 +840,7 @@ int main(void)
     RUN_TEST(test_abort_midstream_and_retrigger);
     RUN_TEST(test_single_channel_abort);
     RUN_TEST(test_transfer_size_out_of_range_clamped);
+    RUN_TEST(test_transfer_size_out_of_range_raw_config_clamped);
     RUN_TEST(test_sniffer_crc32_check_value);
     RUN_TEST(test_sniffer_crc16_ccitt_check_value);
     RUN_TEST(test_sniffer_crc32_msb_check_value);

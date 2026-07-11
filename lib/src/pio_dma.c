@@ -129,6 +129,13 @@ void pio_dma_channel_configure(pio_dma_t *d, uint8_t ch, const dma_channel_confi
 {
     pio_dma_channel_t *chan = &d->ch[CH_IDX(ch)];
     chan->ctrl = *c;
+    /* data_size is a directly-writable field; clamp on this register-write path
+     * too (a caller may build the config struct by hand, bypassing the clamping
+     * setter) so elem_bytes (1u << size) can never exceed 4 and overrun the
+     * 4-byte transfer word — mirroring the ring_size/chain_to guards. */
+    if ((unsigned)chan->ctrl.data_size > (unsigned)DMA_SIZE_32) {
+        chan->ctrl.data_size = DMA_SIZE_32;
+    }
     chan->write_addr = write_addr;
     chan->read_addr = read_addr;
     chan->trans_count_reload = trans_count;
