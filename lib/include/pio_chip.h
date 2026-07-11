@@ -21,11 +21,12 @@
 #include "pio_dma.h"
 #include "pio_sim.h"
 
+/** Whole-chip composition: all PIO blocks + shared pads + DMA + clock tree. */
 typedef struct {
-    pio_sim_t blocks[PIO_SIM_NUM_PIO];
-    pio_sim_group_t grp; /* shared pads + lockstep ticking */
-    pio_dma_t dma;
-    pio_clk_tree_t clk;
+    pio_sim_t blocks[PIO_SIM_NUM_PIO]; /**< the device's PIO blocks (2 RP2040, 3 RP2350) */
+    pio_sim_group_t grp;               /**< shared pads + lockstep ticking */
+    pio_dma_t dma;                     /**< DMA controller attached to all blocks */
+    pio_clk_tree_t clk;                /**< clk_sys clock tree */
 } pio_chip_t;
 
 /** Initialise every block, share one pad set across them (owner slot n =

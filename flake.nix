@@ -24,6 +24,7 @@
             gcc # the CI matrix also builds with gcc
             gcovr
             git
+            doxygen # API-reference generator (the `docs` target / Pages workflow)
           ];
           shellHook = ''
             echo "pio-simulator dev shell: $(clang --version | head -1)"

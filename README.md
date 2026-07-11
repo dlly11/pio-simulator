@@ -21,6 +21,7 @@ SDK, no RTOS.
 - [The two components](#the-two-components)
 - [Quick start](#quick-start)
 - [Examples](#examples)
+- [API reference](#api-reference)
 - [Layout](#layout)
 - [Target chip (RP2040 vs RP2350)](#target-chip-rp2040-vs-rp2350)
 - [System modelling](#system-modelling)
@@ -115,6 +116,24 @@ cmake -B build -DPIO_SIM_BUILD_EXAMPLES=ON && cmake --build build
 
 See [`examples/README.md`](examples/README.md) for the full list and a bare-gcc
 recipe.
+
+## API reference
+
+The public headers are the source of truth and are written to read as
+documentation. A browsable [Doxygen reference][docs] is generated from them and
+published on every push to `main` — every function, type and enum in the public
+surface carries a doc comment.
+
+[docs]: https://dlly11.github.io/pio-simulator/
+
+Build it locally (needs `doxygen`, provided by the Nix dev shell):
+
+```sh
+cmake -B build -G Ninja && cmake --build build --target docs
+# → docs/html/index.html   (README as the landing page)
+```
+
+or run `doxygen Doxyfile` directly from the repo root.
 
 ## Layout
 

@@ -6,6 +6,9 @@
 # nix + direnv populate a repo-root .direnv/ cache
 /.direnv/
 
+# Generated Doxygen HTML (built locally or by the Pages workflow, never committed)
+/docs/
+
 # libFuzzer artifacts (a crash reproducer / discovered inputs land in the CWD)
 crash-*
 leak-*
