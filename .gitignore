@@ -3,6 +3,9 @@
 *.o
 *.a
 
+# nix + direnv populate a repo-root .direnv/ cache
+/.direnv/
+
 # libFuzzer artifacts (a crash reproducer / discovered inputs land in the CWD)
 crash-*
 leak-*

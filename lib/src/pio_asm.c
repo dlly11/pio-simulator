@@ -1348,13 +1348,13 @@ static char *clean_line(char *line)
     return s;
 }
 
-/* ── Two-pass assembly ─────────────────────────────────────────────────────── */
+/* ── Three-pass assembly ───────────────────────────────────────────────────── */
 
 /* Mutable per-pass parser state. */
 typedef struct {
     asm_ctx_t *ctx;
     const char *name; /* selected program, or NULL for first */
-    int pass;         /* 1 = collect, 2 = emit */
+    int pass;         /* 0 = scan (symbols), 1 = config (metadata), 2 = emit */
     bool in_program;
     bool done_selected;
     bool in_verbatim;
@@ -1766,7 +1766,7 @@ static char *strip_public(char *line)
 }
 
 /*
- * If `line` begins with a "label:" declaration, record it (pass 1) and advance
+ * If `line` begins with a "label:" declaration, record it (pass 0, the scan pass) and advance
  * `*line_io` past it. Returns true if the line was label-only (no instruction).
  */
 static bool handle_label(pa_parse_state_t *ps, char **line_io)
@@ -1899,6 +1899,13 @@ static bool run_pass(pa_parse_state_t *ps, const char *src)
             k++;
         }
         buf[k] = '\0';
+        /* Drain any tail past the length cap so an over-long physical line (e.g.
+         * a long comment) maps to exactly one logical line, not phantom extra
+         * lines. Content beyond MAX_LINE-1 is dropped — realistically only ever
+         * comment text, which clean_line would cut anyway. */
+        while ((*cursor != '\0') && (*cursor != '\n')) {
+            cursor++;
+        }
         if (*cursor == '\n') {
             cursor++;
         }

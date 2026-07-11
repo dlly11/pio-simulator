@@ -10,6 +10,7 @@
 #include "pio_asm.h"
 #include "pio_sim.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* Verbatim copies of the production SWD programs (src/pio/swd.pio). */
@@ -1202,8 +1203,8 @@ static void test_lang_opt_and_unknown_directive_ignored(void)
 /* ── Full symbol-order parity for `.define` ─────────────────────────────────
  * pioasm builds the whole symbol table before evaluating, so a define may
  * reference a label or another define declared further down. The assembler
- * collects all symbols in a scan pass, then resolves define values to a
- * fixpoint. */
+ * collects all symbols in a scan pass, then resolves each define lazily on first
+ * use (memoised, cycle-detecting), matching pioasm. */
 
 /* A define may reference a label declared LATER (the round-10 finding). */
 static void test_define_forward_label_reference(void)
@@ -1248,15 +1249,20 @@ static void test_define_forward_define_reference(void)
 
 /* Defines are evaluated lazily (as pioasm does): a define on an undefined symbol
  * or in a reference cycle errors only when it is USED. An UNUSED such define is
- * accepted, because it is never evaluated. (Verified against real pioasm 2.2.0.) */
+ * accepted, because it is never evaluated. (Verified against real pioasm 2.1.0
+ * and 2.2.0.) */
 static void test_define_lazy_undefined_and_cycle(void)
 {
     pio_program_t p;
-    /* USED undefined symbol / USED cycle -> rejected */
+    /* USED undefined symbol / USED cycle -> rejected. The error pins to the
+     * offending define's declaration line (the deepest define entered, for a
+     * cycle) — J is on line 2; the cycle latches on B, line 3. */
     TEST_ASSERT_FALSE(
         pio_asm_assemble(".program t\n.define J (nosuch + 1)\n    set x, J\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(2, p.error_line);
     TEST_ASSERT_FALSE(pio_asm_assemble(
         ".program t\n.define A (B + 1)\n.define B (A + 1)\n    set x, A\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(3, p.error_line);
     /* UNUSED undefined symbol / UNUSED cycle -> accepted (never evaluated) */
     TEST_ASSERT_TRUE_MESSAGE(
         pio_asm_assemble(".program t\n.define J (nosuch + 1)\n    set x, 1\n", NULL, &p), p.error);
@@ -1264,6 +1270,27 @@ static void test_define_lazy_undefined_and_cycle(void)
         pio_asm_assemble(".program t\n.define A (B + 1)\n.define B (A + 1)\n    set x, 1\n", NULL,
                          &p),
         p.error);
+}
+
+/* A physical source line longer than the internal line buffer must still map to
+ * exactly one logical line — an over-long comment (its own line, or trailing an
+ * instruction) must not be chopped into phantom lines that desync line numbers
+ * or emit spurious errors. (pioasm accepts these; verified against it.) */
+static void test_over_long_line_is_one_logical_line(void)
+{
+    char cmt[320];
+    (void)memset(cmt, 'x', sizeof(cmt) - 1U);
+    cmt[sizeof(cmt) - 1U] = '\0';
+    char src[512];
+    pio_program_t p;
+    /* an over-long comment on its own line, between two instructions */
+    (void)snprintf(src, sizeof(src), ".program t\n    nop\n; %s\n    nop\n", cmt);
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_UINT8(2U, p.count);
+    /* an over-long comment trailing a valid instruction */
+    (void)snprintf(src, sizeof(src), ".program t\n    nop ; %s\n    nop\n", cmt);
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_UINT8(2U, p.count);
 }
 
 /* `.word` and config directives resolve after all symbols are known, so they may
@@ -1392,6 +1419,7 @@ int main(void)
     RUN_TEST(test_define_forward_label_reference);
     RUN_TEST(test_define_forward_define_reference);
     RUN_TEST(test_define_lazy_undefined_and_cycle);
+    RUN_TEST(test_over_long_line_is_one_logical_line);
     RUN_TEST(test_word_and_config_forward_references);
     RUN_TEST(test_forward_define_does_not_shift_labels);
     return UNITY_END();

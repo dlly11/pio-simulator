@@ -2053,6 +2053,15 @@ static void test_irq_enable_force_masks_invalid_bits(void)
     pio_sim_set_intf(&pio, 1, invalid, true);
     TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_intf(&pio, 1)); /* not stored */
     TEST_ASSERT_FALSE(pio_sim_get_irqn_asserted(&pio, 1));  /* and does not force the line */
+
+    /* The version boundary [15:12] is the whole reason for two masks: IRQ4 (bit
+     * 12) routes on RP2350 but is out of range on RP2040. Pin the exact width. */
+    pio_sim_set_intf(&pio, 0, PIO_INTR_SM_IRQ(4), true);
+#if PIO_SIM_HAS_INTR_IRQ8
+    TEST_ASSERT_EQUAL_HEX32(PIO_INTR_SM_IRQ(4), pio_sim_get_intf(&pio, 0)); /* valid on v1 */
+#else
+    TEST_ASSERT_EQUAL_HEX32(0U, pio_sim_get_intf(&pio, 0)); /* dropped on v0 */
+#endif
 }
 
 /* ── #8: input synchroniser (always-on two-cycle delay) ────────────────────── */

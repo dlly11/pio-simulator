@@ -492,6 +492,26 @@ static void test_bswap_halfword(void)
     TEST_ASSERT_EQUAL_HEX16(0x3412U, dst);
 }
 
+/* BSWAP and SNIFF on the same channel: the sniffer taps the POST-byte-swap
+ * stream (BSWAP is in the read datapath). CRC is byte-order-sensitive, so this
+ * pins the tap point: for 0x11223344, CRC32R over the swapped bytes is
+ * 0x880D622E, distinct from the pre-swap 0x21E2D292. */
+static void test_bswap_then_sniff_taps_swapped_stream(void)
+{
+    static uint32_t src = 0x11223344U;
+    static uint32_t dst = 0;
+    dma_channel_config c = pio_dma_channel_get_default_config(0);
+    channel_config_set_bswap(&c, true);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_sniff_enable(&c, true);
+    pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_CRC32R, false);
+    pio_dma_sniffer_set_data_accumulator(&dma, 0xFFFFFFFFU);
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(&dst), pio_dma_addr_mem(&src), 1, true);
+    (void)pio_dma_tick(&dma);
+    TEST_ASSERT_EQUAL_HEX32(0x44332211U, dst); /* byte-swapped in the write */
+    TEST_ASSERT_EQUAL_HEX32(0x880D622EU, pio_dma_sniffer_get_data_accumulator(&dma));
+}
+
 static void test_sniffer_sum_and_parity(void)
 {
     static uint32_t src[3] = {1, 2, 3};
@@ -802,6 +822,7 @@ int main(void)
     RUN_TEST(test_sniffer_crc32_msb_check_value);
     RUN_TEST(test_sniffer_crc16r_check_value);
     RUN_TEST(test_bswap_halfword);
+    RUN_TEST(test_bswap_then_sniff_taps_swapped_stream);
     RUN_TEST(test_sniffer_sum_and_parity);
     RUN_TEST(test_sniffer_sum_masks_transfer_width);
     RUN_TEST(test_sniffer_output_reverse);
