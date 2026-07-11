@@ -340,6 +340,12 @@ void sm_config_set_clkdiv_int_frac(pio_sm_config *c, uint16_t div_int, uint8_t d
     c->clkdiv_int = div_int;
     c->clkdiv_frac = div_frac;
 }
+/* Round the float clock divisor to the nearest 1/256 (the SDK default), rather
+ * than truncating. Define to 0 to restore floor behaviour. Mirrors pico-sdk
+ * PICO_PIO_CLKDIV_ROUND_NEAREST, which defaults to 1 on RP2040 and RP2350. */
+#ifndef PIO_SIM_CLKDIV_ROUND_NEAREST
+#define PIO_SIM_CLKDIV_ROUND_NEAREST 1
+#endif
 void sm_config_set_clkdiv(pio_sm_config *c, float div)
 {
     /* Guard the float→int conversions: a value that can't be represented in the
@@ -351,6 +357,12 @@ void sm_config_set_clkdiv(pio_sm_config *c, float div)
     } else if (div > 65535.99F) {
         div = 65535.99F;
     }
+#if PIO_SIM_CLKDIV_ROUND_NEAREST
+    /* Match the SDK default (PICO_PIO_CLKDIV_ROUND_NEAREST=1): round the divisor
+     * to the nearest 1/256 before truncating, rather than flooring. The +1/512
+     * cannot push a clamped div to 65536.0, so the (uint16_t) cast stays safe. */
+    div += 0.5F / 256.0F;
+#endif
     uint16_t whole = (uint16_t)div;
     /* whole == floor(div) after the clamp above, so (div - whole) is in [0, 1)
      * and the product is in [0, 256) — always representable in uint8_t. cppcheck
@@ -732,9 +744,14 @@ void pio_sim_release_pin(pio_sim_t *pio, uint8_t pin)
 
 bool pio_sim_pin_is_pio_output(const pio_sim_t *pio, uint8_t pin)
 {
-    /* The PIO's resolved OE as it reaches the pad: output-disable (and RP2350
-     * isolation) block the drive even though the SM's OE register stays set. */
-    uint64_t oe = pio->pads->pin_dirs & ~pio->pads->pad_od;
+    /* The PIO's resolved OE as it reaches the pad: the IO_BANK0 OEOVER stage
+     * (invert / force low|high) applies first, then PADS_BANK0 output-disable and
+     * RP2350 isolation block the drive even though the SM's OE register stays set
+     * — the same pipeline pio_pads_chip_drive uses. Without OEOVER, a pad forced
+     * hi-Z by OEOVER=LOW/INVERT would be misreported as a PIO output. */
+    uint64_t oe = pio->pads->pin_dirs;
+    oe = ((oe ^ pio->pads->oeover_inv) | pio->pads->oeover_high) & ~pio->pads->oeover_low;
+    oe &= ~pio->pads->pad_od;
 #if PIO_SIM_HAS_PAD_ISO
     oe &= ~pio->pads->pad_iso;
 #endif
@@ -1665,7 +1682,14 @@ static void sm_cycle(pio_sim_t *pio, uint8_t sm_idx)
     } else {
         sm->pc = (uint8_t)((sm->pc + 1U) % PIO_SIM_INSN_COUNT);
     }
-    sm->delay = delay;
+    if (sm->exec_pending) {
+        /* This word wrote dest=EXEC (OUT EXEC / MOV EXEC): its own delay field is
+         * ignored; only the injected instruction inserts delay next cycle
+         * (RP2040 datasheet §3.4.5.2 / §3.4.9). */
+        sm->delay = 0;
+    } else {
+        sm->delay = delay;
+    }
 }
 
 /* ── Stepping ──────────────────────────────────────────────────────────────── */

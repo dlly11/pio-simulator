@@ -584,6 +584,32 @@ static void test_out_exec_injected_instruction_honors_delay(void)
     TEST_ASSERT_EQUAL_UINT32(5U, pio.sm[0].y);
 }
 
+/* The OUT EXEC word's OWN delay field is ignored — only the injected instruction
+ * inserts delay, so the two delays do not stack (RP2040 datasheet §3.4.5.2). */
+static void test_out_exec_own_delay_is_ignored(void)
+{
+    sm_config_set_out_shift(&cfg, true, false, 32);
+    uint16_t injected =
+        (uint16_t)(pio_sim_encode_set(PIO_DST_X, 7) | (2U << 8U)); /* injected [2] */
+    const uint16_t prog[] = {
+        pio_sim_encode_pull(false, true),
+        (uint16_t)(pio_sim_encode_out(PIO_DST_OSR, 16) | (3U << 8U)), /* OUT EXEC, own [3] */
+        pio_sim_encode_set(PIO_DST_Y, 5),
+    };
+    load_prog(prog, 3);
+    pio_sim_sm_put(&pio, 0, injected);
+    /* If the OUT word's own [3] stacked with the injected [2], the injected
+     * `set x,7` would not run until cycle 6; x==7 after 3 cycles proves the OUT
+     * word's delay was ignored and only the injected [2] applies. */
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_EQUAL_UINT32(7U, pio.sm[0].x);
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y);
+    pio_sim_run(&pio, 2); /* injected [2] delay holds */
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y);
+    pio_sim_run(&pio, 1); /* set y,5 executes */
+    TEST_ASSERT_EQUAL_UINT32(5U, pio.sm[0].y);
+}
+
 /* ── IN / autopush ─────────────────────────────────────────────────────────── */
 
 static void test_in_pins_shift_left(void)
@@ -881,6 +907,23 @@ static void test_clkdiv_int0_frac_is_65536(void)
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].x); /* not yet: divider is 65536.5 */
     pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].x); /* fires on tick 65537 */
+}
+
+/* The float clkdiv helper rounds to the nearest 1/256 rather than flooring,
+ * matching the SDK default (PICO_PIO_CLKDIV_ROUND_NEAREST=1 on RP2040/RP2350):
+ * 2.999 → int 3 / frac 0, 1.4999 → frac 128. */
+static void test_clkdiv_float_rounds_to_nearest(void)
+{
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_clkdiv(&c, 2.999F);
+    TEST_ASSERT_EQUAL_UINT16(3U, c.clkdiv_int);
+    TEST_ASSERT_EQUAL_UINT8(0U, c.clkdiv_frac);
+    sm_config_set_clkdiv(&c, 1.4999F);
+    TEST_ASSERT_EQUAL_UINT16(1U, c.clkdiv_int);
+    TEST_ASSERT_EQUAL_UINT8(128U, c.clkdiv_frac);
+    sm_config_set_clkdiv(&c, 4.0F); /* an exact integer stays exact */
+    TEST_ASSERT_EQUAL_UINT16(4U, c.clkdiv_int);
+    TEST_ASSERT_EQUAL_UINT8(0U, c.clkdiv_frac);
 }
 
 /* pio_sim_sm_init wraps an out-of-range initial_pc into the 32-word instruction
@@ -2508,6 +2551,7 @@ int main(void)
     RUN_TEST(test_host_release_pin);
     RUN_TEST(test_out_exec_injects_instruction);
     RUN_TEST(test_out_exec_injected_instruction_honors_delay);
+    RUN_TEST(test_out_exec_own_delay_is_ignored);
 
     RUN_TEST(test_in_pins_shift_left);
     RUN_TEST(test_in_autopush_to_rx);
@@ -2550,6 +2594,7 @@ int main(void)
     RUN_TEST(test_clkdiv_slows_execution);
     RUN_TEST(test_clkdiv_fractional_cadence);
     RUN_TEST(test_clkdiv_int0_frac_is_65536);
+    RUN_TEST(test_clkdiv_float_rounds_to_nearest);
     RUN_TEST(test_sm_init_wraps_initial_pc);
     RUN_TEST(test_wrap_returns_to_bottom);
 

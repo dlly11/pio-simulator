@@ -367,16 +367,20 @@ static void test_oeover_low_and_invert_release_the_pad(void)
     pio_sim_pad_set_pulls(&pio, 13, false, true); /* pull-down */
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 13));  /* still driven high */
 
-    /* OEOVER=LOW forces the output-enable low → hi-Z → pull-down shows. */
+    /* OEOVER=LOW forces the output-enable low → hi-Z → pull-down shows. The
+     * introspection helper must agree the pad is no longer a PIO output. */
     pio_sim_gpio_set_oeover(&pio, 13, PIO_GPIO_OVERRIDE_LOW);
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 13));
+    TEST_ASSERT_FALSE(pio_sim_pin_is_pio_output(&pio, 13));
 
     /* OEOVER=INVERT flips the (high) function OE to low → hi-Z as well. */
     pio_sim_gpio_set_oeover(&pio, 13, PIO_GPIO_OVERRIDE_INVERT);
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 13));
+    TEST_ASSERT_FALSE(pio_sim_pin_is_pio_output(&pio, 13));
 
     pio_sim_gpio_set_oeover(&pio, 13, PIO_GPIO_OVERRIDE_NORMAL);
-    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 13)); /* driven high again */
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 13));           /* driven high again */
+    TEST_ASSERT_TRUE(pio_sim_pin_is_pio_output(&pio, 13)); /* PIO output again */
 }
 
 static void test_inover_high_and_low_force_the_read(void)
