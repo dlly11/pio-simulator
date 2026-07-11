@@ -1753,9 +1753,9 @@ static void test_irq_next_signals_neighbour_block(void)
 #if PIO_SIM_HAS_IRQ_STATUS
 static void test_mov_status_irq_prev_next_blocks(void)
 {
-    /* STATUS_SEL=IRQ with STATUS_N[4:3] prev/next reads the neighbouring PIO
-     * block's flag; the local flag must not leak in, and an unlinked
-     * neighbour reads as clear. */
+    /* STATUS_SEL=IRQ with a prev/next STATUS_N block-select (bit 3 / bit 4) reads
+     * the neighbouring PIO block's flag; the local flag must not leak in, and an
+     * unlinked neighbour reads as clear. */
     pio_sim_t nbr;
     pio_sim_init(&nbr);
     pio_sim_set_irq_neighbors(&pio, &nbr, &nbr); /* nbr is both prev and next */

@@ -95,7 +95,7 @@ static void test_pulls_up_down_and_float(void)
 
 static void test_buskeep_holds_last_driven_level(void)
 {
-    pio_sim_pad_set_pulls(&pio, 3, true, true); /* both = bus keeper */
+    pio_sim_pad_set_pulls(&pio, 3, true, true); /* both = bus keeper (sim-only convenience) */
     pio_sim_set_pin(&pio, 3, true);             /* drive high */
     pio_sim_run(&pio, 1);                       /* keeper latches */
     pio_sim_release_pin(&pio, 3);

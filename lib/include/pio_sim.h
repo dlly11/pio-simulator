@@ -58,8 +58,8 @@
 /** A single PIO TX or RX FIFO: a circular buffer of up to 8 32-bit words. */
 typedef struct {
     uint32_t buf[PIO_SIM_FIFO_MAX]; /**< word storage (ring buffer)             */
-    uint8_t head;                   /**< index of the next word to read (get)   */
-    uint8_t tail;                   /**< index of the next slot to write (put)  */
+    uint8_t head;                   /**< index of the next slot to write (put)  */
+    uint8_t tail;                   /**< index of the next word to read (get)   */
     uint8_t count;                  /**< words currently queued (0..cap)        */
     uint8_t cap;                    /**< 0, PIO_SIM_FIFO_DEPTH, or PIO_SIM_FIFO_MAX (joined) */
 } pio_fifo_t;
@@ -201,8 +201,9 @@ typedef struct {
     uint64_t ext_levels; /**< level of the externally driven pins            */
 
     /** ── Pad registers (PADS_BANK0, digital-relevant fields; see pio_gpio.h) ──
-     * pad_pue/pad_pde model the pull resistors (both set = bus keeper, which
-     * holds the last driven level in keep_state). pad_od forces the pad off;
+     * pad_pue/pad_pde model the pull resistors (both set is modelled as a
+     * bus keeper holding the last driven level in keep_state — a sim-only
+     * convenience; silicon has no keeper). pad_od forces the pad off;
      * pad_ie=0 makes the PIO read the pin as 0 (host pio_sim_get_pin still
      * returns the wire). DRIVE/SLEWFAST/SCHMITT are stored in pad_cfg but do
      * not affect the digital simulation. */
@@ -409,10 +410,11 @@ typedef enum {
      * source) this selector falls through to PIO_STATUS_TX_LEVEL behaviour. */
     PIO_STATUS_IRQ_SET = 2,
 #if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
-    /* RP2350 selects the IRQ flag's PIO block via EXECCTRL STATUS_N[4:3]
-     * (0 = this PIO, 1 = prev, 2 = next); modelled as distinct selectors here.
-     * The block links come from pio_sim_set_irq_neighbors / group init; an
-     * unlinked neighbour reads the flag as clear. */
+    /* RP2350 selects the IRQ flag's PIO block via EXECCTRL STATUS_N: 0x08 (bit 3)
+     * = previous PIO, 0x10 (bit 4) = next (0x00 = this PIO; 0x18 is undefined) —
+     * one-hot bits, not a contiguous [4:3] ordinal. Modelled as distinct
+     * pio_status_sel_t selectors here. The block links come from
+     * pio_sim_set_irq_neighbors / group init; an unlinked neighbour reads clear. */
     PIO_STATUS_IRQ_SET_PREV = 3, /* all-ones while IRQ flag N of the prev PIO is set */
     PIO_STATUS_IRQ_SET_NEXT = 4, /* all-ones while IRQ flag N of the next PIO is set */
 #endif

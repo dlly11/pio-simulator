@@ -60,7 +60,7 @@ reads `PIO_SIM_PIO_VERSION`.)
 # Formatting (must be clean) — the same file set CI checks
 clang-format --dry-run --Werror lib/src/*.c lib/src/pio_sim_internal.h \
     lib/include/*.h lib/config/*.h \
-    tests/test_*.c tests/fuzz_pio_asm.c tests/unity_config.h tests/consumer/main.c \
+    tests/test_*.c tests/fuzz_*.c tests/unity_config.h tests/consumer/main.c \
     examples/*.c
 
 # Static analysis (clean, WarningsAsErrors) — lib + examples + deterministic
