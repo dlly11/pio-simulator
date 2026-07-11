@@ -346,10 +346,18 @@ jobs:
 
   # Supplementary static analysis: cppcheck over the library, a second opinion
   # alongside clang-tidy. Runs both feature surfaces (v0/v1) via the config macro
-  # — no build needed. Genuine false positives are suppressed inline in the
-  # source; environmental noise lives in .cppcheck-suppressions. Fails the build
-  # on any finding (--error-exitcode). Ubuntu's packaged cppcheck is used, so the
-  # version is whatever the pinned runner image ships (reproducible per image).
+  # — no build needed. Fails the build on any finding (--error-exitcode).
+  #
+  # Genuine false positives are suppressed inline in the source (grep
+  # "cppcheck-suppress"). .cppcheck-suppressions holds only cppcheck's own
+  # non-findings, as bare ids (that file format must stay comment-free — older
+  # cppcheck rejects '#' lines in a --suppressions-list):
+  #   - missingIncludeSystem      we don't feed it the system include path
+  #   - checkersReport            the "active checkers" summary epilogue
+  #   - normalCheckLevelMaxBranches  the non-exhaustive branch-analysis note
+  #
+  # Ubuntu's packaged cppcheck is used, so the version tracks the pinned runner
+  # image (reproducible per image).
   cppcheck:
     runs-on: ubuntu-24.04
     steps:
