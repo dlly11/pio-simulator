@@ -2,6 +2,7 @@
 .program iocov
     in  x, 5
     in  pins, 1
+    in  status, 8
     out pins, 1
     out pc, 32
     out pindirs, 8
