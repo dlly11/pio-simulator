@@ -677,10 +677,10 @@ static void test_assemble_directives_and_apply(void)
 #endif
 }
 
-/* .clock_div encodes the divider fraction by truncating, exactly as
- * sm_config_set_clkdiv (and the SDK) do — not rounding. 2.502 -> frac 128,
- * where rounding would give 129 — so both config paths agree. */
-static void test_clock_div_matches_set_clkdiv_truncation(void)
+/* .clock_div encodes the divider fraction exactly as sm_config_set_clkdiv (and
+ * the SDK default) do — rounding to the nearest 1/256. 2.502 -> frac 129, so both
+ * config paths agree. */
+static void test_clock_div_matches_set_clkdiv(void)
 {
     pio_program_t p;
     TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program s\n.clock_div 2.502\n    nop\n", NULL, &p),
@@ -693,7 +693,7 @@ static void test_clock_div_matches_set_clkdiv_truncation(void)
 
     TEST_ASSERT_EQUAL_UINT16(cfg.clkdiv_int, pio.sm[0].clkdiv_int);
     TEST_ASSERT_EQUAL_UINT8(cfg.clkdiv_frac, pio.sm[0].clkdiv_frac);
-    TEST_ASSERT_EQUAL_UINT8(128U, pio.sm[0].clkdiv_frac);
+    TEST_ASSERT_EQUAL_UINT8(129U, pio.sm[0].clkdiv_frac);
 }
 
 #if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
@@ -1459,7 +1459,7 @@ int main(void)
     RUN_TEST(test_assemble_comments_and_binary);
     RUN_TEST(test_assemble_expressions);
     RUN_TEST(test_assemble_directives_and_apply);
-    RUN_TEST(test_clock_div_matches_set_clkdiv_truncation);
+    RUN_TEST(test_clock_div_matches_set_clkdiv);
 #if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
     RUN_TEST(test_mov_status_irq_next_prev_directive);
 #endif

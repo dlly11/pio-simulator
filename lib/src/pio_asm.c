@@ -2195,18 +2195,10 @@ void pio_asm_apply_program_config(pio_sim_t *pio, uint8_t sm, const pio_program_
     c.out_en_sel = s->out_en_sel;
 
     if (prog->has_clock_div) {
-        /* 16.8 fixed-point, matching pico-sdk sm_config_set_clkdiv. */
-        double d = prog->clock_div;
-        if (d < 1.0) {
-            d = 1.0;
-        } else if (d > 65535.0) {
-            d = 65535.0; /* clamp to the 16-bit integer divisor, not truncate */
-        }
-        uint32_t whole = (uint32_t)d;
-        /* Truncate the fraction, as sm_config_set_clkdiv (and the SDK) do, so
-         * the two config paths encode the same divisor identically. */
-        uint32_t frac = (uint32_t)((d - (double)whole) * 256.0);
-        sm_config_set_clkdiv_int_frac(&c, (uint16_t)whole, (uint8_t)frac);
+        /* Route through the float helper so `.clock_div` and sm_config_set_clkdiv
+         * encode the divisor identically (both clamp and round to nearest 1/256,
+         * matching the SDK default). */
+        sm_config_set_clkdiv(&c, (float)prog->clock_div);
     }
     if (prog->has_fifo_join) {
         sm_config_set_fifo_join(&c, prog->fifo_join);
