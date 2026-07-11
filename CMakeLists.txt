@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 cmake_minimum_required(VERSION 3.21)
-project(pio_sim VERSION 0.1.1 LANGUAGES C)
+project(pio_sim VERSION 0.2.0 LANGUAGES C)
 
 include(GNUInstallDirs)
 
