@@ -259,10 +259,9 @@ the PIO block are modelled too:
   datasheet-validated parameters and exact integer tick↔ns/µs conversion. It
   does not change stepping — a tick is still one clk_sys cycle; the tree gives
   it a duration.
-- **GPIO pads** (`pio_gpio.h`): PADS_BANK0 with IE, OD, pulls (both enabled =
-  bus keeper) and RP2350 pad isolation simulated exactly; DRIVE strength,
-  SLEWFAST and SCHMITT are accepted/stored but are analog and do not affect the
-  digital simulation.
+- **GPIO pads** (`pio_gpio.h`): PADS_BANK0 with IE, OD, pulls and RP2350 pad
+  isolation simulated exactly; DRIVE strength, SLEWFAST and SCHMITT are
+  accepted/stored but are analog and do not affect the digital simulation.
 - **GPIO function mux** (`pio_gpio.h`): per-pin FUNCSEL routing with
   OUTOVER/OEOVER/INOVER; inputs always visible to the PIO, as on silicon.
 - **DMA** (`pio_dma.h`): the full 12/16-channel controller — address
@@ -284,6 +283,9 @@ Documented simulator-only deviations (each noted at its API):
   datasheet rules (refills during stalls/delays; an OUT cannot fill and shift
   the OSR in one cycle). The datasheet notes the exact refill point is
   pipeline-dependent and not to be relied upon.
+- Both pull resistors enabled is modelled as a bus keeper holding the last
+  driven level (a deterministic convenience). Real RP2040/RP2350 pads have no
+  keeper — both on at once is an indeterminate mid-rail divider.
 
 Still intentionally out of scope: analog pad behaviour (drive-strength
 contention, slew, hysteresis), real-time execution, bus-cycle-exact DMA
@@ -336,7 +338,7 @@ in `.clang-tidy`) over the library, examples, and tests. To reproduce locally:
 # formatting (no changes => clean) — the same file set CI checks
 clang-format --dry-run --Werror lib/src/*.c lib/src/pio_sim_internal.h \
     lib/include/*.h lib/config/*.h \
-    tests/test_*.c tests/fuzz_pio_asm.c tests/unity_config.h tests/consumer/main.c \
+    tests/test_*.c tests/fuzz_*.c tests/unity_config.h tests/consumer/main.c \
     examples/*.c
 
 # static analysis: needs a compile database for the include paths / feature

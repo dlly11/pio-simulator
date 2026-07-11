@@ -26,6 +26,9 @@
  *    priority-then-round-robin (real silicon pipelines separate masters).
  *  - DREQ readiness is level-sensitive, re-sampled every tick.
  *  - A transfer is atomic, so CHAN_ABORT completes immediately.
+ *  - A pacing timer feeds a single channel per credit: if several channels
+ *    select the same TREQ_TIMER, they alternate (round-robin) rather than each
+ *    being serviced at the full timer rate as on silicon.
  *
  * Call pio_dma_tick once per system tick, after pio_sim_tick /
  * pio_sim_group_tick (pio_chip_tick does this).

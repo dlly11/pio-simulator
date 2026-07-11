@@ -197,6 +197,7 @@ static void test_assemble_mov_rxfifo(void)
 {
     pio_program_t p;
     const char *src = ".program rx\n"
+                      ".fifo putget\n" /* pioasm requires an RX put/get join for rxfifo[] */
                       "    mov rxfifo[1], isr\n"
                       "    mov osr, rxfifo[2]\n"
                       "    mov rxfifo[y], isr\n"
@@ -676,10 +677,10 @@ static void test_assemble_directives_and_apply(void)
 #endif
 }
 
-/* .clock_div encodes the divider fraction by truncating, exactly as
- * sm_config_set_clkdiv (and the SDK) do — not rounding. 2.502 -> frac 128,
- * where rounding would give 129 — so both config paths agree. */
-static void test_clock_div_matches_set_clkdiv_truncation(void)
+/* .clock_div encodes the divider fraction exactly as sm_config_set_clkdiv (and
+ * the SDK default) do — rounding to the nearest 1/256. 2.502 -> frac 129, so both
+ * config paths agree. */
+static void test_clock_div_matches_set_clkdiv(void)
 {
     pio_program_t p;
     TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program s\n.clock_div 2.502\n    nop\n", NULL, &p),
@@ -692,7 +693,7 @@ static void test_clock_div_matches_set_clkdiv_truncation(void)
 
     TEST_ASSERT_EQUAL_UINT16(cfg.clkdiv_int, pio.sm[0].clkdiv_int);
     TEST_ASSERT_EQUAL_UINT8(cfg.clkdiv_frac, pio.sm[0].clkdiv_frac);
-    TEST_ASSERT_EQUAL_UINT8(128U, pio.sm[0].clkdiv_frac);
+    TEST_ASSERT_EQUAL_UINT8(129U, pio.sm[0].clkdiv_frac);
 }
 
 #if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
@@ -1150,12 +1151,81 @@ static void test_label_define_name_collision_rejected(void)
 static void test_rxfifo_index_out_of_range_rejected(void)
 {
     pio_program_t p;
-    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    mov rxfifo[4], isr\n", NULL, &p));
-    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    mov osr, rxfifo[7]\n", NULL, &p));
-    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program t\n    mov rxfifo[3], isr\n", NULL, &p),
-                             p.error);
+    /* .fifo putget so the ONLY reason to reject is the out-of-range index. */
+    TEST_ASSERT_FALSE(
+        pio_asm_assemble(".program t\n.fifo putget\n    mov rxfifo[4], isr\n", NULL, &p));
+    TEST_ASSERT_FALSE(
+        pio_asm_assemble(".program t\n.fifo putget\n    mov osr, rxfifo[7]\n", NULL, &p));
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program t\n.fifo putget\n    mov rxfifo[3], isr\n", NULL, &p), p.error);
 }
 #endif /* PIO_SIM_HAS_RXFIFO_MOV */
+
+/* v0.2.0 pioasm error-parity: inputs real pioasm rejects that the assembler used
+ * to accept. The bit-exact differential can't see these (it only compares
+ * pioasm-accepted programs), so they are pinned here as negative tests. */
+static void test_error_parity_directives(void)
+{
+    pio_program_t p;
+    /* .set caps SET pin count at 5 (SET drives at most 5 pins). */
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program t\n.set 5\n    nop\n", NULL, &p), p.error);
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.set 6\n    nop\n", NULL, &p));
+
+    /* .in rejects a zero pin count (and, on v0, requires exactly 32). */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.in 0\n    nop\n", NULL, &p));
+
+    /* .wrap placement + duplicate validation. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.wrap\n    nop\n", NULL, &p)); /* before 1st */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    nop\n.wrap\n.wrap\n", NULL, &p)); /* dup */
+    TEST_ASSERT_FALSE(
+        pio_asm_assemble(".program t\n    nop\n.wrap_target\n", NULL, &p)); /* after last */
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program t\n.wrap_target\n    nop\n.wrap\n", NULL, &p), p.error);
+
+    /* .mov_status requires the positional `<` marker for a FIFO level. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.mov_status txfifo 4\n    nop\n", NULL, &p));
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program t\n.mov_status txfifo < 4\n    nop\n", NULL, &p), p.error);
+
+    /* More than PIO_ASM_MAX_PUBLIC (8) public labels now errors (was silently dropped). */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n"
+                                       "public l0:\npublic l1:\npublic l2:\npublic l3:\n"
+                                       "public l4:\npublic l5:\npublic l6:\npublic l7:\n"
+                                       "public l8:\n    nop\n",
+                                       NULL, &p));
+}
+
+#if PIO_SIM_PIO_VERSION >= 1
+/* v1-only error-parity: jmppin offset cap, and v1 constructs gated on the
+ * program's declared .pio_version and on a matching .fifo mode. */
+static void test_error_parity_v1(void)
+{
+    pio_program_t p;
+    /* jmppin offset caps at 3 (was 31). */
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program t\n    wait 1 jmppin + 3\n", NULL, &p),
+                             p.error);
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    wait 1 jmppin + 4\n", NULL, &p));
+
+    /* v1 constructs are rejected when the program declares .pio_version 0. */
+    TEST_ASSERT_FALSE(
+        pio_asm_assemble(".program t\n.pio_version 0\n    wait 1 jmppin\n", NULL, &p));
+    TEST_ASSERT_FALSE(
+        pio_asm_assemble(".program t\n.pio_version 0\n    mov pindirs, x\n", NULL, &p));
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.pio_version 0\n    irq 0 next\n", NULL, &p));
+    TEST_ASSERT_FALSE(
+        pio_asm_assemble(".program t\n.pio_version 0\n.fifo putget\n    nop\n", NULL, &p));
+
+    /* mov rxfifo[] requires a matching .fifo mode. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    mov rxfifo[0], isr\n", NULL, &p));
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program t\n.fifo txput\n    mov rxfifo[0], isr\n", NULL, &p), p.error);
+
+    /* .mov_status irq requires the `set` marker. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.mov_status irq 3\n    nop\n", NULL, &p));
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program t\n.mov_status irq set 3\n    nop\n", NULL, &p), p.error);
+}
+#endif /* PIO_SIM_PIO_VERSION >= 1 */
 
 /* pioasm separates the `public` keyword from the label by any whitespace, so a
  * tab must work, not only a space. */
@@ -1389,7 +1459,7 @@ int main(void)
     RUN_TEST(test_assemble_comments_and_binary);
     RUN_TEST(test_assemble_expressions);
     RUN_TEST(test_assemble_directives_and_apply);
-    RUN_TEST(test_clock_div_matches_set_clkdiv_truncation);
+    RUN_TEST(test_clock_div_matches_set_clkdiv);
 #if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
     RUN_TEST(test_mov_status_irq_next_prev_directive);
 #endif
@@ -1419,6 +1489,10 @@ int main(void)
     RUN_TEST(test_label_define_name_collision_rejected);
 #if PIO_SIM_HAS_RXFIFO_MOV
     RUN_TEST(test_rxfifo_index_out_of_range_rejected);
+#endif
+    RUN_TEST(test_error_parity_directives);
+#if PIO_SIM_PIO_VERSION >= 1
+    RUN_TEST(test_error_parity_v1);
 #endif
     RUN_TEST(test_public_label_tab_separator);
     RUN_TEST(test_line_comment_hides_block_comment_marker);

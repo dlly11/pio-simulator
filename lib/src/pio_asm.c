@@ -155,6 +155,26 @@ static void pa_set_error(asm_ctx_t *ctx, const char *msg)
     }
 }
 
+#if PIO_SIM_PIO_VERSION >= 1
+/* Reject a v1-only construct when the program's effective PIO version is older.
+ * pioasm gates each construct on the DECLARED `.pio_version` (defaulting to the
+ * build target when the directive is absent), not merely on the build target —
+ * so `.pio_version 0` plus a v1 mnemonic must fail even in a v1 build. Encode
+ * sites run in the emit pass, after `.pio_version` is applied, so the check is
+ * order-independent there. */
+static bool require_prog_version(asm_ctx_t *ctx, int need, const char *what)
+{
+    int eff = (ctx->out->pio_version >= 0) ? ctx->out->pio_version : PIO_SIM_PIO_VERSION;
+    if (eff < need) {
+        char msg[PIO_ASM_ERR_LEN];
+        (void)snprintf(msg, sizeof msg, "PIO version %d is required for %s", need, what);
+        pa_set_error(ctx, msg);
+        return false;
+    }
+    return true;
+}
+#endif
+
 static int find_label(const asm_ctx_t *ctx, const char *name)
 {
     for (uint8_t i = 0; i < ctx->label_count; i++) {
@@ -907,8 +927,11 @@ static bool enc_wait(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
                 return false;
             }
         }
-        if (idx > 31U) {
-            pa_set_error(ctx, "jmppin index out of range (0..31)");
+        if (!require_prog_version(ctx, 1, "wait jmppin")) {
+            return false;
+        }
+        if (idx > 3U) {
+            pa_set_error(ctx, "jmppin index out of range (0..3)");
             return false;
         }
         *base = pio_sim_encode_wait_jmppin((uint8_t)pol, (uint8_t)idx);
@@ -969,6 +992,9 @@ static bool enc_wait(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
     }
     uint8_t field = (uint8_t)(idx & 0x1FU);
 #if PIO_SIM_HAS_IRQ_PREVNEXT
+    if ((prev || next) && !require_prog_version(ctx, 1, "wait irq prev/next")) {
+        return false;
+    }
     if (prev) {
         field = (uint8_t)((idx & 0x7U) | PIO_IRQ_PREV);
     } else if (next) {
@@ -1112,16 +1138,33 @@ static bool enc_mov(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
      * it. Reject a literal index above 3 with a clear message instead of
      * silently folding it (every other operand path here range-checks). */
     if (parse_rxfifo(tok[1], &ry, &ridx) && ieq(tok[2], "isr")) {
+        if (!require_prog_version(ctx, 1, "mov rxfifo[]")) {
+            return false;
+        }
         if (!ry && (ridx > 3U)) {
             pa_set_error(ctx, "rxfifo index out of range (0..3)");
+            return false;
+        }
+        if ((ctx->out->fifo_join != PIO_FIFO_JOIN_RX_PUT) &&
+            (ctx->out->fifo_join != PIO_FIFO_JOIN_RX_PUTGET)) {
+            pa_set_error(ctx, "FIFO must be configured for txput or putget to use mov rxfifo[]");
             return false;
         }
         *base = ry ? pio_sim_encode_mov_to_rxfifo_y() : pio_sim_encode_mov_to_rxfifo(ridx);
         return true;
     }
     if (ieq(tok[1], "osr") && parse_rxfifo(tok[2], &ry, &ridx)) {
+        if (!require_prog_version(ctx, 1, "mov osr, rxfifo[]")) {
+            return false;
+        }
         if (!ry && (ridx > 3U)) {
             pa_set_error(ctx, "rxfifo index out of range (0..3)");
+            return false;
+        }
+        if ((ctx->out->fifo_join != PIO_FIFO_JOIN_RX_GET) &&
+            (ctx->out->fifo_join != PIO_FIFO_JOIN_RX_PUTGET)) {
+            pa_set_error(ctx,
+                         "FIFO must be configured for txget or putget to use mov osr, rxfifo[]");
             return false;
         }
         *base = ry ? pio_sim_encode_mov_from_rxfifo_y() : pio_sim_encode_mov_from_rxfifo(ridx);
@@ -1129,6 +1172,11 @@ static bool enc_mov(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
     }
 #endif
     int dest = mov_dest_field(tok[1]);
+#if PIO_SIM_HAS_MOV_PINDIRS
+    if ((dest == (int)PIO_MOV_DST_PINDIRS) && !require_prog_version(ctx, 1, "mov pindirs")) {
+        return false;
+    }
+#endif
     char *srctok = tok[2];
     uint8_t op = mov_op_of(&srctok);
     int src = src_field(srctok);
@@ -1196,6 +1244,9 @@ static bool enc_irq(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
     }
     uint8_t field = (uint8_t)(idx & 0x1FU);
 #if PIO_SIM_HAS_IRQ_PREVNEXT
+    if ((prev || next) && !require_prog_version(ctx, 1, "irq prev/next")) {
+        return false;
+    }
     if (prev) {
         field = (uint8_t)((idx & 0x7U) | PIO_IRQ_PREV);
     } else if (next) {
@@ -1472,6 +1523,19 @@ static bool parse_shift_dir_cfg(pa_parse_state_t *ps, char *tok[], uint8_t nt, b
     if (count > 32U) {
         return false; /* pin count exceeds the 32-pin SM window */
     }
+    if (is_in) {
+        /* pioasm: `.in` count must be exactly 32 on PIO v0, and 1..32 on v1
+         * (`.out` allows 0). Gate on the effective declared version. */
+        int eff =
+            (ps->ctx->out->pio_version >= 0) ? ps->ctx->out->pio_version : PIO_SIM_PIO_VERSION;
+        if (eff == 0) {
+            if (count != 32U) {
+                return false;
+            }
+        } else if (count == 0U) {
+            return false;
+        }
+    }
     pio_shift_dir_t dir = PIO_SHIFT_RIGHT; /* pioasm default */
     bool autoshift = false;
     uint32_t threshold = 32;
@@ -1517,28 +1581,49 @@ static bool parse_mov_status(pa_parse_state_t *ps, char *tok[], uint8_t nt)
         return false;
     }
     pio_program_t *out = ps->ctx->out;
+    bool want_lt = false;  /* `txfifo`/`rxfifo` require a `<` level marker */
+    bool want_set = false; /* `irq` requires a `set` marker */
     if (ieq(tok[1], "txfifo")) {
         out->mov_status_sel = PIO_STATUS_TX_LEVEL;
+        want_lt = true;
     } else if (ieq(tok[1], "rxfifo")) {
         out->mov_status_sel = PIO_STATUS_RX_LEVEL;
+        want_lt = true;
 #if PIO_SIM_HAS_IRQ_STATUS
     } else if (ieq(tok[1], "irq")) {
         out->mov_status_sel = PIO_STATUS_IRQ_SET;
+        want_set = true;
 #if PIO_SIM_HAS_IRQ_PREVNEXT
         /* `irq next set N` / `irq prev set N`: the flag is read from the
-         * neighbouring PIO block (EXECCTRL STATUS_N[4:3] on RP2350). */
+         * neighbouring PIO block (EXECCTRL STATUS_N = 0x08 prev / 0x10 next). */
         for (uint8_t i = 2; (i + 1U) < nt; i++) {
             if (ieq(tok[i], "next")) {
                 out->mov_status_sel = PIO_STATUS_IRQ_SET_NEXT;
             } else if (ieq(tok[i], "prev")) {
                 out->mov_status_sel = PIO_STATUS_IRQ_SET_PREV;
-            } else {
-                /* `set` marker or other positional token: ignore. */
             }
+        }
+        if (((out->mov_status_sel == PIO_STATUS_IRQ_SET_NEXT) ||
+             (out->mov_status_sel == PIO_STATUS_IRQ_SET_PREV)) &&
+            !require_prog_version(ps->ctx, 1, ".mov_status irq next/prev")) {
+            return false;
         }
 #endif
 #endif
     } else {
+        return false;
+    }
+    /* pioasm requires the positional marker: `txfifo/rxfifo < N`, `irq [..] set N`. */
+    bool have_lt = false;
+    bool have_set = false;
+    for (uint8_t i = 2; i < nt; i++) {
+        if (ieq(tok[i], "<")) {
+            have_lt = true;
+        } else if (ieq(tok[i], "set")) {
+            have_set = true;
+        }
+    }
+    if ((want_lt && !have_lt) || (want_set && !have_set)) {
         return false;
     }
     uint32_t n = 0;
@@ -1646,7 +1731,15 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
         }
     } else if (ieq(tok[0], ".wrap")) {
         if (ps->pass == 1) {
-            out->wrap_top = (ps->idx > 0U) ? (uint8_t)(ps->idx - 1U) : 0U;
+            if (ps->idx == 0U) {
+                pa_set_error(ps->ctx, ".wrap cannot be placed before the first instruction");
+                return LINE_ERROR;
+            }
+            if (out->wrap_top != 0xFFU) {
+                pa_set_error(ps->ctx, ".wrap was already specified");
+                return LINE_ERROR;
+            }
+            out->wrap_top = (uint8_t)(ps->idx - 1U);
         }
     } else if (ieq(tok[0], ".word")) {
         /* Emits a raw instruction word, so it occupies a slot in every pass. The
@@ -1721,6 +1814,13 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
             pa_set_error(ps->ctx, "bad .fifo");
             return LINE_ERROR;
         }
+#if PIO_SIM_HAS_RXFIFO_MOV
+        if (((out->fifo_join == PIO_FIFO_JOIN_RX_PUT) || (out->fifo_join == PIO_FIFO_JOIN_RX_GET) ||
+             (out->fifo_join == PIO_FIFO_JOIN_RX_PUTGET)) &&
+            !require_prog_version(ps->ctx, 1, ".fifo putget/txput/txget")) {
+            return LINE_ERROR;
+        }
+#endif
         out->has_fifo_join = true;
     } else if (ieq(tok[0], ".mov_status")) {
         if (!parse_mov_status(ps, tok, nt)) {
@@ -1743,8 +1843,8 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
             pa_set_error(ps->ctx, "bad .set");
             return LINE_ERROR;
         }
-        if (v > 32U) {
-            pa_set_error(ps->ctx, ".set pin count out of range (0..32)");
+        if (v > 5U) {
+            pa_set_error(ps->ctx, ".set pin count out of range (0..5)");
             return LINE_ERROR;
         }
         out->set_cfg.set = true;
@@ -1977,6 +2077,12 @@ bool pio_asm_assemble(const char *src, const char *name, pio_program_t *out)
         pa_set_error(&ctx, "no instructions found (check program name)");
         return false;
     }
+    /* `.wrap_target` sets wrap_bottom to the index at its position; == count means
+     * it followed the last instruction, which pioasm rejects at assemble time. */
+    if (out->wrap_bottom >= out->count) {
+        pa_set_error(&ctx, ".wrap_target cannot be placed after the last instruction");
+        return false;
+    }
 
     /* Pass 2 (emit): encode instruction words. */
     ps.pass = 2;
@@ -1986,12 +2092,18 @@ bool pio_asm_assemble(const char *src, const char *name, pio_program_t *out)
 
     /* Expose public-label offsets (mirrors pioasm's <prog>_offset_<name>). */
     for (uint8_t i = 0; i < ctx.label_count; i++) {
-        if (ctx.labels[i].is_public && (out->public_count < PIO_ASM_MAX_PUBLIC)) {
-            pio_public_label_t *pl = &out->public_labels[out->public_count];
-            (void)snprintf(pl->name, sizeof(pl->name), "%s", ctx.labels[i].name);
-            pl->index = ctx.labels[i].index;
-            out->public_count++;
+        if (!ctx.labels[i].is_public) {
+            continue;
         }
+        if (out->public_count >= PIO_ASM_MAX_PUBLIC) {
+            /* Erroring (vs silently dropping) mirrors the "too many labels" path. */
+            pa_set_error(&ctx, "too many public labels");
+            return false;
+        }
+        pio_public_label_t *pl = &out->public_labels[out->public_count];
+        (void)snprintf(pl->name, sizeof(pl->name), "%s", ctx.labels[i].name);
+        pl->index = ctx.labels[i].index;
+        out->public_count++;
     }
     return out->ok;
 }
@@ -2083,18 +2195,10 @@ void pio_asm_apply_program_config(pio_sim_t *pio, uint8_t sm, const pio_program_
     c.out_en_sel = s->out_en_sel;
 
     if (prog->has_clock_div) {
-        /* 16.8 fixed-point, matching pico-sdk sm_config_set_clkdiv. */
-        double d = prog->clock_div;
-        if (d < 1.0) {
-            d = 1.0;
-        } else if (d > 65535.0) {
-            d = 65535.0; /* clamp to the 16-bit integer divisor, not truncate */
-        }
-        uint32_t whole = (uint32_t)d;
-        /* Truncate the fraction, as sm_config_set_clkdiv (and the SDK) do, so
-         * the two config paths encode the same divisor identically. */
-        uint32_t frac = (uint32_t)((d - (double)whole) * 256.0);
-        sm_config_set_clkdiv_int_frac(&c, (uint16_t)whole, (uint8_t)frac);
+        /* Route through the float helper so `.clock_div` and sm_config_set_clkdiv
+         * encode the divisor identically (both clamp and round to nearest 1/256,
+         * matching the SDK default). */
+        sm_config_set_clkdiv(&c, (float)prog->clock_div);
     }
     if (prog->has_fifo_join) {
         sm_config_set_fifo_join(&c, prog->fifo_join);

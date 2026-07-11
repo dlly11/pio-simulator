@@ -133,8 +133,10 @@ bool pio_asm_assemble(const char *src, const char *name, pio_program_t *out);
  * (relocating JMP targets), apply its side-set and wrap config to state
  * machine `sm`, and set the SM's PC to `offset` — the program's first
  * instruction, as the SDK's pio_sm_init does, so a preamble before
- * .wrap_target runs once. Returns false and does nothing if prog->ok is
- * false.
+ * .wrap_target runs once. Returns false and does nothing if `prog->ok` is
+ * false, if `offset + prog->count` exceeds the 32-word instruction memory, or if
+ * `prog`'s wrap window falls outside its instructions — so check the return
+ * value, not just `prog->ok`.
  */
 bool pio_asm_load_program(pio_sim_t *pio, uint8_t sm, uint8_t offset, const pio_program_t *prog);
 

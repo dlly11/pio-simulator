@@ -584,6 +584,32 @@ static void test_out_exec_injected_instruction_honors_delay(void)
     TEST_ASSERT_EQUAL_UINT32(5U, pio.sm[0].y);
 }
 
+/* The OUT EXEC word's OWN delay field is ignored — only the injected instruction
+ * inserts delay, so the two delays do not stack (RP2040 datasheet §3.4.5.2). */
+static void test_out_exec_own_delay_is_ignored(void)
+{
+    sm_config_set_out_shift(&cfg, true, false, 32);
+    uint16_t injected =
+        (uint16_t)(pio_sim_encode_set(PIO_DST_X, 7) | (2U << 8U)); /* injected [2] */
+    const uint16_t prog[] = {
+        pio_sim_encode_pull(false, true),
+        (uint16_t)(pio_sim_encode_out(PIO_DST_OSR, 16) | (3U << 8U)), /* OUT EXEC, own [3] */
+        pio_sim_encode_set(PIO_DST_Y, 5),
+    };
+    load_prog(prog, 3);
+    pio_sim_sm_put(&pio, 0, injected);
+    /* If the OUT word's own [3] stacked with the injected [2], the injected
+     * `set x,7` would not run until cycle 6; x==7 after 3 cycles proves the OUT
+     * word's delay was ignored and only the injected [2] applies. */
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_EQUAL_UINT32(7U, pio.sm[0].x);
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y);
+    pio_sim_run(&pio, 2); /* injected [2] delay holds */
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y);
+    pio_sim_run(&pio, 1); /* set y,5 executes */
+    TEST_ASSERT_EQUAL_UINT32(5U, pio.sm[0].y);
+}
+
 /* ── IN / autopush ─────────────────────────────────────────────────────────── */
 
 static void test_in_pins_shift_left(void)
@@ -754,7 +780,7 @@ static void test_wait_irq_clears_flag(void)
         pio_sim_encode_set(PIO_DST_Y, 1),
     };
     load_prog(prog, 2);
-    pio.irq |= (1U << 3);
+    pio_sim_irq_force(&pio, 3, true);
     pio_sim_run(&pio, 2);
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);
     TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, 3)); /* WAIT 1 IRQ clears it */
@@ -774,6 +800,17 @@ static void test_irq_set_and_clear(void)
     TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 2));
     pio_sim_run(&pio, 1);
     TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, 2));
+}
+
+/* Host IRQ_FORCE: the SET counterpart to pio_sim_irq_clear, masked to irq & 7. */
+static void test_irq_force_sets_and_clears(void)
+{
+    pio_sim_irq_force(&pio, 5, true);
+    TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 5));
+    pio_sim_irq_force(&pio, 5, false);
+    TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, 5));
+    pio_sim_irq_force(&pio, 8, true); /* masks to flag 0 */
+    TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 0));
 }
 
 /* ── side-set / delay / clkdiv / wrap ──────────────────────────────────────── */
@@ -883,6 +920,23 @@ static void test_clkdiv_int0_frac_is_65536(void)
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].x); /* fires on tick 65537 */
 }
 
+/* The float clkdiv helper rounds to the nearest 1/256 rather than flooring,
+ * matching the SDK default (PICO_PIO_CLKDIV_ROUND_NEAREST=1 on RP2040/RP2350):
+ * 2.999 → int 3 / frac 0, 1.4999 → frac 128. */
+static void test_clkdiv_float_rounds_to_nearest(void)
+{
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_clkdiv(&c, 2.999F);
+    TEST_ASSERT_EQUAL_UINT16(3U, c.clkdiv_int);
+    TEST_ASSERT_EQUAL_UINT8(0U, c.clkdiv_frac);
+    sm_config_set_clkdiv(&c, 1.4999F);
+    TEST_ASSERT_EQUAL_UINT16(1U, c.clkdiv_int);
+    TEST_ASSERT_EQUAL_UINT8(128U, c.clkdiv_frac);
+    sm_config_set_clkdiv(&c, 4.0F); /* an exact integer stays exact */
+    TEST_ASSERT_EQUAL_UINT16(4U, c.clkdiv_int);
+    TEST_ASSERT_EQUAL_UINT8(0U, c.clkdiv_frac);
+}
+
 /* pio_sim_sm_init wraps an out-of-range initial_pc into the 32-word instruction
  * window, exactly as pio_sim_sm_set_pc does, so the post-commit PC increment
  * stays consistent. */
@@ -964,7 +1018,7 @@ static void test_tx_empty_and_irq_clear_accessors(void)
     TEST_ASSERT_FALSE(pio_sim_sm_is_tx_fifo_empty(&pio, 0));
 
     /* IRQ set via the raw flag, cleared through the public accessor. */
-    pio.irq |= (uint8_t)(1U << 5U);
+    pio_sim_irq_force(&pio, 5, true);
     TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 5));
     pio_sim_irq_clear(&pio, 5);
     TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, 5));
@@ -1195,7 +1249,7 @@ static void test_mov_status_irq_flag(void)
     load_prog(prog, 1);
     pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_HEX32(0x0U, pio.sm[0].x); /* irq 3 clear */
-    pio.irq |= (uint8_t)(1U << 3U);
+    pio_sim_irq_force(&pio, 3, true);
     pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFU, pio.sm[0].x);
 }
@@ -1271,7 +1325,7 @@ static void test_wait_irq_rel(void)
     pio_sim_sm_set_enabled(&pio, 1, true);
     pio_sim_run(&pio, 4); /* stalls: flag 1 low */
     TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[1].y);
-    pio.irq |= (uint8_t)(1U << 1U);
+    pio_sim_irq_force(&pio, 1, true);
     pio_sim_run(&pio, 2);
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[1].y);
     TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, 1)); /* WAIT 1 IRQ clears it */
@@ -1699,9 +1753,9 @@ static void test_irq_next_signals_neighbour_block(void)
 #if PIO_SIM_HAS_IRQ_STATUS
 static void test_mov_status_irq_prev_next_blocks(void)
 {
-    /* STATUS_SEL=IRQ with STATUS_N[4:3] prev/next reads the neighbouring PIO
-     * block's flag; the local flag must not leak in, and an unlinked
-     * neighbour reads as clear. */
+    /* STATUS_SEL=IRQ with a prev/next STATUS_N block-select (bit 3 / bit 4) reads
+     * the neighbouring PIO block's flag; the local flag must not leak in, and an
+     * unlinked neighbour reads as clear. */
     pio_sim_t nbr;
     pio_sim_init(&nbr);
     pio_sim_set_irq_neighbors(&pio, &nbr, &nbr); /* nbr is both prev and next */
@@ -1712,11 +1766,11 @@ static void test_mov_status_irq_prev_next_blocks(void)
     load_prog(prog, 2);
     sm_config_set_wrap(&cfg, 0, 1);
 
-    pio.irq |= (uint8_t)(1U << 3U); /* LOCAL flag: must not affect prev/next */
+    pio_sim_irq_force(&pio, 3, true); /* LOCAL flag: must not affect prev/next */
     pio_sim_run(&pio, 2);
     TEST_ASSERT_EQUAL_HEX32(0x0U, pio.sm[0].x);
 
-    nbr.irq |= (uint8_t)(1U << 3U); /* neighbour flag: selects all-ones */
+    pio_sim_irq_force(&nbr, 3, true); /* neighbour flag: selects all-ones */
     pio_sim_run(&pio, 2);
     TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFU, pio.sm[0].x);
 
@@ -2475,6 +2529,191 @@ static void test_two_instances_are_independent(void)
     TEST_ASSERT_EQUAL_UINT64(3U, a.cycle);
 }
 
+/* ── regression pins for correct-but-previously-unexercised branches ─────────── */
+
+/* `wait 0 irq N` stalls while flag N is SET and proceeds once it is clear, and —
+ * unlike `wait 1 irq` — must not clear the flag. */
+static void test_wait_irq_polarity0_waits_for_clear(void)
+{
+    const uint16_t prog[] = {
+        pio_sim_encode_wait(0, PIO_WAIT_IRQ, 4),
+        pio_sim_encode_set(PIO_DST_Y, 1),
+    };
+    load_prog(prog, 2);
+    pio_sim_irq_force(&pio, 4, true); /* flag set: the pol-0 wait stalls */
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y);
+    TEST_ASSERT_TRUE(pio_sim_irq_get(&pio, 4)); /* a pol-0 wait never clears */
+    pio_sim_irq_clear(&pio, 4);
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);   /* now proceeds */
+    TEST_ASSERT_FALSE(pio_sim_irq_get(&pio, 4)); /* still clear (wait didn't touch it) */
+}
+
+/* OUT PINDIRS routes to drive_pindirs like MOV PINDIRS: the low OSR bits set each
+ * pin's direction (1 = output). */
+static void test_out_pindirs_drives_dirs(void)
+{
+    sm_config_set_out_pins(&cfg, 0, 3);
+    sm_config_set_out_shift(&cfg, true, false, 32); /* shift right */
+    const uint16_t prog[] = {
+        pio_sim_encode_pull(false, true),
+        pio_sim_encode_out(PIO_OUT_DST_PINDIRS, 3),
+    };
+    load_prog(prog, 2);
+    pio_sim_sm_put(&pio, 0, 0x5U); /* 0b101 */
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_TRUE(pio_sim_pin_is_pio_output(&pio, 0));
+    TEST_ASSERT_FALSE(pio_sim_pin_is_pio_output(&pio, 1));
+    TEST_ASSERT_TRUE(pio_sim_pin_is_pio_output(&pio, 2));
+}
+
+/* `wait 0 pin N` stalls while the pin is high and proceeds when it goes low. */
+static void test_wait_pin_polarity0_waits_for_low(void)
+{
+    sm_config_set_in_pins(&cfg, 0);
+    pio_sim_set_pin(&pio, 3, true);
+    const uint16_t prog[] = {
+        pio_sim_encode_wait(0, PIO_WAIT_PIN, 3),
+        pio_sim_encode_set(PIO_DST_Y, 1),
+    };
+    load_prog(prog, 2);
+    pio_sim_sync_settle(&pio);
+    pio_sim_run(&pio, 4);
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y); /* parked while high */
+    pio_sim_set_pin(&pio, 3, false);
+    pio_sim_sync_settle(&pio);
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y); /* low: proceeds */
+}
+
+/* An autopush threshold of 0 encodes 32: autopush fires only after exactly 32
+ * bits, not immediately. */
+static void test_autopush_threshold_zero_means_32(void)
+{
+    sm_config_set_in_shift(&cfg, false, true, 0); /* autopush, threshold 0 == 32 */
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_X, 1),
+        pio_sim_encode_in(PIO_SRC_X, 16),
+        pio_sim_encode_in(PIO_SRC_X, 16),
+        pio_sim_encode_jmp(PIO_COND_ALWAYS, 1),
+    };
+    load_prog(prog, 4);
+    pio_sim_run(&pio, 2);                                   /* set x, in 16 → count 16 */
+    TEST_ASSERT_TRUE(pio_sim_sm_is_rx_fifo_empty(&pio, 0)); /* no autopush below 32 */
+    pio_sim_run(&pio, 1);                                   /* in 16 → count 32 → autopush */
+    TEST_ASSERT_FALSE(pio_sim_sm_is_rx_fifo_empty(&pio, 0));
+}
+
+/* Complement to the no-op-below-threshold tests: the conditional push/pull DO
+ * fire once the shift count reaches the threshold exactly. */
+static void test_push_iffull_fires_at_threshold(void)
+{
+    sm_config_set_in_shift(&cfg, false, false, 8);
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_X, 1),
+        pio_sim_encode_in(PIO_SRC_X, 8), /* isr_count = 8 == threshold */
+        pio_sim_encode_push(true, true), /* iffull: fires */
+    };
+    load_prog(prog, 3);
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_FALSE(pio_sim_sm_is_rx_fifo_empty(&pio, 0));
+    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].isr_count);
+}
+
+static void test_pull_ifempty_fires_at_threshold(void)
+{
+    sm_config_set_out_shift(&cfg, true, false, 8);
+    const uint16_t prog[] = {
+        pio_sim_encode_pull(false, true),        /* OSR <- A */
+        pio_sim_encode_out(PIO_OUT_DST_NULL, 8), /* osr_count = 8 == threshold */
+        pio_sim_encode_pull(true, true),         /* ifempty: fires, consumes B */
+    };
+    load_prog(prog, 3);
+    pio_sim_sm_put(&pio, 0, 0xAAAAAAAAU); /* A */
+    pio_sim_sm_put(&pio, 0, 0x12345678U); /* B */
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].tx.count); /* B consumed */
+}
+
+/* A joined SM's unavailable FIFO reads BOTH full and empty in FSTAT
+ * (RP2040 §3.5.4 / RP2350 §11.5.4). */
+static void test_joined_fifo_reads_full_and_empty(void)
+{
+    sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX); /* TX unavailable */
+    const uint16_t prog[] = {pio_sim_encode_nop()};
+    load_prog(prog, 1);
+    TEST_ASSERT_TRUE(pio_sim_sm_is_tx_fifo_full(&pio, 0));
+    TEST_ASSERT_TRUE(pio_sim_sm_is_tx_fifo_empty(&pio, 0));
+
+    sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_TX); /* RX unavailable */
+    pio_sim_sm_set_config(&pio, 0, &cfg);
+    TEST_ASSERT_TRUE(pio_sim_sm_is_rx_fifo_full(&pio, 0));
+    TEST_ASSERT_TRUE(pio_sim_sm_is_rx_fifo_empty(&pio, 0));
+}
+
+#if PIO_SIM_HAS_IN_PIN_COUNT
+/* A `wait 0 pin` on a masked pin (index >= in_count) reads 0, so the pol-0 wait
+ * is satisfied immediately — the inverse of test_wait_pin_above_in_count_never_ready. */
+static void test_wait_pin0_masked_satisfies_immediately(void)
+{
+    sm_config_set_in_pins(&cfg, 0);
+    sm_config_set_in_pin_count(&cfg, 5);
+    pio_sim_set_pin(&pio, 6, true); /* high but masked (>= count) */
+    const uint16_t prog[] = {
+        pio_sim_encode_wait(0, PIO_WAIT_PIN, 6),
+        pio_sim_encode_set(PIO_DST_Y, 1),
+    };
+    load_prog(prog, 2);
+    pio_sim_sync_settle(&pio);
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y); /* masked → 0, pol 0 met, set ran */
+}
+#endif
+
+#if PIO_SIM_HAS_IRQ_PREVNEXT
+/* `wait 1 irq prev N` on block B waits on neighbour block A's flag and clears it
+ * on satisfy — a cross-block WAIT clear the local-block tests never reach. */
+static void test_wait_irq_neighbour_clears_and_parks(void)
+{
+    pio_sim_t a;
+    pio_sim_init(&a);
+    pio_sim_set_irq_neighbors(&pio, &a, &a); /* a is prev and next of pio */
+    const uint16_t prog[] = {
+        (uint16_t)(pio_sim_encode_wait(1, PIO_WAIT_IRQ, 2) | PIO_IRQ_PREV),
+        pio_sim_encode_set(PIO_DST_Y, 1),
+    };
+    load_prog(prog, 2);
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_EQUAL_UINT32(0U, pio.sm[0].y); /* parked: neighbour flag clear */
+    pio_sim_irq_force(&a, 2, true);            /* raise flag 2 on the neighbour */
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y); /* un-parked */
+    TEST_ASSERT_FALSE(pio_sim_irq_get(&a, 2)); /* WAIT 1 cleared the neighbour's flag */
+}
+#endif
+
+#if PIO_SIM_HAS_RXFIFO_MOV
+/* Autopush is prohibited with FJOIN_RX_PUT (RP2350 §11.5.4.1, undefined); the
+ * model resolves an IN that crosses the threshold to RXSTALL without writing the
+ * register file — the will_autopush register-file guard. */
+static void test_autopush_into_rx_register_file_stalls(void)
+{
+    sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX_PUT);
+    sm_config_set_in_shift(&cfg, false, true, 8); /* autopush, threshold 8 */
+    const uint16_t prog[] = {
+        pio_sim_encode_set(PIO_DST_X, 1),
+        pio_sim_encode_in(PIO_SRC_X, 8), /* crosses threshold → would autopush */
+    };
+    load_prog(prog, 2);
+    pio.sm[0].rx.buf[0] = 0xA5A5A5A5U; /* sentinel */
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_TRUE((pio.sm[0].fdebug & PIO_FDEBUG_RXSTALL) != 0U);
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5U, pio.sm[0].rx.buf[0]); /* slot not clobbered */
+    TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].rx.count);           /* not desynced */
+}
+#endif
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -2508,6 +2747,7 @@ int main(void)
     RUN_TEST(test_host_release_pin);
     RUN_TEST(test_out_exec_injects_instruction);
     RUN_TEST(test_out_exec_injected_instruction_honors_delay);
+    RUN_TEST(test_out_exec_own_delay_is_ignored);
 
     RUN_TEST(test_in_pins_shift_left);
     RUN_TEST(test_in_autopush_to_rx);
@@ -2550,6 +2790,7 @@ int main(void)
     RUN_TEST(test_clkdiv_slows_execution);
     RUN_TEST(test_clkdiv_fractional_cadence);
     RUN_TEST(test_clkdiv_int0_frac_is_65536);
+    RUN_TEST(test_clkdiv_float_rounds_to_nearest);
     RUN_TEST(test_sm_init_wraps_initial_pc);
     RUN_TEST(test_wrap_returns_to_bottom);
 
@@ -2641,6 +2882,24 @@ int main(void)
     RUN_TEST(test_group_enable_sm_mask_in_sync);
     RUN_TEST(test_unwritten_fetch_is_flagged);
     RUN_TEST(test_two_instances_are_independent);
+
+    RUN_TEST(test_irq_force_sets_and_clears);
+    RUN_TEST(test_wait_irq_polarity0_waits_for_clear);
+    RUN_TEST(test_out_pindirs_drives_dirs);
+    RUN_TEST(test_wait_pin_polarity0_waits_for_low);
+    RUN_TEST(test_autopush_threshold_zero_means_32);
+    RUN_TEST(test_push_iffull_fires_at_threshold);
+    RUN_TEST(test_pull_ifempty_fires_at_threshold);
+    RUN_TEST(test_joined_fifo_reads_full_and_empty);
+#if PIO_SIM_HAS_IN_PIN_COUNT
+    RUN_TEST(test_wait_pin0_masked_satisfies_immediately);
+#endif
+#if PIO_SIM_HAS_IRQ_PREVNEXT
+    RUN_TEST(test_wait_irq_neighbour_clears_and_parks);
+#endif
+#if PIO_SIM_HAS_RXFIFO_MOV
+    RUN_TEST(test_autopush_into_rx_register_file_stalls);
+#endif
 
     return UNITY_END();
 }

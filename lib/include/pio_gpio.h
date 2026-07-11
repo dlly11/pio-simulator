@@ -6,11 +6,16 @@
  *
  * Pads: the digital-relevant fields are simulated exactly — IE (input enable:
  * 0 makes the PIO read the pin as 0), OD (output disable: the pad is never
- * driven by the chip), PUE/PDE pulls (both enabled = bus keeper, holding the
- * last driven level), and on RP2350 ISO (isolation: output frozen at the
- * level latched when ISO was raised, input gated). DRIVE strength, SLEWFAST
- * and SCHMITT are analog: they are accepted and stored for read-back but do
- * not affect the digital simulation.
+ * driven by the chip), PUE/PDE pulls (up reads 1 / down reads 0 when undriven),
+ * and on RP2350 ISO (isolation: output frozen at the level latched when ISO was
+ * raised, input gated). DRIVE strength, SLEWFAST and SCHMITT are analog: they
+ * are accepted and stored for read-back but do not affect the digital
+ * simulation.
+ *
+ * Deviation: both pulls enabled is modelled as a bus keeper (holds the last
+ * driven level) for a deterministic read. Real RP2040/RP2350 pads have no
+ * keeper — both weak resistors on at once form an indeterminate mid-rail
+ * divider — so this is a sim-only convenience, not silicon-exact.
  *
  * Mux: each pin's FUNCSEL routes the pad's output/OE. A PIO block only drives
  * pins whose FUNCSEL selects it — owner slot i of a pad set corresponds to
@@ -122,9 +127,11 @@ void pio_sim_pad_set_output_disable(pio_sim_t *pio, uint8_t pin, bool od);
 /** Read back the output-disable (OD) bit set above for `pin`. */
 bool pio_sim_pad_get_output_disable(const pio_sim_t *pio, uint8_t pin);
 
-/** Pull resistors: up only reads 1 when undriven, down only reads 0, both
- * enabled is the bus keeper (holds the last driven level), neither floats
- * (reads 0). Subsumes pio_sim_set_pull_level. Reset: none. */
+/** Pull resistors: up only reads 1 when undriven, down only reads 0, neither
+ * floats (reads 0). Both enabled is modelled as a bus keeper (holds the last
+ * driven level) for determinism — a sim-only convenience, since silicon has no
+ * keeper (both resistors on is an indeterminate mid-rail divider). Subsumes
+ * pio_sim_set_pull_level. Reset: none. */
 void pio_sim_pad_set_pulls(pio_sim_t *pio, uint8_t pin, bool up, bool down);
 /** Read back the pull configuration set above (either pointer may be NULL). */
 void pio_sim_pad_get_pulls(const pio_sim_t *pio, uint8_t pin, bool *up, bool *down);

@@ -1,0 +1,8 @@
+# Propose (never auto-apply) updates to the SHA-pinned GitHub Actions, so a bump
+# is a reviewable PR rather than a silently-moving tag.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

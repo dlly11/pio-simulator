@@ -58,8 +58,8 @@
 /** A single PIO TX or RX FIFO: a circular buffer of up to 8 32-bit words. */
 typedef struct {
     uint32_t buf[PIO_SIM_FIFO_MAX]; /**< word storage (ring buffer)             */
-    uint8_t head;                   /**< index of the next word to read (get)   */
-    uint8_t tail;                   /**< index of the next slot to write (put)  */
+    uint8_t head;                   /**< index of the next slot to write (put)  */
+    uint8_t tail;                   /**< index of the next word to read (get)   */
     uint8_t count;                  /**< words currently queued (0..cap)        */
     uint8_t cap;                    /**< 0, PIO_SIM_FIFO_DEPTH, or PIO_SIM_FIFO_MAX (joined) */
 } pio_fifo_t;
@@ -201,8 +201,9 @@ typedef struct {
     uint64_t ext_levels; /**< level of the externally driven pins            */
 
     /** ── Pad registers (PADS_BANK0, digital-relevant fields; see pio_gpio.h) ──
-     * pad_pue/pad_pde model the pull resistors (both set = bus keeper, which
-     * holds the last driven level in keep_state). pad_od forces the pad off;
+     * pad_pue/pad_pde model the pull resistors (both set is modelled as a
+     * bus keeper holding the last driven level in keep_state — a sim-only
+     * convenience; silicon has no keeper). pad_od forces the pad off;
      * pad_ie=0 makes the PIO read the pin as 0 (host pio_sim_get_pin still
      * returns the wire). DRIVE/SLEWFAST/SCHMITT are stored in pad_cfg but do
      * not affect the digital simulation. */
@@ -409,10 +410,11 @@ typedef enum {
      * source) this selector falls through to PIO_STATUS_TX_LEVEL behaviour. */
     PIO_STATUS_IRQ_SET = 2,
 #if PIO_SIM_HAS_IRQ_STATUS && PIO_SIM_HAS_IRQ_PREVNEXT
-    /* RP2350 selects the IRQ flag's PIO block via EXECCTRL STATUS_N[4:3]
-     * (0 = this PIO, 1 = prev, 2 = next); modelled as distinct selectors here.
-     * The block links come from pio_sim_set_irq_neighbors / group init; an
-     * unlinked neighbour reads the flag as clear. */
+    /* RP2350 selects the IRQ flag's PIO block via EXECCTRL STATUS_N: 0x08 (bit 3)
+     * = previous PIO, 0x10 (bit 4) = next (0x00 = this PIO; 0x18 is undefined) —
+     * one-hot bits, not a contiguous [4:3] ordinal. Modelled as distinct
+     * pio_status_sel_t selectors here. The block links come from
+     * pio_sim_set_irq_neighbors / group init; an unlinked neighbour reads clear. */
     PIO_STATUS_IRQ_SET_PREV = 3, /* all-ones while IRQ flag N of the prev PIO is set */
     PIO_STATUS_IRQ_SET_NEXT = 4, /* all-ones while IRQ flag N of the next PIO is set */
 #endif
@@ -645,7 +647,13 @@ void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm);
  * writes via `mov rxfifo[], isr` and the host reads with pio_sim_sm_rxfifo_get; in
  * GET mode the host writes with pio_sim_sm_rxfifo_put and the SM reads via
  * `mov osr, rxfifo[]`. These — not pio_sim_sm_get/put — are the host access
- * path for those modes. `index` is masked to the 4-entry file (index & 3). */
+ * path for those modes. `index` is masked to the 4-entry file (index & 3).
+ *
+ * These are unconditional debug accessors: they read/write the register file
+ * regardless of the current join mode, intentionally bypassing the RP2350
+ * RXFx_PUTGETn bus-window gating (readable only in PUT-only, writable only in
+ * GET-only). The device-fidelity direction gating that programs observe is
+ * enforced on the SM side (`mov rxfifo[]` / `mov osr, rxfifo[]`), not here. */
 /** Read RX register-file entry `index` (host read in FJOIN_RX_PUT mode). */
 uint32_t pio_sim_sm_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index);
 /** Write RX register-file entry `index` (host write in FJOIN_RX_GET mode). */
@@ -689,6 +697,10 @@ bool pio_sim_pin_is_pio_output(const pio_sim_t *pio, uint8_t pin);
 bool pio_sim_irq_get(const pio_sim_t *pio, uint8_t irq);
 /** Clear SM IRQ flag `irq` (masked: irq & 7) — the host-side acknowledge. */
 void pio_sim_irq_clear(pio_sim_t *pio, uint8_t irq);
+/** Force SM IRQ flag `irq` on/off from the host (masked: irq & 7) — models the
+ * IRQ_FORCE register, the SET counterpart to pio_sim_irq_clear (e.g. to unblock a
+ * `wait 1 irq` from the host side). */
+void pio_sim_irq_force(pio_sim_t *pio, uint8_t irq, bool on);
 
 /* ── System interrupt lines (IRQ0 / IRQ1) ──────────────────────────────────────
  * The PIO raises two system interrupt lines from a set of sources (the INTR

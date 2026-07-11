@@ -9,6 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.2.0] - 2026-07-11
+
+Clears the audit backlog: assembler pioasm error-parity, simulator/GPIO fidelity,
+regression coverage, one new host API, doc corrections, and CI/portability
+hardening.
+
+### Added
+
+- **`pio_sim_irq_force`** — host-side setter for an SM IRQ flag (models the
+  `IRQ_FORCE` register), the SET counterpart to `pio_sim_irq_clear`.
+
+### Fixed
+
+- **Assembler pioasm error-parity** — inputs the real `pioasm` rejects are now
+  rejected too (each pinned with a negative test, since the bit-exact differential
+  can't see them): v1-only constructs used under `.pio_version 0`; `wait jmppin`
+  offset capped at 0..3; `mov rxfifo[]` requires a matching `.fifo` join; `.set`
+  capped at 0..5; `.wrap`/`.wrap_target` placement + duplicate; `.mov_status`
+  positional markers; `.in` zero/`v0`-must-be-32 counts.
+- **Clock divider** — `sm_config_set_clkdiv` rounds the float divisor to the
+  nearest 1/256 (the SDK default) instead of flooring.
+- **GPIO** — `pio_sim_pin_is_pio_output` now honours the IO_BANK0 OEOVER stage,
+  so a pad forced hi-Z by `OEOVER=LOW/INVERT` is no longer reported as an output.
+- **OUT/MOV EXEC** — the executing word's own delay is ignored (per the
+  datasheet); it no longer stacks with the injected instruction's delay.
+- **Docs** — bus-keeper reclassified as a sim-only convenience (silicon has no
+  keeper); MOV STATUS<-IRQ neighbour-select documented as one-hot bits, not an
+  ordinal; `pio_fifo_t` head/tail comments corrected; `pio_asm_load_program`
+  failure paths and the shared pacing-timer simplification documented; the local
+  `clang-format` command in README/CONTRIBUTING covers all fuzz harnesses.
+
+### Changed
+
+- **Assembler** — a program with more than `PIO_ASM_MAX_PUBLIC` public labels
+  now errors instead of silently dropping the extras.
+- **Build** — `CMAKE_C_EXTENSIONS OFF`: the matrix builds strict `-std=c11`.
+- **CI** — format and clang-tidy gates are glob/compile-database driven (no
+  hand-maintained file lists); every GitHub Action is pinned to a commit SHA with
+  a Dependabot config; the fuzz job (0.1.1) uploads crash reproducers on failure.
+
+### Tests
+
+- Regression pins for previously-unexercised but correct simulator branches
+  (`wait 0 irq`/`pin`, OUT PINDIRS, autopush threshold 0, conditional push/pull
+  fire boundary, joined-FIFO flags, inter-PIO WAIT neighbour clear, RX register
+  file autopush stall).
+
 ## [0.1.1] - 2026-07-11
 
 ### Fixed
@@ -72,6 +119,7 @@ around it (pads, DMA, clock tree) modelled too.
   cppcheck, clang-format, the pioasm differential, libFuzzer harnesses
   (assembler, execution core, DMA), and an 80% line-coverage gate.
 
-[Unreleased]: https://github.com/dlly11/pio-simulator/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/dlly11/pio-simulator/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/dlly11/pio-simulator/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/dlly11/pio-simulator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/dlly11/pio-simulator/releases/tag/v0.1.0
