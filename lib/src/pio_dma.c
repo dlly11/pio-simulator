@@ -375,7 +375,7 @@ static bool dma_endpoints_ready(const pio_dma_t *d, const pio_dma_channel_t *cha
         return false;
     }
     /* A NULL memory endpoint (e.g. pio_dma_addr_mem(NULL)) would fault the
-     * transfer's memcpy — treat it as never ready instead. */
+     * transfer's byte copy — treat it as never ready instead. */
     if (((r->kind == PIO_DMA_ADDR_MEM) && (r->mem == NULL)) ||
         ((w->kind == PIO_DMA_ADDR_MEM) && (w->mem == NULL))) {
         return false;
@@ -426,10 +426,15 @@ static void dma_transfer_one(pio_dma_t *d, uint8_t c)
     pio_dma_channel_t *chan = &d->ch[c];
     uint8_t bytes = elem_bytes(chan->ctrl.data_size);
 
-    /* Read. */
+    /* Read. Assemble `bytes` bytes little-endian into v's low bytes, matching the
+     * little-endian RP2040 regardless of the host's byte order — bswap and the
+     * sniffer below then operate on the value in its low bytes on any host. */
     uint32_t v = 0;
     if (chan->read_addr.kind == PIO_DMA_ADDR_MEM) {
-        (void)memcpy(&v, chan->read_addr.mem, bytes); /* low bytes, host-endian */
+        const unsigned char *rd = chan->read_addr.mem;
+        for (uint8_t i = 0; i < bytes; i++) {
+            v |= (uint32_t)rd[i] << (8U * i);
+        }
     } else {
         (void)pio_sim_sm_get(d->pio[chan->read_addr.pio_index], chan->read_addr.sm, &v);
     }
@@ -441,9 +446,12 @@ static void dma_transfer_one(pio_dma_t *d, uint8_t c)
         dma_sniff(d, v, bytes);
     }
 
-    /* Write. */
+    /* Write the low `bytes` bytes back little-endian (host-order-independent). */
     if (chan->write_addr.kind == PIO_DMA_ADDR_MEM) {
-        (void)memcpy(chan->write_addr.mem, &v, bytes);
+        unsigned char *wr = chan->write_addr.mem;
+        for (uint8_t i = 0; i < bytes; i++) {
+            wr[i] = (unsigned char)(v >> (8U * i));
+        }
     } else {
         (void)pio_sim_sm_put(d->pio[chan->write_addr.pio_index], chan->write_addr.sm, v);
     }
