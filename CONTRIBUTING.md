@@ -127,3 +127,6 @@ Branch off `main`, keep commits focused, and make sure the full CI matrix is
 green — build (gcc + clang-21 × RP2040/RP2350), sanitizers, clang-tidy, cppcheck,
 format, the pioasm differential, fuzz, the 80% coverage gate, and the
 install-consumer smoke.
+
+Note user-facing changes under `## [Unreleased]` in [`CHANGELOG.md`](CHANGELOG.md)
+(Keep a Changelog format); that section is renamed to the version on release.
