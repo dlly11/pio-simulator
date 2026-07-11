@@ -185,22 +185,24 @@ jobs:
           lib/config/pio_sim_config.h
           tests/test_pio_sim.c tests/test_pio_asm.c
           tests/test_pio_gpio.c tests/test_pio_clk.c tests/test_pio_dma.c
-          tests/test_pio_programs.c tests/fuzz_pio_asm.c
+          tests/test_pio_programs.c tests/fuzz_pio_asm.c tests/fuzz_pio_sim.c
           tests/unity_config.h
           tests/consumer/main.c
           tests/test_pio_asm_vs_pioasm.c
           examples/01_blink.c examples/02_fifo_echo.c examples/03_uart_tx.c
           examples/04_ws2812.c examples/05_spi_dma.c examples/06_chip_bus.c
 
-  # Fuzz the assembler's untrusted-text entry point under ASan+UBSan for a
-  # short smoke each PR. Fails only if libFuzzer finds a crash/UB (which is
-  # the point). The library sources are instrumented into the harness.
+  # Fuzz the untrusted entry points under ASan+UBSan for a short smoke each PR:
+  # fuzz_pio_asm (assembler text) and fuzz_pio_sim (execution core, arbitrary
+  # 16-bit words). Fails only if libFuzzer finds a crash/UB (which is the point).
+  # The library sources are instrumented into each harness.
   fuzz:
     runs-on: ubuntu-24.04
     strategy:
-      fail-fast: false # a v0 crash shouldn't hide the v1 result (and vice versa)
+      fail-fast: false # a v0/asm crash shouldn't hide the v1/sim result (and vice versa)
       matrix:
         platform: [RP2350, RP2040]
+        target: [fuzz_pio_asm, fuzz_pio_sim]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -215,13 +217,19 @@ jobs:
         run: >
           cmake -B build-fuzz -G Ninja -DCMAKE_C_COMPILER=clang-21
           -DPIO_SIM_PLATFORM=${{ matrix.platform }} -DPIO_SIM_BUILD_FUZZERS=ON
-          && cmake --build build-fuzz --target fuzz_pio_asm
+          && cmake --build build-fuzz --target ${{ matrix.target }}
       - name: Fuzz (60s smoke)
         # First dir is where libFuzzer writes new finds (scratch); the seed
-        # corpus is read-only input, so it stays pristine.
+        # corpus is read-only input, so it stays pristine. Each target has its
+        # own corpus (asm is text, sim is binary).
         run: |
           mkdir -p /tmp/fuzz-finds
-          ./build-fuzz/tests/fuzz_pio_asm -max_total_time=60 /tmp/fuzz-finds tests/fuzz_corpus
+          if [ "${{ matrix.target }}" = "fuzz_pio_sim" ]; then
+            corpus=tests/fuzz_corpus_sim
+          else
+            corpus=tests/fuzz_corpus
+          fi
+          ./build-fuzz/tests/${{ matrix.target }} -max_total_time=60 /tmp/fuzz-finds "$corpus"
 
   # Source coverage (llvm-cov) over the library, merging the RP2040 and RP2350
   # test runs so v0- and v1-gated code both count. Fails under an 80% line-
