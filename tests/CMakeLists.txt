@@ -38,10 +38,13 @@ target_compile_definitions(test_pio_programs PRIVATE
 pio_sim_test_warnings(test_pio_programs)
 add_test(NAME test_pio_programs COMMAND test_pio_programs)
 
-# ── libFuzzer harness for the assembler (clang only) ─────────────────────────
-# Fuzzes the untrusted-text entry point pio_asm_assemble. The library sources
-# are compiled *into* the harness with the sanitizer so ASan/UBSan instrument
-# the parser internals, not just the harness. Seed corpus: tests/fuzz_corpus.
+# ── libFuzzer harnesses (clang only) ─────────────────────────────────────────
+# fuzz_pio_asm fuzzes the untrusted-text entry point pio_asm_assemble; fuzz_pio_sim
+# fuzzes the execution core (arbitrary 16-bit words + config/stimulus via the
+# public API, bypassing the assembler). The library sources are compiled *into*
+# each harness with the sanitizer so ASan/UBSan instrument the internals, not just
+# the harness. Seed corpora: tests/fuzz_corpus (asm, text) / tests/fuzz_corpus_sim
+# (sim, binary).
 option(PIO_SIM_BUILD_FUZZERS "Build the libFuzzer harnesses (requires Clang)" OFF)
 if(PIO_SIM_BUILD_FUZZERS)
     if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
@@ -58,6 +61,19 @@ if(PIO_SIM_BUILD_FUZZERS)
     target_compile_options(fuzz_pio_asm PRIVATE
         -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all -g -O1)
     target_link_options(fuzz_pio_asm PRIVATE -fsanitize=fuzzer,address,undefined)
+
+    # fuzz_pio_sim links pio_sim.c alone — it references no other lib TU (the asm
+    # harness above already links pio_asm.c + pio_sim.c without pio_gpio).
+    add_executable(fuzz_pio_sim fuzz_pio_sim.c
+        ${CMAKE_SOURCE_DIR}/lib/src/pio_sim.c)
+    target_include_directories(fuzz_pio_sim PRIVATE
+        ${CMAKE_SOURCE_DIR}/lib/include ${CMAKE_SOURCE_DIR}/lib/config
+        ${CMAKE_SOURCE_DIR}/lib/src)
+    target_compile_definitions(fuzz_pio_sim PRIVATE
+        PIO_SIM_PIO_VERSION=${PIO_SIM_PIO_VERSION})
+    target_compile_options(fuzz_pio_sim PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all -g -O1)
+    target_link_options(fuzz_pio_sim PRIVATE -fsanitize=fuzzer,address,undefined)
 endif()
 
 # ── Encoding differential vs the real Raspberry Pi pioasm ────────────────────
