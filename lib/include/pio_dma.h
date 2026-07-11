@@ -41,26 +41,27 @@
 
 /* ── Transfer endpoints ────────────────────────────────────────────────────── */
 
-/* Element size — SDK-spelled (enum dma_channel_transfer_size). */
+/** Element size — SDK-spelled (enum dma_channel_transfer_size). */
 typedef enum {
-    DMA_SIZE_8 = 0,  /* byte transfers     */
-    DMA_SIZE_16 = 1, /* halfword transfers */
-    DMA_SIZE_32 = 2, /* word transfers     */
+    DMA_SIZE_8 = 0,  /**< byte transfers     */
+    DMA_SIZE_16 = 1, /**< halfword transfers */
+    DMA_SIZE_32 = 2, /**< word transfers     */
 } pio_dma_size_t;
 
+/** Kind of transfer endpoint an address refers to. */
 typedef enum {
-    PIO_DMA_ADDR_MEM = 0,     /* host memory (a real pointer)          */
-    PIO_DMA_ADDR_PIO_TXF = 1, /* a state machine's TX FIFO (write end) */
-    PIO_DMA_ADDR_PIO_RXF = 2, /* a state machine's RX FIFO (read end)  */
+    PIO_DMA_ADDR_MEM = 0,     /**< host memory (a real pointer)          */
+    PIO_DMA_ADDR_PIO_TXF = 1, /**< a state machine's TX FIFO (write end) */
+    PIO_DMA_ADDR_PIO_RXF = 2, /**< a state machine's RX FIFO (read end)  */
 } pio_dma_addr_kind_t;
 
-/* A transfer endpoint: host memory or a PIO FIFO of an attached block.
- * FIFO endpoints never increment; the ring applies to MEM endpoints only. */
+/** A transfer endpoint: host memory or a PIO FIFO of an attached block.
+ *  FIFO endpoints never increment; the ring applies to MEM endpoints only. */
 typedef struct {
-    pio_dma_addr_kind_t kind;
-    unsigned char *mem; /* MEM: byte cursor (advances if incr_*)    */
-    uint8_t pio_index;  /* TXF/RXF: index into the attached blocks  */
-    uint8_t sm;
+    pio_dma_addr_kind_t kind; /**< which endpoint flavour this address is */
+    unsigned char *mem;       /**< MEM: byte cursor (advances if incr_*)    */
+    uint8_t pio_index;        /**< TXF/RXF: index into the attached blocks  */
+    uint8_t sm;               /**< TXF/RXF: state-machine index within the block */
 } pio_dma_addr_t;
 
 /** Memory endpoint at `p`. The buffer must outlive every transfer that uses it
@@ -86,18 +87,20 @@ pio_dma_addr_t pio_dma_addr_rxf(uint8_t pio_index, uint8_t sm);
  * directly. (True compile-time hiding of a stack value type isn't possible in
  * C without aliasing hazards, so the fields remain declared, exactly as in the
  * SDK, but the setters are the supported interface.) */
+/** Per-channel CHx_CTRL image; build via pio_dma_channel_get_default_config()
+ *  and the channel_config_set_* mutators, not by writing fields directly. */
 typedef struct {
-    bool high_priority;       /* private — use channel_config_set_high_priority */
-    pio_dma_size_t data_size; /* private — use channel_config_set_transfer_data_size */
-    bool incr_read;           /* private — use channel_config_set_read_increment  */
-    bool incr_write;          /* private — use channel_config_set_write_increment */
-    uint8_t ring_size;        /* private — use channel_config_set_ring */
-    bool ring_sel;            /* private — 2^ring_size-byte-aligned wrap */
-    uint8_t chain_to;         /* private — use channel_config_set_chain_to */
-    uint8_t treq_sel;         /* private — use channel_config_set_dreq */
-    bool bswap;               /* private — use channel_config_set_bswap */
-    bool irq_quiet;           /* private — use channel_config_set_irq_quiet */
-    bool sniff_en;            /* private — use channel_config_set_sniff_enable */
+    bool high_priority;       /**< private — use channel_config_set_high_priority */
+    pio_dma_size_t data_size; /**< private — use channel_config_set_transfer_data_size */
+    bool incr_read;           /**< private — use channel_config_set_read_increment  */
+    bool incr_write;          /**< private — use channel_config_set_write_increment */
+    uint8_t ring_size;        /**< private — use channel_config_set_ring */
+    bool ring_sel;            /**< private — 2^ring_size-byte-aligned wrap */
+    uint8_t chain_to;         /**< private — use channel_config_set_chain_to */
+    uint8_t treq_sel;         /**< private — use channel_config_set_dreq */
+    bool bswap;               /**< private — use channel_config_set_bswap */
+    bool irq_quiet;           /**< private — use channel_config_set_irq_quiet */
+    bool sniff_en;            /**< private — use channel_config_set_sniff_enable */
 } dma_channel_config;
 
 /* SDK-named config mutators (config value only, no controller object). */
@@ -124,58 +127,62 @@ struct pio_dma;
 /** Per-channel completion hook (sim extension; no SDK analogue). */
 typedef void (*pio_dma_callback_t)(struct pio_dma *d, uint8_t ch, void *ctx);
 
+/** One DMA channel: its CHx_CTRL config, endpoints, run state and hook. */
 typedef struct {
-    dma_channel_config ctrl;
-    pio_dma_addr_t read_addr;
-    pio_dma_addr_t write_addr;
-    uint32_t trans_count;        /* transfers remaining in this run       */
-    uint32_t trans_count_reload; /* value a (re)trigger loads             */
-    bool en;                     /* CTRL.EN: channel participates at all  */
-    bool busy;
-    pio_dma_callback_t on_complete;
-    void *cb_ctx;
+    dma_channel_config ctrl;        /**< CHx_CTRL configuration image        */
+    pio_dma_addr_t read_addr;       /**< source cursor (CHx_READ_ADDR)       */
+    pio_dma_addr_t write_addr;      /**< destination cursor (CHx_WRITE_ADDR) */
+    uint32_t trans_count;           /**< transfers remaining in this run       */
+    uint32_t trans_count_reload;    /**< value a (re)trigger loads             */
+    bool en;                        /**< CTRL.EN: channel participates at all  */
+    bool busy;                      /**< CTRL.BUSY: a run is in progress       */
+    pio_dma_callback_t on_complete; /**< completion hook (sim extension)     */
+    void *cb_ctx;                   /**< user context passed to on_complete  */
 } pio_dma_channel_t;
 
-/* Sniffer CALC values (SNIFF_CTRL). Seed the accumulator with
- * pio_dma_sniffer_set_data_accumulator (0xFFFFFFFF for the standard CRC
- * presets) and read the result with pio_dma_sniffer_get_data_accumulator,
- * which applies the invert/reverse output options. */
+/** Sniffer CALC values (SNIFF_CTRL). Seed the accumulator with
+ *  pio_dma_sniffer_set_data_accumulator (0xFFFFFFFF for the standard CRC
+ *  presets) and read the result with pio_dma_sniffer_get_data_accumulator,
+ *  which applies the invert/reverse output options. */
 typedef enum {
-    PIO_DMA_SNIFF_CRC32 = 0x0,  /* poly 0x04C11DB7, MSB-first             */
-    PIO_DMA_SNIFF_CRC32R = 0x1, /* bit-reversed data (reflected update)   */
-    PIO_DMA_SNIFF_CRC16 = 0x2,  /* CRC-16-CCITT, poly 0x1021, MSB-first   */
-    PIO_DMA_SNIFF_CRC16R = 0x3, /* bit-reversed data (reflected update)   */
-    PIO_DMA_SNIFF_EVEN = 0xE,   /* per-bit-lane XOR (even parity)         */
-    PIO_DMA_SNIFF_SUM = 0xF,    /* simple 32-bit summation                */
+    PIO_DMA_SNIFF_CRC32 = 0x0,  /**< poly 0x04C11DB7, MSB-first             */
+    PIO_DMA_SNIFF_CRC32R = 0x1, /**< bit-reversed data (reflected update)   */
+    PIO_DMA_SNIFF_CRC16 = 0x2,  /**< CRC-16-CCITT, poly 0x1021, MSB-first   */
+    PIO_DMA_SNIFF_CRC16R = 0x3, /**< bit-reversed data (reflected update)   */
+    PIO_DMA_SNIFF_EVEN = 0xE,   /**< per-bit-lane XOR (even parity)         */
+    PIO_DMA_SNIFF_SUM = 0xF,    /**< simple 32-bit summation                */
 } pio_dma_sniff_calc_t;
 
+/** The DMA controller: channels, attached PIO blocks, pacing timers, the CRC
+ *  sniffer and the INTR/INTE/INTF interrupt image. */
 typedef struct pio_dma {
-    pio_dma_channel_t ch[PIO_SIM_DMA_NUM_CHANNELS];
+    pio_dma_channel_t ch[PIO_SIM_DMA_NUM_CHANNELS]; /**< the DMA channels */
 
-    /* Attached PIO blocks: index n serves DREQ numbers n*8+…; must match the
-     * FIFO endpoints' pio_index. */
+    /** Attached PIO blocks: index n serves DREQ numbers n*8+…; must match the
+     *  FIFO endpoints' pio_index. */
     pio_sim_t *pio[PIO_SIM_NUM_PIO];
-    uint8_t pio_count;
+    uint8_t pio_count; /**< number of attached PIO blocks */
 
-    /* Fractional pacing timers: fire at clk_sys × numerator / denominator. */
+    /** Fractional pacing timers: fire at clk_sys × numerator / denominator. */
     struct {
-        uint16_t num, den;
-        uint32_t accum;
-        bool credit; /* level-latched: at most one pending request */
+        uint16_t num, den; /**< fraction numerator / denominator (den 0 = off) */
+        uint32_t accum;    /**< phase accumulator, advanced by num each tick   */
+        bool credit;       /**< level-latched: at most one pending request */
     } timer[PIO_SIM_DMA_NUM_TIMERS];
 
+    /** CRC/checksum sniffer state (SNIFF_CTRL / SNIFF_DATA). */
     struct {
-        bool en;
-        uint8_t chan;
-        uint8_t calc; /* pio_dma_sniff_calc_t */
-        bool out_rev, out_inv;
-        uint32_t data; /* SNIFF_DATA register */
+        bool en;               /**< sniffer enabled (SNIFF_CTRL.EN)            */
+        uint8_t chan;          /**< channel being sniffed (SNIFF_CTRL.DMACH)   */
+        uint8_t calc;          /**< pio_dma_sniff_calc_t */
+        bool out_rev, out_inv; /**< output reverse / invert (SNIFF_CTRL)       */
+        uint32_t data;         /**< SNIFF_DATA register */
     } sniff;
 
-    uint32_t intr;                       /* raw completion flags (W1C)   */
-    uint32_t inte[PIO_SIM_DMA_NUM_IRQS]; /* per-line enable              */
-    uint32_t intf[PIO_SIM_DMA_NUM_IRQS]; /* per-line force               */
-    uint8_t rr_next;                     /* round-robin arbitration seat */
+    uint32_t intr;                       /**< raw completion flags (W1C)   */
+    uint32_t inte[PIO_SIM_DMA_NUM_IRQS]; /**< per-line enable              */
+    uint32_t intf[PIO_SIM_DMA_NUM_IRQS]; /**< per-line force               */
+    uint8_t rr_next;                     /**< round-robin arbitration seat */
 } pio_dma_t;
 
 /** Attach the controller to `pio_count` PIO blocks (slot n serves the DREQs

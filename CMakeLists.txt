@@ -78,6 +78,25 @@ if(PIO_SIM_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
+# ── Documentation (Doxygen) ──────────────────────────────────────────────────
+# `cmake --build build --target docs` renders the public-API HTML reference from
+# the checked-in Doxyfile into docs/html (the same Doxyfile the Pages workflow
+# uses, so local and published docs match). The target is only added when
+# Doxygen is installed; a build without it just doesn't offer `docs`.
+option(PIO_SIM_BUILD_DOCS "Add the 'docs' Doxygen target when Doxygen is found" ${PROJECT_IS_TOP_LEVEL})
+if(PIO_SIM_BUILD_DOCS)
+    find_package(Doxygen)
+    if(DOXYGEN_FOUND)
+        add_custom_target(docs
+            COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            COMMENT "Generating API documentation (Doxygen) into docs/html"
+            VERBATIM)
+    else()
+        message(STATUS "Doxygen not found — the 'docs' target is unavailable")
+    endif()
+endif()
+
 # ── Install / packaging ──────────────────────────────────────────────────────
 # Lets downstreams `find_package(pio_sim CONFIG)` and link pio_sim::pio_sim,
 # not just add_subdirectory(). The PIO_SIM_PIO_VERSION compile definition is

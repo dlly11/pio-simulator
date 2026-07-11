@@ -21,26 +21,28 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/** XOSC → PLL_SYS → clk_sys clock-tree configuration. */
 typedef struct {
-    uint64_t xosc_hz;    /* crystal frequency (typically 12 MHz)          */
-    uint16_t pll_refdiv; /* reference divider, 1..63                      */
-    uint16_t pll_fbdiv;  /* feedback divider, 16..320                     */
-    uint8_t pll_postdiv1;
-    uint8_t pll_postdiv2;     /* post dividers, 1..7 each                     */
-    uint32_t clksys_div_int;  /* clk_sys integer divider (>= 1)           */
-    uint32_t clksys_div_frac; /* fractional part: /256ths (RP2040, 8-bit)
-                               * or /65536ths (RP2350, 16-bit)            */
-    bool bypass_pll;          /* clk_sys sourced from XOSC directly       */
+    uint64_t xosc_hz;         /**< crystal frequency (typically 12 MHz) */
+    uint16_t pll_refdiv;      /**< reference divider, 1..63 */
+    uint16_t pll_fbdiv;       /**< feedback divider, 16..320 */
+    uint8_t pll_postdiv1;     /**< post divider 1, 1..7 */
+    uint8_t pll_postdiv2;     /**< post divider 2, 1..7 */
+    uint32_t clksys_div_int;  /**< clk_sys integer divider (>= 1) */
+    uint32_t clksys_div_frac; /**< fractional part: /256ths (RP2040, 8-bit)
+                               * or /65536ths (RP2350, 16-bit) */
+    bool bypass_pll;          /**< clk_sys sourced from XOSC directly */
 } pio_clk_tree_t;
 
+/** Validation result for a pio_clk_tree_t. */
 typedef enum {
-    PIO_CLK_OK = 0,
-    PIO_CLK_ERR_XOSC_RANGE,    /* crystal outside 1..15 MHz               */
-    PIO_CLK_ERR_REFDIV_RANGE,  /* refdiv outside 1..63 or FREF < 5 MHz    */
-    PIO_CLK_ERR_FBDIV_RANGE,   /* fbdiv outside 16..320                   */
-    PIO_CLK_ERR_VCO_RANGE,     /* VCO outside the per-chip min..1600 MHz  */
-    PIO_CLK_ERR_POSTDIV_RANGE, /* postdiv1/2 outside 1..7                 */
-    PIO_CLK_ERR_DIV_RANGE,     /* clk_sys divider int 0 or frac too wide  */
+    PIO_CLK_OK = 0,            /**< configuration is legal */
+    PIO_CLK_ERR_XOSC_RANGE,    /**< crystal outside 1..15 MHz */
+    PIO_CLK_ERR_REFDIV_RANGE,  /**< refdiv outside 1..63 or FREF < 5 MHz */
+    PIO_CLK_ERR_FBDIV_RANGE,   /**< fbdiv outside 16..320 */
+    PIO_CLK_ERR_VCO_RANGE,     /**< VCO outside the per-chip min..1600 MHz */
+    PIO_CLK_ERR_POSTDIV_RANGE, /**< postdiv1/2 outside 1..7 */
+    PIO_CLK_ERR_DIV_RANGE,     /**< clk_sys divider int 0 or frac too wide */
 } pio_clk_err_t;
 
 /** The chip's boot-firmware default tree: 12 MHz crystal, PLL_SYS at

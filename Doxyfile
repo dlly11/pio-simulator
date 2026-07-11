@@ -1,0 +1,48 @@
+# Doxygen configuration for the pio_sim public API reference.
+# Only non-default settings are listed; run `doxygen Doxyfile` from the repo root
+# (or `cmake --build build --target docs`). Output lands in docs/html.
+
+PROJECT_NAME           = "pio_sim"
+PROJECT_BRIEF          = "RP2040 / RP2350 PIO functional simulator + assembler"
+OUTPUT_DIRECTORY       = docs
+GENERATE_LATEX         = NO
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+
+# C library: no C++ conventions, first sentence is the brief.
+OPTIMIZE_OUTPUT_FOR_C  = YES
+JAVADOC_AUTOBRIEF      = YES
+TYPEDEF_HIDES_STRUCT   = YES
+
+# Match GitHub's heading-anchor slugs so README's "## Contents" TOC links
+# ([text](#the-slug)) resolve as \ref targets. Needs Doxygen >= 1.10; older
+# Doxygen ignores this tag (a harmless notice) and the TOC \ref warnings return
+# — cosmetic only, the page still renders.
+MARKDOWN_ID_STYLE      = GITHUB
+
+# The public surface only — the headers plus the config header. README is the
+# landing page.
+INPUT                  = README.md CONTRIBUTING.md examples/README.md lib/include lib/config
+FILE_PATTERNS          = *.h
+USE_MDFILE_AS_MAINPAGE = README.md
+
+# Document only what carries a comment, and make every remaining gap visible.
+EXTRACT_ALL            = NO
+EXTRACT_STATIC         = NO
+HIDE_UNDOC_MEMBERS     = NO
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = NO
+QUIET                  = YES
+
+# Resolve the RP2040/RP2350 feature gates to the RP2350 superset so the full API
+# (v1-only symbols included) is documented. The config header derives the
+# PIO_SIM_HAS_* macros from PIO_SIM_PIO_VERSION.
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = NO
+SEARCH_INCLUDES        = YES
+INCLUDE_PATH           = lib/config lib/include
+PREDEFINED             = PIO_SIM_PIO_VERSION=1
+
+SORT_MEMBER_DOCS       = NO

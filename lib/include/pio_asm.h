@@ -55,57 +55,67 @@
 #define PIO_ASM_ERR_LEN 128U
 #define PIO_ASM_MAX_PUBLIC 8U
 
-/* A `public <name>:` label and its instruction index (relative to program
- * start) — mirrors pioasm's `<prog>_offset_<name>` defines. */
+/**
+ * A `public <name>:` label and its instruction index (relative to program
+ * start) — mirrors pioasm's `<prog>_offset_<name>` defines.
+ */
 typedef struct {
-    char name[32];
-    uint8_t index;
+    char name[32]; /**< Label identifier (NUL-terminated). */
+    uint8_t index; /**< Instruction index of the label, relative to program start. */
 } pio_public_label_t;
 
+/**
+ * Assembler output: the assembled instruction words plus the program metadata
+ * (side-set/wrap/program-config directives) and error info from one .program.
+ */
 typedef struct {
-    uint16_t insns[PIO_ASM_MAX_INSNS];
-    uint8_t count;
+    uint16_t insns[PIO_ASM_MAX_INSNS]; /**< Assembled instruction words. */
+    uint8_t count;                     /**< Number of assembled instruction words in insns[]. */
 
-    /* Side-set config parsed from .side_set */
-    uint8_t sideset_bits; /* data bits + (opt ? 1 : 0); 0 if no .side_set */
-    bool sideset_opt;
-    bool sideset_pindirs;
+    /** Side-set config parsed from .side_set */
+    uint8_t sideset_bits; /**< data bits + (opt ? 1 : 0); 0 if no .side_set */
+    bool sideset_opt;     /**< .side_set opt: side-set is optional (encoded per instruction). */
+    bool sideset_pindirs; /**< .side_set pindirs: side-set writes pin directions, not levels. */
 
-    /* Wrap targets (instruction indices, relative to program start). */
-    uint8_t wrap_bottom;
-    uint8_t wrap_top;
+    /** Wrap targets (instruction indices, relative to program start). */
+    uint8_t wrap_bottom; /**< .wrap_target index (relative to program start). */
+    uint8_t wrap_top;    /**< .wrap index (relative to program start). */
 
-    /* Public labels (`public <name>:`), exposed as offsets. */
-    pio_public_label_t public_labels[PIO_ASM_MAX_PUBLIC];
-    uint8_t public_count;
+    /** Public labels (`public <name>:`), exposed as offsets. */
+    pio_public_label_t public_labels[PIO_ASM_MAX_PUBLIC]; /**< Collected public labels. */
+    uint8_t public_count; /**< Number of valid entries in public_labels[]. */
 
-    /* Program-config metadata (from .program / .origin / .pio_version /
+    /**
+     * Program-config metadata (from .program / .origin / .pio_version /
      * .clock_div / .fifo / .mov_status / .in / .out / .set). The `has_*` flags
      * say whether the directive appeared; pio_asm_apply_program_config applies
-     * the set ones to a state machine. Storage is version-neutral. */
-    char name[32];
-    bool has_origin;
-    uint8_t origin;     /* .origin: absolute load address */
-    int pio_version;    /* .pio_version: 0 or 1; -1 if unset */
-    bool has_clock_div; /* .clock_div */
-    double clock_div;
-    bool has_fifo_join; /* .fifo */
-    pio_fifo_join_t fifo_join;
-    bool has_mov_status; /* .mov_status */
-    pio_status_sel_t mov_status_sel;
-    uint8_t mov_status_n;
-    /* .in / .out / .set pin/shift defaults. */
+     * the set ones to a state machine. Storage is version-neutral.
+     */
+    char name[32];                   /**< .program name (NUL-terminated). */
+    bool has_origin;                 /**< True if .origin was given. */
+    uint8_t origin;                  /**< .origin: absolute load address */
+    int pio_version;                 /**< .pio_version: 0 or 1; -1 if unset */
+    bool has_clock_div;              /**< .clock_div */
+    double clock_div;                /**< .clock_div divisor value. */
+    bool has_fifo_join;              /**< .fifo */
+    pio_fifo_join_t fifo_join;       /**< .fifo join mode. */
+    bool has_mov_status;             /**< .mov_status */
+    pio_status_sel_t mov_status_sel; /**< .mov_status source selector. */
+    uint8_t mov_status_n;            /**< .mov_status comparison level / IRQ index. */
+    /** .in / .out / .set pin/shift defaults. */
     struct {
-        bool set;
-        uint8_t count;
-        pio_shift_dir_t dir;
-        bool autoshift;
-        uint8_t threshold;
-    } in_cfg, out_cfg, set_cfg;
+        bool set;            /**< True if the corresponding directive appeared. */
+        uint8_t count;       /**< Pin count from the directive. */
+        pio_shift_dir_t dir; /**< Shift direction (left/right); unused by .set. */
+        bool autoshift;      /**< Auto push/pull enable; unused by .set. */
+        uint8_t threshold;   /**< Shift threshold (1..32; 0 encodes 32); unused by .set. */
+    } in_cfg,                /**< .in shift/pin defaults. */
+        out_cfg,             /**< .out shift/pin defaults. */
+        set_cfg;             /**< .set pin count. */
 
-    bool ok;
-    int error_line;              /* 1-based; 0 if none */
-    char error[PIO_ASM_ERR_LEN]; /* human-readable message */
+    bool ok;                     /**< True if assembly succeeded. */
+    int error_line;              /**< 1-based; 0 if none */
+    char error[PIO_ASM_ERR_LEN]; /**< human-readable message */
 } pio_program_t;
 
 /**
