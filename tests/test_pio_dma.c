@@ -433,6 +433,65 @@ static void test_sniffer_crc16_ccitt_check_value(void)
     TEST_ASSERT_EQUAL_HEX32(0x29B1U, pio_dma_sniffer_get_data_accumulator(&dma));
 }
 
+/* CRC-32/MPEG-2: MSB-first, poly 0x04C11DB7, seed 0xFFFFFFFF, no output invert
+ * -> 0x0376E6E7 (a published check value). Exercises PIO_DMA_SNIFF_CRC32 and the
+ * width-32 branch of crc_update_msb, which the reflected CRC32R test never
+ * reaches. (Do NOT reuse 0xCBF43926 — that is the reflected-algorithm check.) */
+static void test_sniffer_crc32_msb_check_value(void)
+{
+    static const char msg[] = "123456789";
+    static uint8_t dst[9];
+    dma_channel_config c;
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_sniff_enable(&c, true);
+    pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_CRC32, false);
+    pio_dma_sniffer_set_data_accumulator(&dma, 0xFFFFFFFFU);
+    /* NOLINTNEXTLINE(performance-no-int-to-ptr) — see the CRC32R test above. */
+    pio_dma_addr_t msg_addr = pio_dma_addr_mem((void *)(uintptr_t)msg);
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), msg_addr, 9, true);
+    tick_all(12);
+    TEST_ASSERT_EQUAL_HEX32(0x0376E6E7U, pio_dma_sniffer_get_data_accumulator(&dma));
+}
+
+/* CRC-16/MCRF4XX: reflected, poly 0x8408, seed 0xFFFF -> 0x6F91 (published check).
+ * Exercises PIO_DMA_SNIFF_CRC16R and the `& 0xFFFF` fold in crc_update_lsb, the
+ * reflected sibling of the MSB-first CRC16 test above. */
+static void test_sniffer_crc16r_check_value(void)
+{
+    static const char msg[] = "123456789";
+    static uint8_t dst[9];
+    dma_channel_config c;
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_sniff_enable(&c, true);
+    pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_CRC16R, false);
+    pio_dma_sniffer_set_data_accumulator(&dma, 0xFFFFU);
+    /* NOLINTNEXTLINE(performance-no-int-to-ptr) — see the CRC32R test above. */
+    pio_dma_addr_t msg_addr = pio_dma_addr_mem((void *)(uintptr_t)msg);
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), msg_addr, 9, true);
+    tick_all(12);
+    TEST_ASSERT_EQUAL_HEX32(0x6F91U, pio_dma_sniffer_get_data_accumulator(&dma));
+}
+
+/* 16-bit (halfword) byte swap: bswap on a DMA_SIZE_16 element swaps the two bytes
+ * of the halfword (0x1234 -> 0x3412), a distinct path from the 32-bit swap in
+ * test_size8_and_bswap. */
+static void test_bswap_halfword(void)
+{
+    static uint16_t src = 0x1234U;
+    static uint16_t dst = 0;
+    dma_channel_config c = pio_dma_channel_get_default_config(0);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_16);
+    channel_config_set_bswap(&c, true);
+    channel_config_set_write_increment(&c, true);
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(&dst), pio_dma_addr_mem(&src), 1, true);
+    (void)pio_dma_tick(&dma);
+    TEST_ASSERT_EQUAL_HEX16(0x3412U, dst);
+}
+
 static void test_sniffer_sum_and_parity(void)
 {
     static uint32_t src[3] = {1, 2, 3};
@@ -740,6 +799,9 @@ int main(void)
     RUN_TEST(test_transfer_size_out_of_range_clamped);
     RUN_TEST(test_sniffer_crc32_check_value);
     RUN_TEST(test_sniffer_crc16_ccitt_check_value);
+    RUN_TEST(test_sniffer_crc32_msb_check_value);
+    RUN_TEST(test_sniffer_crc16r_check_value);
+    RUN_TEST(test_bswap_halfword);
     RUN_TEST(test_sniffer_sum_and_parity);
     RUN_TEST(test_sniffer_sum_masks_transfer_width);
     RUN_TEST(test_sniffer_output_reverse);

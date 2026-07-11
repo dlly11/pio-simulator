@@ -4,7 +4,9 @@
  * 8 state-machine cycles) and shows a full transmit-and-verify loop:
  *
  *   - side-set (optional) drives the idle/start levels,
- *   - the clock divider sets the baud rate (bit period = 8 * clkdiv cycles),
+ *   - the clock divider sets the baud rate (bit period = 8 * clkdiv cycles); it
+ *     is declared in the program with `.clock_div` and applied by
+ *     pio_asm_apply_program_config, mirroring how a pioasm C-SDK output would,
  *   - the host queues a byte with pio_sim_sm_put,
  *   - we sample GPIO once per system tick and decode the 8n1 frame by reading
  *     each bit window at its centre,
@@ -19,17 +21,21 @@
 #include <stdio.h>
 
 #define TX_PIN 0
-#define CLKDIV 2 /* integer divider: bit period = 8 * CLKDIV system ticks */
+#define CLKDIV 2 /* integer divider: bit period = 8 * CLKDIV ticks (keep == .clock_div) */
 #define BIT_TICKS (8 * CLKDIV)
 
-/* The canonical 8n1 UART TX program. OUT pin and side-set pin are both TX. */
-static const char *const UART_SRC = ".program uart_tx\n"
-                                    ".side_set 1 opt\n"
-                                    "    pull       side 1 [7]\n" /* idle/stop high, wait byte */
-                                    "    set x, 7   side 0 [7]\n" /* start bit low, load count  */
-                                    "bitloop:\n"
-                                    "    out pins, 1\n"            /* shift one data bit to TX   */
-                                    "    jmp x-- bitloop   [6]\n"; /* 8 cycles per data bit */
+/* The canonical 8n1 UART TX program. OUT pin and side-set pin are both TX. The
+ * clock divider is declared here (.clock_div) rather than in C, so
+ * pio_asm_apply_program_config below actually applies it. */
+static const char *const UART_SRC =
+    ".program uart_tx\n"
+    ".side_set 1 opt\n"
+    ".clock_div 2\n"              /* == CLKDIV; applied by apply_program_config */
+    "    pull       side 1 [7]\n" /* idle/stop high, wait byte */
+    "    set x, 7   side 0 [7]\n" /* start bit low, load count  */
+    "bitloop:\n"
+    "    out pins, 1\n"            /* shift one data bit to TX   */
+    "    jmp x-- bitloop   [6]\n"; /* 8 cycles per data bit */
 
 /* Trace hook context: count committed instructions. */
 static void count_insns(const pio_sim_t *pio, uint8_t sm, uint8_t pc, uint16_t insn, void *ctx)
@@ -56,12 +62,15 @@ int main(void)
     sm_config_set_out_pins(&c, TX_PIN, 1);
     sm_config_set_sideset_pins(&c, TX_PIN);
     sm_config_set_out_shift(&c, true, false, 32); /* LSB first, explicit pull */
-    sm_config_set_clkdiv(&c, (float)CLKDIV);
+    /* NB: the clock divider is intentionally NOT set here — it comes from the
+     * program's `.clock_div` directive via pio_asm_apply_program_config below. */
     pio_sim_sm_init(&pio, 0, 0, &c);
     if (!pio_asm_load_program(&pio, 0, 0, &prog)) {
         (void)fprintf(stderr, "load failed\n");
         return 1;
     }
+    /* Applies the program's directive-derived config — here the .clock_div that
+     * sets the baud rate. Without this call the divider would stay at 1. */
     pio_asm_apply_program_config(&pio, 0, &prog);
     pio_sim_sm_set_consecutive_pindirs(&pio, 0, TX_PIN, 1, true);
 
