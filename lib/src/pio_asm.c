@@ -24,7 +24,12 @@ typedef struct {
 
 typedef struct {
     char name[32];
+    char expr[MAX_LINE]; /* raw value expression (joined tokens); evaluated lazily
+                          * on first use, so forward symbol references resolve */
     uint32_t value;
+    int line;      /* source line of the declaration (for a resolve error) */
+    bool resolved; /* value memoised (evaluated on first reference) */
+    bool visiting; /* on the current resolution stack — detects a cyclic define */
 } define_t;
 
 typedef struct {
@@ -160,13 +165,53 @@ static int find_label(const asm_ctx_t *ctx, const char *name)
     return -1;
 }
 
-static bool find_define(const asm_ctx_t *ctx, const char *name, uint32_t *out)
+/* True if `name` has been DECLARED as a define, resolved or not. Used for
+ * duplicate/collision checks, and to route an identifier to define resolution. */
+static bool define_declared(const asm_ctx_t *ctx, const char *name)
 {
     for (uint8_t i = 0; i < ctx->define_count; i++) {
         if (strcmp(ctx->defines[i].name, name) == 0) {
-            *out = ctx->defines[i].value;
             return true;
         }
+    }
+    return false;
+}
+
+static bool resolve_uint(asm_ctx_t *ctx, const char *s, uint32_t *out); /* fwd decl */
+
+/* Resolve a declared define's VALUE on demand, matching pioasm's lazy evaluation:
+ * a define is evaluated only when referenced, its expression parsed against the
+ * fully-collected symbol table (so it may reference a label or another define
+ * declared anywhere). The result is memoised; `visiting` detects a cyclic
+ * reference. A define that is never referenced is never evaluated, so an unused
+ * define over an undefined symbol is accepted (as pioasm does). On failure the
+ * error is pinned to the offending define's line. `name` must be a declared
+ * define (check define_declared first). */
+static bool resolve_define_value(asm_ctx_t *ctx, const char *name, uint32_t *out)
+{
+    for (uint8_t i = 0; i < ctx->define_count; i++) {
+        define_t *d = &ctx->defines[i];
+        if (strcmp(d->name, name) != 0) {
+            continue;
+        }
+        if (d->resolved) {
+            *out = d->value;
+            return true;
+        }
+        if (d->visiting) {
+            return false; /* cyclic — the enclosing frame reports the error */
+        }
+        d->visiting = true;
+        bool ok = resolve_uint(ctx, d->expr, &d->value);
+        d->visiting = false;
+        if (!ok) {
+            ctx->line_no = d->line;
+            pa_set_error(ctx, "unresolved define (undefined symbol or cyclic reference)");
+            return false;
+        }
+        d->resolved = true;
+        *out = d->value;
+        return true;
     }
     return false;
 }
@@ -174,14 +219,19 @@ static bool find_define(const asm_ctx_t *ctx, const char *name, uint32_t *out)
 /* ── Expression evaluator (pioasm-compatible) ──────────────────────────────────
  * Integer expressions over `.define` symbols, labels, and literals, matching
  * real pioasm's operators and precedence. Tightest binding first:
- *   unary -  >  & | ^  >  * /  >  + -  >  << >>  >  ::(32-bit reverse)
+ *   & | ^  >  * /  >  (unary -) + -  >  << >>  >  ::(32-bit reverse)
  * (pioasm's grammar binds `::` loosest of all, so `::A + 1` is `::(A + 1)`.)
+ * Unary minus inherits the precedence of pioasm's `-` token — the additive
+ * level — so it binds looser than `& | ^` and `* /`: `-1 & 6` is `-(1 & 6)`,
+ * not `(-1) & 6`. It is handled in expr_primary so it can still appear as a
+ * binary operand (`x & -1`), with its operand parsed at the multiplicative
+ * tier so it grabs a whole `* / & | ^` chain but stops at a following `+`/`-`.
  * Operands: decimal / 0x / 0b literals, identifiers (define first, then label),
  * and parenthesised sub-expressions. Evaluated in int64, truncated to 32 bits at
  * the use site. Whitespace between tokens is ignored, so a spaced or glued form
  * (`label + 1` / `label+1`) both work. */
 typedef struct {
-    const asm_ctx_t *ctx;
+    asm_ctx_t *ctx; /* non-const: an identifier may lazily resolve+memoise a define */
     const char *p;
     bool ok;
     int depth; /* recursion guard: nested "(" / "::" — see expr_reverse */
@@ -199,10 +249,19 @@ static void expr_skip_ws(expr_t *e)
 }
 
 static int64_t expr_reverse(expr_t *e); /* lowest-precedence entry, fwd decl */
+static int64_t expr_mul(expr_t *e);     /* unary-minus operand tier, fwd decl */
 
 static int64_t expr_primary(expr_t *e)
 {
     expr_skip_ws(e);
+    if (*e->p == '-') {
+        e->p++;
+        /* Unary minus binds at pioasm's additive precedence: its operand is a
+         * multiplicative expression, so `-1 & 6` folds the whole `1 & 6` and
+         * yields -(1 & 6). Negate via unsigned wrap so -INT64_MIN is defined,
+         * not UB. Recursing through expr_mul also lets `--a` stack. */
+        return (int64_t)(0U - (uint64_t)expr_mul(e));
+    }
     if (*e->p == '(') {
         e->p++;
         int64_t v = expr_reverse(e);
@@ -251,8 +310,15 @@ static int64_t expr_primary(expr_t *e)
             e->p++;
         }
         id[k] = '\0';
-        uint32_t dv = 0;
-        if (find_define(e->ctx, id, &dv)) {
+        /* An identifier is a define first, then a label (they share a namespace,
+         * so at most one matches). A declared define resolves lazily here; if its
+         * own expression is unresolvable the whole expression fails. */
+        if (define_declared(e->ctx, id)) {
+            uint32_t dv = 0;
+            if (!resolve_define_value(e->ctx, id, &dv)) {
+                e->ok = false;
+                return 0;
+            }
             return (int64_t)dv;
         }
         int lbl = find_label(e->ctx, id);
@@ -266,26 +332,15 @@ static int64_t expr_primary(expr_t *e)
     return 0;
 }
 
-static int64_t expr_unary(expr_t *e)
-{
-    expr_skip_ws(e);
-    if (*e->p == '-') {
-        e->p++;
-        /* Negate via unsigned wrap so -INT64_MIN is defined, not UB. */
-        return (int64_t)(0U - (uint64_t)expr_unary(e));
-    }
-    return expr_primary(e);
-}
-
 static int64_t expr_bit(expr_t *e) /* & | ^ — tightest binary */
 {
-    int64_t v = expr_unary(e);
+    int64_t v = expr_primary(e);
     for (;;) {
         expr_skip_ws(e);
         char c = *e->p;
         if ((c == '&') || (c == '|') || (c == '^')) {
             e->p++;
-            int64_t r = expr_unary(e);
+            int64_t r = expr_primary(e);
             v = (c == '&') ? (v & r) : ((c == '|') ? (v | r) : (v ^ r));
         } else {
             break;
@@ -307,10 +362,16 @@ static int64_t expr_mul(expr_t *e)
         } else if (c == '/') {
             e->p++;
             int64_t r = expr_bit(e);
-            if (r != 0) {
-                v /= r;
-            } else {
+            if (r == 0) {
                 e->ok = false;
+            } else if ((v == INT64_MIN) && (r == -1)) {
+                /* INT64_MIN / -1 overflows (C11 6.5.5p6 UB); the true quotient
+                 * is unrepresentable. Truncated to 32 bits the answer is 0
+                 * either way, and no valid program divides like this — this
+                 * only keeps the pathological input defined under UBSan. */
+                v = INT64_MIN;
+            } else {
+                v /= r;
             }
         } else {
             break;
@@ -394,8 +455,9 @@ static int64_t expr_reverse(expr_t *e)
 }
 
 /* Resolve an integer operand: a full expression (literal / define / label /
- * arithmetic). Truncated to 32 bits. */
-static bool resolve_uint(const asm_ctx_t *ctx, const char *s, uint32_t *out)
+ * arithmetic). Truncated to 32 bits. Non-const ctx: evaluating an identifier may
+ * lazily resolve and memoise a referenced define. */
+static bool resolve_uint(asm_ctx_t *ctx, const char *s, uint32_t *out)
 {
     expr_t e = {ctx, s, true, 0};
     int64_t v = expr_reverse(&e);
@@ -430,7 +492,7 @@ static bool join_tokens(char *const tok[], uint8_t from, uint8_t n, char *buf, s
 }
 
 /* Resolve an expression spanning tokens [from, n). */
-static bool resolve_uint_join(const asm_ctx_t *ctx, char *const tok[], uint8_t from, uint8_t n,
+static bool resolve_uint_join(asm_ctx_t *ctx, char *const tok[], uint8_t from, uint8_t n,
                               uint32_t *out)
 {
     char buf[MAX_LINE];
@@ -440,25 +502,30 @@ static bool resolve_uint_join(const asm_ctx_t *ctx, char *const tok[], uint8_t f
     return resolve_uint(ctx, buf, out);
 }
 
-/* Record a `.define`d symbol; a later definition of the same name overrides.
- * Returns false on failure (over-long name or table full). */
-static bool add_define(asm_ctx_t *ctx, const char *name, uint32_t value)
+/* Declare a `.define`d symbol without evaluating it: store the name and the raw
+ * value expression for lazy resolution on first use (resolve_define_value).
+ * Duplicate names are rejected (pioasm treats a redefinition as an error).
+ * Returns false on failure (over-long name, over-long expression, duplicate, or
+ * table full). */
+static bool declare_define(asm_ctx_t *ctx, const char *name, const char *expr, int line)
 {
-    if (strlen(name) >= sizeof(ctx->defines[0].name)) {
+    if ((strlen(name) >= sizeof(ctx->defines[0].name)) ||
+        (strlen(expr) >= sizeof(ctx->defines[0].expr))) {
         return false;
     }
-    for (uint8_t i = 0; i < ctx->define_count; i++) {
-        if (strcmp(ctx->defines[i].name, name) == 0) {
-            ctx->defines[i].value = value;
-            return true;
-        }
+    if (define_declared(ctx, name)) {
+        return false;
     }
     if (ctx->define_count >= MAX_DEFINES) {
         return false;
     }
     define_t *d = &ctx->defines[ctx->define_count];
     (void)snprintf(d->name, sizeof(d->name), "%s", name);
-    d->value = value;
+    (void)snprintf(d->expr, sizeof(d->expr), "%s", expr);
+    d->value = 0;
+    d->line = line;
+    d->resolved = false;
+    d->visiting = false;
     ctx->define_count++;
     return true;
 }
@@ -1032,11 +1099,22 @@ static bool enc_mov(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
      * `mov osr, rxfifo[<n|y>]`. */
     bool ry = false;
     uint8_t ridx = 0;
+    /* The index field is 2 bits: pioasm rejects rxfifo[4..] rather than masking
+     * it. Reject a literal index above 3 with a clear message instead of
+     * silently folding it (every other operand path here range-checks). */
     if (parse_rxfifo(tok[1], &ry, &ridx) && ieq(tok[2], "isr")) {
+        if (!ry && (ridx > 3U)) {
+            pa_set_error(ctx, "rxfifo index out of range (0..3)");
+            return false;
+        }
         *base = ry ? pio_sim_encode_mov_to_rxfifo_y() : pio_sim_encode_mov_to_rxfifo(ridx);
         return true;
     }
     if (ieq(tok[1], "osr") && parse_rxfifo(tok[2], &ry, &ridx)) {
+        if (!ry && (ridx > 3U)) {
+            pa_set_error(ctx, "rxfifo index out of range (0..3)");
+            return false;
+        }
         *base = ry ? pio_sim_encode_mov_from_rxfifo_y() : pio_sim_encode_mov_from_rxfifo(ridx);
         return true;
     }
@@ -1229,6 +1307,14 @@ static void strip_block_comments(char *line, bool *in_block)
             p[1] = ' ';
             p = &p[2];
             *in_block = true;
+        } else if ((p[0] == ';') || ((p[0] == '/') && (p[1] == '/'))) {
+            /* Rest of the line is a ';'/'//' line comment. Stop here so a
+             * block-comment open/close sequence embedded inside it is not
+             * mistaken for a real block comment (which would swallow the
+             * following lines). clean_line() cuts the actual comment text;
+             * inside an open block ';'/'//' stay inert because that case is
+             * handled by the branch above. */
+            break;
         } else {
             p++;
         }
@@ -1489,16 +1575,21 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
      * because top-level defines precede any .program. Scoping matches pioasm:
      * top-level and PUBLIC defines are global; a non-public define inside a
      * program body is local to it, so one from a *non-selected* program must
-     * not leak into the selected program's symbol table. */
+     * not leak into the selected program's symbol table.
+     *
+     * Declared (name + raw value expression) in the scan pass; the value is
+     * evaluated lazily on first use (resolve_define_value), once every symbol is
+     * known. So a define may reference a label or another define declared further
+     * down, and — as in pioasm — an unused define is never evaluated. */
     if (ieq(tok[0], ".define")) {
-        if (ps->pass == 1) {
+        if (ps->pass == 0) {
             uint8_t ni = ((nt >= 2U) && ieq(tok[1], "public")) ? 2U : 1U;
             if ((ni == 1U) && ps->seen_any_program && !ps->in_program) {
                 return LINE_OK; /* non-public define in another program: skip */
             }
-            uint32_t val = 0;
+            char expr[MAX_LINE];
             if ((nt < (uint8_t)(ni + 2U)) ||
-                !resolve_uint_join(ps->ctx, tok, (uint8_t)(ni + 1U), nt, &val)) {
+                !join_tokens(tok, (uint8_t)(ni + 1U), nt, expr, sizeof(expr))) {
                 pa_set_error(ps->ctx, "bad .define");
                 return LINE_ERROR;
             }
@@ -1506,7 +1597,20 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
                 pa_set_error(ps->ctx, "define name too long");
                 return LINE_ERROR;
             }
-            if (!add_define(ps->ctx, tok[ni], val)) {
+            /* pioasm keeps one symbol namespace: redefining a name, or reusing a
+             * label's name for a define, is an error rather than a silent
+             * override. Both tables are filled in this scan pass, so checking the
+             * define side here and the label side in handle_label catches either
+             * declaration order. */
+            if (define_declared(ps->ctx, tok[ni])) {
+                pa_set_error(ps->ctx, "duplicate define");
+                return LINE_ERROR;
+            }
+            if (find_label(ps->ctx, tok[ni]) >= 0) {
+                pa_set_error(ps->ctx, "symbol already defined as a label");
+                return LINE_ERROR;
+            }
+            if (!declare_define(ps->ctx, tok[ni], expr, ps->ctx->line_no)) {
                 pa_set_error(ps->ctx, "too many .define symbols");
                 return LINE_ERROR;
             }
@@ -1536,21 +1640,23 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
             out->wrap_top = (ps->idx > 0U) ? (uint8_t)(ps->idx - 1U) : 0U;
         }
     } else if (ieq(tok[0], ".word")) {
-        /* Emits a raw instruction word, so it occupies a slot in both passes. */
+        /* Emits a raw instruction word, so it occupies a slot in every pass. The
+         * value is resolved only at emit time (pass 2), when all symbols are
+         * known — so .word may reference a forward label/define like operands. */
         if (ps->idx >= PIO_ASM_MAX_INSNS) {
             pa_set_error(ps->ctx, "program exceeds 32 instructions");
             return LINE_ERROR;
         }
-        uint32_t w = 0;
-        if ((nt < 2U) || !resolve_uint_join(ps->ctx, tok, 1, nt, &w)) {
-            pa_set_error(ps->ctx, "bad .word");
-            return LINE_ERROR;
-        }
-        if (w > 0xFFFFU) {
-            pa_set_error(ps->ctx, ".word out of range (16-bit)");
-            return LINE_ERROR;
-        }
         if (ps->pass == 2) {
+            uint32_t w = 0;
+            if ((nt < 2U) || !resolve_uint_join(ps->ctx, tok, 1, nt, &w)) {
+                pa_set_error(ps->ctx, "bad .word");
+                return LINE_ERROR;
+            }
+            if (w > 0xFFFFU) {
+                pa_set_error(ps->ctx, ".word out of range (16-bit)");
+                return LINE_ERROR;
+            }
             out->insns[ps->idx] = (uint16_t)w;
         }
         ps->idx++;
@@ -1642,11 +1748,13 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
     return LINE_OK;
 }
 
-/* Strip a leading "public " label prefix. */
+/* Strip a leading "public" label prefix. pioasm separates the keyword from the
+ * label by any whitespace, so accept a space or a tab (not just a space). */
 static char *strip_public(char *line)
 {
-    if ((strncmp(line, "public ", 7) == 0) || (strncmp(line, "PUBLIC ", 7) == 0)) {
-        char *q = &line[7];
+    if (((strncmp(line, "public", 6) == 0) || (strncmp(line, "PUBLIC", 6) == 0)) &&
+        ((line[6] == ' ') || (line[6] == '\t'))) {
+        char *q = &line[6];
         while ((*q == ' ') || (*q == '\t')) {
             q++;
         }
@@ -1675,7 +1783,7 @@ static bool handle_label(pa_parse_state_t *ps, char **line_io)
         return false;
     }
     asm_ctx_t *ctx = ps->ctx;
-    if (ps->pass == 1) {
+    if (ps->pass == 0) {
         if (ctx->label_count >= MAX_LABELS) {
             pa_set_error(ctx, "too many labels");
         } else if (namelen >= sizeof(ctx->labels[0].name)) {
@@ -1691,6 +1799,12 @@ static bool handle_label(pa_parse_state_t *ps, char **line_io)
             slot[namelen] = '\0';
             if (find_label(ctx, slot) >= 0) {
                 pa_set_error(ctx, "duplicate label"); /* pioasm errors; don't shadow */
+            } else if (define_declared(ctx, slot)) {
+                /* pioasm's single namespace: a label may not reuse a define's
+                 * name. Both tables are filled in this scan pass, so this catches
+                 * either declaration order (the .define handler checks the
+                 * reverse). */
+                pa_set_error(ctx, "symbol already defined as a define");
             } else {
                 ctx->labels[ctx->label_count].index = ps->idx;
                 ctx->labels[ctx->label_count].is_public = is_public;
@@ -1821,9 +1935,21 @@ bool pio_asm_assemble(const char *src, const char *name, pio_program_t *out)
     (void)memset(&ctx, 0, sizeof(ctx));
     ctx.out = out;
 
-    pa_parse_state_t ps = {.ctx = &ctx, .name = name, .pass = 1};
+    pa_parse_state_t ps = {.ctx = &ctx, .name = name, .pass = 0};
 
-    /* Pass 1: select the program, collect labels and side-set/wrap. */
+    /* Pass 0 (scan): select the program, record labels, and declare defines
+     * (name + raw value expression). This builds the full symbol table before
+     * any value is evaluated, so a define/operand may reference a symbol declared
+     * further down. Define values are then resolved lazily on first use
+     * (resolve_define_value), matching pioasm — an unused define is never
+     * evaluated. */
+    if (!run_pass(&ps, src)) {
+        return false;
+    }
+
+    /* Pass 1 (config): apply .side_set/.wrap/.origin/.fifo/etc.; a referenced
+     * define resolves on demand here (forward references included). */
+    ps.pass = 1;
     if (!run_pass(&ps, src)) {
         return false;
     }
@@ -1836,7 +1962,7 @@ bool pio_asm_assemble(const char *src, const char *name, pio_program_t *out)
         return false;
     }
 
-    /* Pass 2: emit instruction words now that labels are known. */
+    /* Pass 2 (emit): encode instruction words. */
     ps.pass = 2;
     if (!run_pass(&ps, src)) {
         return false;

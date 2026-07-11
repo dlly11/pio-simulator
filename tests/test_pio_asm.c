@@ -1094,6 +1094,222 @@ static void test_sideset_and_delay_errors(void)
     TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.side_set 2 opt\n    nop side 9\n", NULL, &p));
 }
 
+/* ── pioasm-parity regressions ──────────────────────────────────────────────
+ * These pin behaviours the bit-exact differential can't see: it only compares
+ * pioasm-*accepted* valid programs, so error-parity and rare-construct
+ * divergences (unary-minus precedence, symbol-namespace collisions, comment
+ * lexing, out-of-range indices) are structurally invisible to it. */
+
+/* Unary minus binds at pioasm's additive precedence — looser than `& | ^` — so
+ * `-1 & 6` is `-(1 & 6)` = 0, not `(-1) & 6` = 6. It still parses as a binary
+ * operand (`5 & -1`) and after `/` (`12 / -3`), matching pioasm. */
+static void test_unary_minus_precedence(void)
+{
+    pio_program_t p;
+    const char *src = ".define D (12 / -3)\n" /* -4: divide-by-negative still parses */
+                      ".program um\n"
+                      "    set x, (-1 & 6)\n" /* -(1 & 6) = 0, NOT 6 */
+                      "    set y, (5 & -1)\n" /* 5 & 0xFFFFFFFF = 5   */
+                      "    set x, (D & 7)\n"; /* -4 & 7 = 4           */
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_UINT8(3U, p.count);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 0), p.insns[0]);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_Y, 5), p.insns[1]);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 4), p.insns[2]);
+}
+
+/* pioasm rejects a redefined symbol; a silent override would mask a typo and
+ * diverge from the bit-exact contract. */
+static void test_duplicate_define_rejected(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_FALSE(
+        pio_asm_assemble(".program t\n.define A 1\n.define A 2\n    nop\n", NULL, &p));
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program t\n.define A 1\n.define B 2\n    nop\n", NULL, &p), p.error);
+}
+
+/* pioasm keeps one symbol namespace: a label and a define may not share a name,
+ * in either declaration order. Without the cross-check the name would silently
+ * resolve to the define value, ignoring the label. */
+static void test_label_define_name_collision_rejected(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.define foo 5\nfoo:\n    nop\n", NULL, &p));
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\nfoo:\n    nop\n.define foo 5\n", NULL, &p));
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program t\n.define foo 5\nbar:\n    nop\n", NULL, &p), p.error);
+}
+
+#if PIO_SIM_HAS_RXFIFO_MOV
+/* The rxfifo index is a 2-bit field; pioasm rejects an index above 3 rather than
+ * silently masking it (as every other operand path here already does). */
+static void test_rxfifo_index_out_of_range_rejected(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    mov rxfifo[4], isr\n", NULL, &p));
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    mov osr, rxfifo[7]\n", NULL, &p));
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program t\n    mov rxfifo[3], isr\n", NULL, &p),
+                             p.error);
+}
+#endif /* PIO_SIM_HAS_RXFIFO_MOV */
+
+/* pioasm separates the `public` keyword from the label by any whitespace, so a
+ * tab must work, not only a space. */
+static void test_public_label_tab_separator(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program t\npublic\tfoo:\n    nop\n", NULL, &p),
+                             p.error);
+    TEST_ASSERT_EQUAL_UINT8(1U, p.public_count);
+    TEST_ASSERT_EQUAL_STRING("foo", p.public_labels[0].name);
+}
+
+/* A block-comment open/close sequence inside a ';' or '//' line comment is inert:
+ * the line comment wins, so the following instructions are not swallowed. The C
+ * strings below embed literal slash-star / star-slash inside the comment text. */
+static void test_line_comment_hides_block_comment_marker(void)
+{
+    pio_program_t p;
+    const char *semi = ".program t\n    nop ; note /* not a block open\n    nop\n    nop\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(semi, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_UINT8(3U, p.count);
+    const char *slash = ".program t\n    nop // note */ not a block close\n    nop\n    nop\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(slash, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_UINT8(3U, p.count);
+    /* a genuine multi-line block comment still works */
+    const char *block = ".program t\n    nop\n/* line one\n   line two */\n    nop\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(block, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_UINT8(2U, p.count);
+}
+
+/* .lang_opt and unknown directives are ignored for forward compatibility (real
+ * pioasm .pio files carry .lang_opt); surrounding instructions still assemble. */
+static void test_lang_opt_and_unknown_directive_ignored(void)
+{
+    pio_program_t p;
+    const char *src = ".program t\n"
+                      ".lang_opt c sm_config = foo\n"
+                      ".some_future_directive 1 2 3\n"
+                      "    set x, 1\n"
+                      "    set y, 2\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_UINT8(2U, p.count);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 1), p.insns[0]);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_Y, 2), p.insns[1]);
+}
+
+/* ── Full symbol-order parity for `.define` ─────────────────────────────────
+ * pioasm builds the whole symbol table before evaluating, so a define may
+ * reference a label or another define declared further down. The assembler
+ * collects all symbols in a scan pass, then resolves define values to a
+ * fixpoint. */
+
+/* A define may reference a label declared LATER (the round-10 finding). */
+static void test_define_forward_label_reference(void)
+{
+    pio_program_t p;
+    const char *src = ".program t\n"
+                      ".define J (target + 1)\n"
+                      "    set x, J\n" /* idx 0: target(2) + 1 = 3 */
+                      "    nop\n"      /* idx 1 */
+                      "target:\n"      /* idx 2 */
+                      "    nop\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(src, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 3), p.insns[0]);
+    /* backward-label reference still works */
+    const char *bwd = ".program t\n"
+                      "loop:\n"
+                      "    nop\n"
+                      ".define K (loop)\n"
+                      "    set x, K\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(bwd, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 0), p.insns[1]);
+}
+
+/* A define may reference another define declared LATER, including a chain. */
+static void test_define_forward_define_reference(void)
+{
+    pio_program_t p;
+    /* B references A, declared after it; both before use. */
+    const char *fwd = ".program t\n.define B (A + 1)\n.define A 5\n    set x, B\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(fwd, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 6), p.insns[0]);
+    /* a forward chain C -> B -> A resolves */
+    const char *chain =
+        ".program t\n.define C (B + 1)\n.define B (A + 1)\n.define A 3\n    set x, C\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(chain, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 5), p.insns[0]);
+    /* backward define-to-define still works */
+    const char *bwd = ".program t\n.define A 5\n.define B (A + 1)\n    set x, B\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(bwd, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_X, 6), p.insns[0]);
+}
+
+/* Defines are evaluated lazily (as pioasm does): a define on an undefined symbol
+ * or in a reference cycle errors only when it is USED. An UNUSED such define is
+ * accepted, because it is never evaluated. (Verified against real pioasm 2.2.0.) */
+static void test_define_lazy_undefined_and_cycle(void)
+{
+    pio_program_t p;
+    /* USED undefined symbol / USED cycle -> rejected */
+    TEST_ASSERT_FALSE(
+        pio_asm_assemble(".program t\n.define J (nosuch + 1)\n    set x, J\n", NULL, &p));
+    TEST_ASSERT_FALSE(pio_asm_assemble(
+        ".program t\n.define A (B + 1)\n.define B (A + 1)\n    set x, A\n", NULL, &p));
+    /* UNUSED undefined symbol / UNUSED cycle -> accepted (never evaluated) */
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program t\n.define J (nosuch + 1)\n    set x, 1\n", NULL, &p), p.error);
+    TEST_ASSERT_TRUE_MESSAGE(
+        pio_asm_assemble(".program t\n.define A (B + 1)\n.define B (A + 1)\n    set x, 1\n", NULL,
+                         &p),
+        p.error);
+}
+
+/* `.word` and config directives resolve after all symbols are known, so they may
+ * reference a forward label / define too. */
+static void test_word_and_config_forward_references(void)
+{
+    pio_program_t p;
+    /* .word referencing a forward label */
+    const char *w = ".program t\n    nop\n.word (tgt)\ntgt:\n    nop\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(w, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_HEX16(2U, p.insns[1]);
+    /* .word referencing a backward define */
+    const char *wd = ".program t\n.define W 0x1234\n    nop\n.word W\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(wd, NULL, &p), p.error);
+    TEST_ASSERT_EQUAL_HEX16(0x1234U, p.insns[1]);
+    /* a config directive (.set) whose count is a forward define */
+    const char *cfg = ".program t\n.set N\n.define N 5\n    set pindirs, 0\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(cfg, NULL, &p), p.error);
+    TEST_ASSERT_TRUE(p.set_cfg.set);
+    TEST_ASSERT_EQUAL_UINT8(5U, p.set_cfg.count);
+}
+
+/* Invariant: a forward-referencing define does not shift instruction indices —
+ * label positions and the program length are independent of define values. */
+static void test_forward_define_does_not_shift_labels(void)
+{
+    pio_program_t with_def;
+    pio_program_t without;
+    const char *a = ".program t\n"
+                    ".define J (end + 1)\n"
+                    "    nop\n"
+                    "public end:\n"
+                    "    nop\n"
+                    "    set x, J\n";
+    const char *b = ".program t\n"
+                    "    nop\n"
+                    "public end:\n"
+                    "    nop\n"
+                    "    nop\n";
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(a, NULL, &with_def), with_def.error);
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(b, NULL, &without), without.error);
+    TEST_ASSERT_EQUAL_UINT8(without.count, with_def.count);
+    TEST_ASSERT_EQUAL_UINT8(1U, with_def.public_count);
+    TEST_ASSERT_EQUAL_UINT8(without.public_labels[0].index, with_def.public_labels[0].index);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -1164,5 +1380,19 @@ int main(void)
     RUN_TEST(test_no_instructions_error);
     RUN_TEST(test_operand_errors);
     RUN_TEST(test_sideset_and_delay_errors);
+    RUN_TEST(test_unary_minus_precedence);
+    RUN_TEST(test_duplicate_define_rejected);
+    RUN_TEST(test_label_define_name_collision_rejected);
+#if PIO_SIM_HAS_RXFIFO_MOV
+    RUN_TEST(test_rxfifo_index_out_of_range_rejected);
+#endif
+    RUN_TEST(test_public_label_tab_separator);
+    RUN_TEST(test_line_comment_hides_block_comment_marker);
+    RUN_TEST(test_lang_opt_and_unknown_directive_ignored);
+    RUN_TEST(test_define_forward_label_reference);
+    RUN_TEST(test_define_forward_define_reference);
+    RUN_TEST(test_define_lazy_undefined_and_cycle);
+    RUN_TEST(test_word_and_config_forward_references);
+    RUN_TEST(test_forward_define_does_not_shift_labels);
     return UNITY_END();
 }
