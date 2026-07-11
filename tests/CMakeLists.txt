@@ -74,6 +74,20 @@ if(PIO_SIM_BUILD_FUZZERS)
     target_compile_options(fuzz_pio_sim PRIVATE
         -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all -g -O1)
     target_link_options(fuzz_pio_sim PRIVATE -fsanitize=fuzzer,address,undefined)
+
+    # fuzz_pio_dma links pio_dma.c + pio_sim.c (the DMA is a client of the public
+    # PIO FIFO API for its TXF/RXF endpoints).
+    add_executable(fuzz_pio_dma fuzz_pio_dma.c
+        ${CMAKE_SOURCE_DIR}/lib/src/pio_dma.c
+        ${CMAKE_SOURCE_DIR}/lib/src/pio_sim.c)
+    target_include_directories(fuzz_pio_dma PRIVATE
+        ${CMAKE_SOURCE_DIR}/lib/include ${CMAKE_SOURCE_DIR}/lib/config
+        ${CMAKE_SOURCE_DIR}/lib/src)
+    target_compile_definitions(fuzz_pio_dma PRIVATE
+        PIO_SIM_PIO_VERSION=${PIO_SIM_PIO_VERSION})
+    target_compile_options(fuzz_pio_dma PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all -g -O1)
+    target_link_options(fuzz_pio_dma PRIVATE -fsanitize=fuzzer,address,undefined)
 endif()
 
 # ── Encoding differential vs the real Raspberry Pi pioasm ────────────────────

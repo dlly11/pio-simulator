@@ -186,6 +186,7 @@ jobs:
           tests/test_pio_sim.c tests/test_pio_asm.c
           tests/test_pio_gpio.c tests/test_pio_clk.c tests/test_pio_dma.c
           tests/test_pio_programs.c tests/fuzz_pio_asm.c tests/fuzz_pio_sim.c
+          tests/fuzz_pio_dma.c
           tests/unity_config.h
           tests/consumer/main.c
           tests/test_pio_asm_vs_pioasm.c
@@ -202,7 +203,7 @@ jobs:
       fail-fast: false # a v0/asm crash shouldn't hide the v1/sim result (and vice versa)
       matrix:
         platform: [RP2350, RP2040]
-        target: [fuzz_pio_asm, fuzz_pio_sim]
+        target: [fuzz_pio_asm, fuzz_pio_sim, fuzz_pio_dma]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -224,11 +225,11 @@ jobs:
         # own corpus (asm is text, sim is binary).
         run: |
           mkdir -p /tmp/fuzz-finds
-          if [ "${{ matrix.target }}" = "fuzz_pio_sim" ]; then
-            corpus=tests/fuzz_corpus_sim
-          else
-            corpus=tests/fuzz_corpus
-          fi
+          case "${{ matrix.target }}" in
+            fuzz_pio_sim) corpus=tests/fuzz_corpus_sim ;;
+            fuzz_pio_dma) corpus=tests/fuzz_corpus_dma ;;
+            *)            corpus=tests/fuzz_corpus ;;
+          esac
           ./build-fuzz/tests/${{ matrix.target }} -max_total_time=60 /tmp/fuzz-finds "$corpus"
 
   # Source coverage (llvm-cov) over the library, merging the RP2040 and RP2350
