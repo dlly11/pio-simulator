@@ -31,7 +31,7 @@ SDK, no RTOS.
 
 ## The two components
 
-### `pio_sim` — the engine
+### pio_sim — the engine
 
 Executes the full PIO instruction set (JMP, WAIT, IN, OUT, PUSH, PULL, MOV, IRQ,
 SET), one system clock per `pio_sim_tick()`. It models:
@@ -55,7 +55,7 @@ Companion modules cover the chip *around* the block — see [Scope](#scope):
 | `pio_clk`  | the XOSC → PLL → clk_sys tree with tick↔time conversion |
 | `pio_chip` | all blocks + shared pads + DMA + clock behind one tick call |
 
-### `pio_asm` — the assembler
+### pio_asm — the assembler
 
 A pioasm-compatible assembler, so tests can spell programs inline instead of
 shipping a `pioasm` toolchain — and a build-time differential checks the
