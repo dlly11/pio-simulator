@@ -50,8 +50,11 @@ void pio_clk_init_default(pio_clk_tree_t *t);
 /** Validate every field against the datasheet ranges. */
 pio_clk_err_t pio_clk_validate(const pio_clk_tree_t *t);
 
-/** Set the PLL parameters, validating the result (the tree is only updated
- * when the whole configuration is legal). */
+/** Set the PLL parameters, validating the result (the tree is only updated when
+ * the whole configuration is legal). `refdiv`/`fbdiv` are `uint16_t` — they hold
+ * a hardware register field (refdiv 1..63, fbdiv 16..320) — so a caller value
+ * wider than 16 bits is taken modulo 2^16 before validation; an out-of-range
+ * value is rejected only once truncated (e.g. 0x10001 aliases to refdiv 1). */
 pio_clk_err_t pio_clk_configure_pll(pio_clk_tree_t *t, uint16_t refdiv, uint16_t fbdiv,
                                     uint8_t postdiv1, uint8_t postdiv2);
 
