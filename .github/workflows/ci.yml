@@ -222,15 +222,28 @@ jobs:
       - name: Fuzz (60s smoke)
         # First dir is where libFuzzer writes new finds (scratch); the seed
         # corpus is read-only input, so it stays pristine. Each target has its
-        # own corpus (asm is text, sim is binary).
+        # own corpus (asm is text, sim is binary). -artifact_prefix points crash/
+        # leak/oom/timeout reproducers at a SEPARATE dir so a red run's minimized
+        # input can be uploaded (see the next step) instead of dying with the runner.
         run: |
-          mkdir -p /tmp/fuzz-finds
+          mkdir -p /tmp/fuzz-finds /tmp/fuzz-arts
           case "${{ matrix.target }}" in
             fuzz_pio_sim) corpus=tests/fuzz_corpus_sim ;;
             fuzz_pio_dma) corpus=tests/fuzz_corpus_dma ;;
             *)            corpus=tests/fuzz_corpus ;;
           esac
-          ./build-fuzz/tests/${{ matrix.target }} -max_total_time=60 /tmp/fuzz-finds "$corpus"
+          ./build-fuzz/tests/${{ matrix.target }} -max_total_time=60 \
+            -artifact_prefix=/tmp/fuzz-arts/ /tmp/fuzz-finds "$corpus"
+      - name: Upload crash reproducer
+        # Only fires when the fuzz step failed, i.e. libFuzzer found a
+        # crash/leak/oom/timeout. The artifact name must be unique per matrix cell
+        # (upload-artifact v4+ rejects duplicate names).
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}-${{ matrix.platform }}
+          path: /tmp/fuzz-arts/
+          if-no-files-found: ignore
 
   # Source coverage (llvm-cov) over the library, merging the RP2040 and RP2350
   # test runs so v0- and v1-gated code both count. Fails under an 80% line-

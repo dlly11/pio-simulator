@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.1.1] - 2026-07-11
+
+### Fixed
+
+- **DMA** — `pio_dma_channel_configure()` now clamps an out-of-range `CHx_CTRL`
+  `DATA_SIZE` on the register-write path, not only in the
+  `channel_config_set_transfer_data_size()` setter. A caller that hand-built the
+  config struct could set `data_size` past 32-bit, making the transfer engine
+  shift a word by up to 56 bits (undefined behaviour) and read/write past the
+  4-byte transfer word. `DATA_SIZE` is a 2-bit field on silicon, so the model now
+  truncates it at the boundary, matching the sibling `RING_SIZE`/`CHAIN_TO` guards.
+- **Assembler** — `in status, <n>` is now accepted (encodes `0x40a8`), matching
+  real `pioasm`; it was previously rejected in error. The simulator already reads
+  `STATUS` as an `IN` source, and the encoding is now pinned bit-exact against
+  `pioasm` in the differential corpus.
+
+### Changed
+
+- **CI** — the fuzz job now points crash/leak/oom/timeout reproducers at a
+  dedicated directory (`-artifact_prefix`) and uploads them as a build artifact
+  when a run fails, so a red fuzz leg yields a downloadable minimized input
+  instead of discarding it with the runner.
+
 ## [0.1.0] - 2026-07-11
 
 First tagged release: a complete, pure-C11 functional simulator and
@@ -49,5 +72,6 @@ around it (pads, DMA, clock tree) modelled too.
   cppcheck, clang-format, the pioasm differential, libFuzzer harnesses
   (assembler, execution core, DMA), and an 80% line-coverage gate.
 
-[Unreleased]: https://github.com/dlly11/pio-simulator/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/dlly11/pio-simulator/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/dlly11/pio-simulator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/dlly11/pio-simulator/releases/tag/v0.1.0

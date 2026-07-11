@@ -990,13 +990,11 @@ static bool enc_in(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
         pa_set_error(ctx, "in needs <src>, <count>");
         return false;
     }
+    /* `in status, <n>` encodes source 101 (0x40a8). Hardware documents IN
+     * source 101 as reserved (STATUS is nominally a MOV source), but real pioasm
+     * accepts it, so for bit-exact parity we do too — src_field maps "status" to
+     * PIO_SRC_STATUS and read_source() already reads it as an IN source. */
     int src = src_field(tok[1]);
-    if (src == (int)PIO_SRC_STATUS) {
-        /* IN source encoding 101 is reserved on hardware (STATUS is a MOV-only
-         * source); real pioasm rejects it too. */
-        pa_set_error(ctx, "status is not a valid in source");
-        return false;
-    }
     uint32_t cnt;
     if ((src < 0) || !resolve_uint_join(ctx, tok, 2, n, &cnt)) {
         pa_set_error(ctx, "bad in operands");

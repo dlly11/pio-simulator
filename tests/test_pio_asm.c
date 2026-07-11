@@ -773,13 +773,15 @@ static void test_reverse_binds_loosest(void)
     TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_set(PIO_DST_Y, 4), p.insns[1]);
 }
 
-/* `in status` must be rejected: IN source encoding 101 is reserved on hardware
- * (STATUS is a MOV-only source), and real pioasm rejects it. */
-static void test_in_status_rejected(void)
+/* `in status, <n>` is accepted, matching real pioasm (which emits 0x40a8): IN
+ * source encoding 101 is documented reserved, but pioasm accepts it and the
+ * simulator reads STATUS as an IN source, so parity requires we accept it too. */
+static void test_in_status_accepted(void)
 {
     pio_program_t p;
-    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    in status, 8\n", NULL, &p));
-    /* …while mov from status stays accepted. */
+    TEST_ASSERT_TRUE(pio_asm_assemble(".program t\n    in status, 8\n", NULL, &p));
+    TEST_ASSERT_EQUAL_HEX16(pio_sim_encode_in(PIO_SRC_STATUS, 8), p.insns[0]);
+    /* …and mov from status stays accepted. */
     TEST_ASSERT_TRUE(pio_asm_assemble(".program t\n    mov x, status\n", NULL, &p));
 }
 
@@ -1396,7 +1398,7 @@ int main(void)
     RUN_TEST(test_load_program_at_origin);
     RUN_TEST(test_reverse_binds_loosest);
     RUN_TEST(test_define_not_leaked_from_other_program);
-    RUN_TEST(test_in_status_rejected);
+    RUN_TEST(test_in_status_accepted);
     RUN_TEST(test_load_program_pc_starts_at_offset);
     RUN_TEST(test_irq_absolute);
     RUN_TEST(test_more_dest_src_fields);
