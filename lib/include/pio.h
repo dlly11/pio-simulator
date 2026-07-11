@@ -1,5 +1,6 @@
-/*
- * SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT */
+/**
+ * @file
  * pio.h — umbrella header pulling in the whole pio_sim public API in one
  * include: the instruction-set simulator, the assembler, the GPIO pad/mux
  * model, the clock tree, the DMA controller, and the chip-level umbrella.

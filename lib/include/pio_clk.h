@@ -1,5 +1,6 @@
-/*
- * SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT */
+/**
+ * @file
  * pio_clk.h — clk_sys clock-tree model: XOSC → PLL_SYS → clk_sys divider.
  *
  * Behavioural contract: this module does NOT change how the simulator steps.
@@ -71,6 +72,7 @@ uint64_t pio_clk_sys_hz(const pio_clk_tree_t *t);
  * rounded to nearest. Exact 64-bit integer arithmetic. Returns 0 if the clock
  * tree fails validation (pio_clk_sys_hz == 0). */
 uint64_t pio_clk_ticks_to_ns(const pio_clk_tree_t *t, uint64_t ticks);
+/** As pio_clk_ticks_to_ns, but to microseconds. */
 uint64_t pio_clk_ticks_to_us(const pio_clk_tree_t *t, uint64_t ticks);
 
 /** Convert a duration to the number of ticks that covers it (rounded UP, so
@@ -78,6 +80,7 @@ uint64_t pio_clk_ticks_to_us(const pio_clk_tree_t *t, uint64_t ticks);
  * right direction for timeouts). Returns 0 for an invalid clock tree
  * (indistinguishable from a 0-duration input — validate the tree first). */
 uint64_t pio_clk_ns_to_ticks(const pio_clk_tree_t *t, uint64_t ns);
+/** As pio_clk_ns_to_ticks, but from microseconds. */
 uint64_t pio_clk_us_to_ticks(const pio_clk_tree_t *t, uint64_t us);
 
 #endif /* PIO_CLK_H */

@@ -1,5 +1,6 @@
-/*
- * SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT */
+/**
+ * @file
  * pio_chip.h — a thin chip-level umbrella composing every PIO block of the
  * device (2 on RP2040, 3 on RP2350) around one shared pad set, the DMA
  * controller, and the clock tree. Purely compositional: everything here can
@@ -50,8 +51,11 @@ pio_sim_t *pio_chip_pio(pio_chip_t *c, uint8_t index);
  * pio_clk.h, ticks_to_* round to nearest and *_to_ticks round up (ceiling, so a
  * derived deadline is never short). */
 uint64_t pio_chip_ticks_to_ns(const pio_chip_t *c, uint64_t ticks);
+/** As pio_chip_ticks_to_ns, but to microseconds. */
 uint64_t pio_chip_ticks_to_us(const pio_chip_t *c, uint64_t ticks);
+/** Chip cycles that cover `ns` nanoseconds (rounded up). */
 uint64_t pio_chip_ns_to_ticks(const pio_chip_t *c, uint64_t ns);
+/** Chip cycles that cover `us` microseconds (rounded up). */
 uint64_t pio_chip_us_to_ticks(const pio_chip_t *c, uint64_t us);
 
 #endif /* PIO_CHIP_H */

@@ -1,5 +1,6 @@
-/*
- * SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT */
+/**
+ * @file
  * pio_sim — a pure-C functional simulator for the RP2040/RP2350 PIO block.
  *
  * Implements the complete PIO instruction set (JMP, WAIT, IN, OUT, PUSH,
@@ -65,9 +66,10 @@ typedef struct {
 
 /* ── Shift direction ───────────────────────────────────────────────────────── */
 
+/** OSR/ISR shift direction: left shifts MSB-first, right shifts LSB-first. */
 typedef enum {
-    PIO_SHIFT_LEFT = 0,  /* MSB first */
-    PIO_SHIFT_RIGHT = 1, /* LSB first */
+    PIO_SHIFT_LEFT = 0,  /**< MSB first */
+    PIO_SHIFT_RIGHT = 1, /**< LSB first */
 } pio_shift_dir_t;
 
 /* ── State machine ─────────────────────────────────────────────────────────── */
@@ -381,12 +383,16 @@ uint8_t pio_sim_sm_get_pc(const pio_sim_t *pio, uint8_t sm);
  * struct fields are public too; these mirror the get_pc/get_instr style so
  * callers need not depend on the struct layout. */
 uint32_t pio_sim_sm_get_x(const pio_sim_t *pio, uint8_t sm);
+/** As pio_sim_sm_get_x, but scratch register Y. */
 uint32_t pio_sim_sm_get_y(const pio_sim_t *pio, uint8_t sm);
+/** As pio_sim_sm_get_x, but the input shift register (ISR). */
 uint32_t pio_sim_sm_get_isr(const pio_sim_t *pio, uint8_t sm);
+/** As pio_sim_sm_get_x, but the output shift register (OSR). */
 uint32_t pio_sim_sm_get_osr(const pio_sim_t *pio, uint8_t sm);
 /** Shift counts: bits accumulated in the ISR / consumed from the OSR (see the
  * isr_count/osr_count fields for the exact convention). */
 uint8_t pio_sim_sm_get_isr_count(const pio_sim_t *pio, uint8_t sm);
+/** As pio_sim_sm_get_isr_count, but bits consumed from the OSR. */
 uint8_t pio_sim_sm_get_osr_count(const pio_sim_t *pio, uint8_t sm);
 
 /** Instruction word state machine `sm` would execute next: a stalled instruction
@@ -395,7 +401,7 @@ uint8_t pio_sim_sm_get_osr_count(const pio_sim_t *pio, uint8_t sm);
  * and does not linger here.) Mirrors reading the SDK's SMx_INSTR register. */
 uint16_t pio_sim_sm_get_instruction(const pio_sim_t *pio, uint8_t sm);
 
-/* MOV STATUS source selector (mirrors EXECCTRL_STATUS_SEL). */
+/** MOV STATUS source selector (mirrors EXECCTRL_STATUS_SEL). */
 typedef enum {
     PIO_STATUS_TX_LEVEL = 0, /* all-ones while TX FIFO level < N            */
     PIO_STATUS_RX_LEVEL = 1, /* all-ones while RX FIFO level < N            */
@@ -426,7 +432,7 @@ void pio_sim_sm_clear_status_value(pio_sim_t *pio, uint8_t sm);
  * when the normal FIFO/IRQ-derived status is in effect. */
 bool pio_sim_sm_get_status_value(const pio_sim_t *pio, uint8_t sm, uint32_t *value);
 
-/* FIFO join: 0 = none (4+4), 1 = join TX (8 TX, 0 RX), 2 = join RX (8 RX, 0 TX).
+/** FIFO join: 0 = none (4+4), 1 = join TX (8 TX, 0 RX), 2 = join RX (8 RX, 0 TX).
  * RP2350 adds the random-access RX modes (4-entry register file addressed by
  * the MOV-RX-FIFO instructions): PUT (SM writes, system reads), GET (system
  * writes, SM reads), and PUTGET (both FJOIN_RX_PUT and FJOIN_RX_GET: the SM has
@@ -492,19 +498,29 @@ pio_sm_config pio_get_default_sm_config(void);
 /* Config mutators, acting on the config value only. Names match the pico-sdk
  * exactly except the split *_pin_base / *_pin_count variants, which are sim
  * extensions (the SDK sets base+count together via *_pins). */
+/** Set the OUT pin span (SDK sm_config_set_out_pins): base pin and count. */
 void sm_config_set_out_pins(pio_sm_config *c, uint8_t out_base, uint8_t out_count);
-void sm_config_set_out_pin_base(pio_sm_config *c, uint8_t out_base);   /* sim extension */
+/** As sm_config_set_out_pins, but sets only the OUT base pin (sim extension). */
+void sm_config_set_out_pin_base(pio_sm_config *c, uint8_t out_base); /* sim extension */
+/** As sm_config_set_out_pins, but sets only the OUT pin count (sim extension). */
 void sm_config_set_out_pin_count(pio_sm_config *c, uint8_t out_count); /* sim extension */
+/** Set the SET pin span (SDK sm_config_set_set_pins): base pin and count. */
 void sm_config_set_set_pins(pio_sm_config *c, uint8_t set_base, uint8_t set_count);
-void sm_config_set_set_pin_base(pio_sm_config *c, uint8_t set_base);   /* sim extension */
+/** As sm_config_set_set_pins, but sets only the SET base pin (sim extension). */
+void sm_config_set_set_pin_base(pio_sm_config *c, uint8_t set_base); /* sim extension */
+/** As sm_config_set_set_pins, but sets only the SET pin count (sim extension). */
 void sm_config_set_set_pin_count(pio_sm_config *c, uint8_t set_count); /* sim extension */
+/** Set the IN pin base (SDK sm_config_set_in_pins): first pin sampled by IN. */
 void sm_config_set_in_pins(pio_sm_config *c, uint8_t in_base);
+/** As sm_config_set_in_pins (sets the IN base pin); sim-extension alias. */
 void sm_config_set_in_pin_base(pio_sm_config *c, uint8_t in_base); /* sim extension */
 #if PIO_SIM_HAS_IN_PIN_COUNT
 /** RP2350: IN PINS / MOV x,PINS / WAIT PIN see only this many low pins; higher
  * bits read 0. `count` 1..32 (32 = unmasked default). */
 void sm_config_set_in_pin_count(pio_sm_config *c, uint8_t in_count);
 #endif
+/** Set the side-set base pin (SDK sm_config_set_sideset_pins): first pin
+ * written by side-set. */
 void sm_config_set_sideset_pins(pio_sm_config *c, uint8_t sideset_base);
 /** `bit_count` is the SDK convention: data bits + the enable bit when
  * `optional` (so `.side_set 2 opt` passes 3). */
@@ -518,10 +534,17 @@ void sm_config_set_clkdiv(pio_sm_config *c, float div);
 /** `shift_right` matches the SDK bool; threshold 0 (or >32) means 32. */
 void sm_config_set_out_shift(pio_sm_config *c, bool shift_right, bool autopull,
                              uint8_t pull_threshold);
+/** As sm_config_set_out_shift, but the ISR / IN autopush direction and threshold
+ * (SDK sm_config_set_in_shift): `shift_right` matches the SDK bool; threshold 0
+ * (or >32) means 32. */
 void sm_config_set_in_shift(pio_sm_config *c, bool shift_right, bool autopush,
                             uint8_t push_threshold);
+/** Set the FIFO-join mode (SDK sm_config_set_fifo_join): see pio_fifo_join_t. */
 void sm_config_set_fifo_join(pio_sm_config *c, pio_fifo_join_t join);
+/** Select the MOV STATUS source (SDK sm_config_set_mov_status): `status_sel`
+ * (pio_status_sel_t) and its compare level / IRQ index `status_n`. */
 void sm_config_set_mov_status(pio_sm_config *c, pio_status_sel_t status_sel, uint8_t status_n);
+/** Set the pin tested by JMP PIN (SDK sm_config_set_jmp_pin). */
 void sm_config_set_jmp_pin(pio_sm_config *c, uint8_t pin);
 /** EXECCTRL output specials (SDK sm_config_set_out_special): `sticky`
  * re-asserts driven pins every cycle; `has_enable_pin` uses OUT-data bit
@@ -623,12 +646,16 @@ void pio_sim_sm_clear_fifos(pio_sim_t *pio, uint8_t sm);
  * GET mode the host writes with pio_sim_sm_rxfifo_put and the SM reads via
  * `mov osr, rxfifo[]`. These — not pio_sim_sm_get/put — are the host access
  * path for those modes. `index` is masked to the 4-entry file (index & 3). */
+/** Read RX register-file entry `index` (host read in FJOIN_RX_PUT mode). */
 uint32_t pio_sim_sm_rxfifo_get(const pio_sim_t *pio, uint8_t sm, uint8_t index);
+/** Write RX register-file entry `index` (host write in FJOIN_RX_GET mode). */
 void pio_sim_sm_rxfifo_put(pio_sim_t *pio, uint8_t sm, uint8_t index, uint32_t word);
 #endif
 
 /* Current FIFO occupancy (SDK pio_sm_get_*_fifo_level), 0..cap. */
+/** TX FIFO occupancy of `sm` (SDK pio_sm_get_tx_fifo_level), 0..cap. */
 uint8_t pio_sim_sm_get_tx_fifo_level(const pio_sim_t *pio, uint8_t sm);
+/** RX FIFO occupancy of `sm` (SDK pio_sm_get_rx_fifo_level), 0..cap. */
 uint8_t pio_sim_sm_get_rx_fifo_level(const pio_sim_t *pio, uint8_t sm);
 
 /* Sticky FIFO-debug flags (FDEBUG), set on the event and cleared by the host. */
@@ -775,25 +802,44 @@ bool pio_sim_sm_is_dreq_rx(const pio_sim_t *pio, uint8_t sm);
 
 /* ── Instruction encoding helpers (match pico-sdk pio_encode_*) ────────────── */
 
+/** Encode a JMP to `addr` under `condition` (SDK pio_encode_jmp). */
 uint16_t pio_sim_encode_jmp(uint8_t condition, uint8_t addr);
+/** Encode a SET of `dest` to the 5-bit `value` (SDK pio_encode_set). */
 uint16_t pio_sim_encode_set(uint8_t dest, uint8_t value);
+/** Encode an OUT of `count` bits to `dest` (SDK pio_encode_out). */
 uint16_t pio_sim_encode_out(uint8_t dest, uint8_t count);
+/** Encode an IN of `count` bits from `src` (SDK pio_encode_in). */
 uint16_t pio_sim_encode_in(uint8_t src, uint8_t count);
+/** Encode a PUSH (SDK pio_encode_push): `if_full` conditions on the threshold,
+ * `block` stalls on a full RX FIFO. */
 uint16_t pio_sim_encode_push(bool if_full, bool block);
+/** Encode a PULL (SDK pio_encode_pull): `if_empty` conditions on the threshold,
+ * `block` stalls on an empty TX FIFO. */
 uint16_t pio_sim_encode_pull(bool if_empty, bool block);
+/** Encode a MOV of `src` to `dest` applying `op` (none/invert/reverse; SDK
+ * pio_encode_mov and its _not / _reverse variants). */
 uint16_t pio_sim_encode_mov(uint8_t dest, uint8_t op, uint8_t src);
 #if PIO_SIM_HAS_RXFIFO_MOV
 /* RP2350 indexed RX-FIFO moves. `_y` forms take the index from scratch register
  * Y (low 2 bits); the others use the literal `index` (0..3). */
-uint16_t pio_sim_encode_mov_to_rxfifo(uint8_t index);   /* rxfifo[index] <- ISR */
+/** Encode `mov rxfifo[index], isr` (RP2350 indexed RX-FIFO put). */
+uint16_t pio_sim_encode_mov_to_rxfifo(uint8_t index); /* rxfifo[index] <- ISR */
+/** Encode `mov osr, rxfifo[index]` (RP2350 indexed RX-FIFO get). */
 uint16_t pio_sim_encode_mov_from_rxfifo(uint8_t index); /* OSR <- rxfifo[index] */
-uint16_t pio_sim_encode_mov_to_rxfifo_y(void);          /* rxfifo[y] <- ISR     */
-uint16_t pio_sim_encode_mov_from_rxfifo_y(void);        /* OSR <- rxfifo[y]     */
+/** As pio_sim_encode_mov_to_rxfifo, but the index comes from scratch register Y. */
+uint16_t pio_sim_encode_mov_to_rxfifo_y(void); /* rxfifo[y] <- ISR     */
+/** As pio_sim_encode_mov_from_rxfifo, but the index comes from scratch register Y. */
+uint16_t pio_sim_encode_mov_from_rxfifo_y(void); /* OSR <- rxfifo[y]     */
 #endif
+/** Encode an IRQ set/clear of flag `index` (SDK pio_encode_irq_set /
+ * _irq_clear / _irq_wait): `clear` clears the flag, `wait` blocks until it
+ * clears again. */
 uint16_t pio_sim_encode_irq(bool clear, bool wait, uint8_t index);
 /** IRQ with the index made SM-relative (the `rel` form): the low two bits of
  * `index` have the SM number added (mod 4) at execution time. */
 uint16_t pio_sim_encode_irq_rel(bool clear, bool wait, uint8_t index);
+/** Encode a WAIT for `polarity` on `source` (GPIO/PIN/IRQ) at `index` (SDK
+ * pio_encode_wait_gpio / _wait_pin / _wait_irq). */
 uint16_t pio_sim_encode_wait(uint8_t polarity, uint8_t source, uint8_t index);
 /** WAIT on an SM-relative IRQ index (`wait <pol> irq <index> rel`). */
 uint16_t pio_sim_encode_wait_irq_rel(uint8_t polarity, uint8_t index);
@@ -802,6 +848,7 @@ uint16_t pio_sim_encode_wait_irq_rel(uint8_t polarity, uint8_t index);
  * jmppin` or `wait <pol> jmppin + <index>`). */
 uint16_t pio_sim_encode_wait_jmppin(uint8_t polarity, uint8_t index);
 #endif
+/** Encode a NOP (SDK pio_encode_nop): assembles as `mov y, y`. */
 uint16_t pio_sim_encode_nop(void);
 
 /** Execute one instruction immediately on `sm` (like pio_sm_exec / an

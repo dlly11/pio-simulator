@@ -1,5 +1,6 @@
-/*
- * SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT */
+/**
+ * @file
  * pio_dma.h — RP2040/RP2350-style DMA controller model for pio_sim.
  *
  * Models the DMA block as firmware sees it: 12 channels on RP2040, 16 on
@@ -104,21 +105,34 @@ typedef struct {
 } dma_channel_config;
 
 /* SDK-named config mutators (config value only, no controller object). */
+/** Enable/disable read-address increment (SDK channel_config_set_read_increment). */
 void channel_config_set_read_increment(dma_channel_config *c, bool incr);
+/** Enable/disable write-address increment (SDK channel_config_set_write_increment). */
 void channel_config_set_write_increment(dma_channel_config *c, bool incr);
 /** Data-request source: a PIO_DMA_DREQ_PIO_* level, PIO_DMA_TREQ_TIMER(n), or
  *  PIO_DMA_TREQ_FORCE. An unrecognised value leaves the channel permanently
  *  un-paced (never ready) rather than erroring — pick from the macros above. */
 void channel_config_set_dreq(dma_channel_config *c, uint8_t dreq);
+/** Channel to trigger on completion (SDK channel_config_set_chain_to; taken
+ *  modulo PIO_SIM_DMA_NUM_CHANNELS, chain to self = no chain). */
 void channel_config_set_chain_to(dma_channel_config *c, uint8_t chain_to);
+/** Element size 8/16/32-bit (SDK channel_config_set_transfer_data_size;
+ *  clamped to DMA_SIZE_32). */
 void channel_config_set_transfer_data_size(dma_channel_config *c, pio_dma_size_t size);
 /** Ring wrap: `write` selects the address (false = read, true = write) and
  * `size_bits` the 2^size_bits-byte window (0 = none). The hardware RING_SIZE
  * field is 4 bits, so `size_bits` is clamped to 0..15. */
 void channel_config_set_ring(dma_channel_config *c, bool write, uint8_t size_bits);
+/** Enable/disable per-word byte swap (SDK channel_config_set_bswap; CHx_CTRL BSWAP). */
 void channel_config_set_bswap(dma_channel_config *c, bool bswap);
+/** IRQ_QUIET: suppress the per-transfer completion IRQ, so only a NULL trigger
+ *  raises it (SDK channel_config_set_irq_quiet; CHx_CTRL IRQ_QUIET). */
 void channel_config_set_irq_quiet(dma_channel_config *c, bool irq_quiet);
+/** High/normal priority for round-robin arbitration (SDK
+ *  channel_config_set_high_priority; CHx_CTRL HIGH_PRIORITY). */
 void channel_config_set_high_priority(dma_channel_config *c, bool high_priority);
+/** Route this channel's data through the CRC sniffer (SDK
+ *  channel_config_set_sniff_enable; CHx_CTRL SNIFF_EN). */
 void channel_config_set_sniff_enable(dma_channel_config *c, bool sniff_enable);
 
 /* ── Controller ────────────────────────────────────────────────────────────── */
@@ -275,6 +289,7 @@ uint32_t pio_dma_get_intr(const pio_dma_t *d);
 uint32_t pio_dma_get_ints(const pio_dma_t *d, uint8_t irq_index);
 /** INTE / INTF register read-back for `irq_index` (sim extensions). */
 uint32_t pio_dma_get_inte(const pio_dma_t *d, uint8_t irq_index);
+/** INTF force register read-back for `irq_index` (sim extension). */
 uint32_t pio_dma_get_intf(const pio_dma_t *d, uint8_t irq_index);
 /** Force (or clear) channel `ch`'s IRQ on line `irq_index` — INTF. Sim
  * extension: the SDK exposes no DMA force helper. */

@@ -1,5 +1,6 @@
-/*
- * SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT */
+/**
+ * @file
  * pio_gpio.h — GPIO pad registers (PADS_BANK0) and per-pin function mux
  * (IO_BANK0) for the PIO simulator.
  *
@@ -39,7 +40,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* ── Function select (IO_BANK0 GPIOx_CTRL FUNCSEL) ───────────────────────────
+/** Per-pin function select (IO_BANK0 GPIOx_CTRL FUNCSEL).
  * Numeric values match the chip's FUNCSEL encoding (RP2040 datasheet
  * Table 289; RP2350 datasheet Table 9-1). Only the PIO functions change the
  * routing behaviour; every other value is "a non-PIO function" whose output
@@ -69,7 +70,7 @@ typedef enum {
     PIO_GPIO_FUNC_LEGACY_ANY_PIO = 0xFF,
 } pio_gpio_func_t;
 
-/* IO_BANK0 GPIOx_CTRL OUTOVER/OEOVER/INOVER encoding. */
+/** IO_BANK0 GPIOx_CTRL OUTOVER/OEOVER/INOVER encoding. */
 typedef enum {
     PIO_GPIO_OVERRIDE_NORMAL = 0,
     PIO_GPIO_OVERRIDE_INVERT = 1,
@@ -87,12 +88,16 @@ pio_gpio_func_t pio_sim_gpio_get_function(const pio_sim_t *pio, uint8_t pin);
  * INOVER). OEOVER_HIGH can drive a pad even with no function output; INOVER
  * applies before the input synchroniser. */
 void pio_sim_gpio_set_outover(pio_sim_t *pio, uint8_t pin, pio_gpio_override_t o);
+/** As pio_sim_gpio_set_outover, but for the OEOVER field. */
 void pio_sim_gpio_set_oeover(pio_sim_t *pio, uint8_t pin, pio_gpio_override_t o);
+/** As pio_sim_gpio_set_outover, but for the INOVER field. */
 void pio_sim_gpio_set_inover(pio_sim_t *pio, uint8_t pin, pio_gpio_override_t o);
 
 /** Read back the override configured above for `pin`. */
 pio_gpio_override_t pio_sim_gpio_get_outover(const pio_sim_t *pio, uint8_t pin);
+/** As pio_sim_gpio_get_outover, but for the OEOVER field. */
 pio_gpio_override_t pio_sim_gpio_get_oeover(const pio_sim_t *pio, uint8_t pin);
+/** As pio_sim_gpio_get_outover, but for the INOVER field. */
 pio_gpio_override_t pio_sim_gpio_get_inover(const pio_sim_t *pio, uint8_t pin);
 
 /** Output of the currently selected non-PIO peripheral (SIO, UART, PWM…) on
@@ -108,11 +113,13 @@ void pio_sim_gpio_get_periph_output(const pio_sim_t *pio, uint8_t pin, bool *oe,
 /** Input enable: while false the PIO logic reads the pin as 0 (the host-side
  * pio_sim_get_pin still returns the true wire level). Reset: enabled. */
 void pio_sim_pad_set_input_enable(pio_sim_t *pio, uint8_t pin, bool ie);
+/** Read back the input-enable (IE) bit set above for `pin`. */
 bool pio_sim_pad_get_input_enable(const pio_sim_t *pio, uint8_t pin);
 
 /** Output disable: while true the chip never drives the pad, whatever the mux
  * or the SMs ask for; external drive and pulls still apply. Reset: off. */
 void pio_sim_pad_set_output_disable(pio_sim_t *pio, uint8_t pin, bool od);
+/** Read back the output-disable (OD) bit set above for `pin`. */
 bool pio_sim_pad_get_output_disable(const pio_sim_t *pio, uint8_t pin);
 
 /** Pull resistors: up only reads 1 when undriven, down only reads 0, both
@@ -125,10 +132,15 @@ void pio_sim_pad_get_pulls(const pio_sim_t *pio, uint8_t pin, bool *up, bool *do
 /** Analog pad config, stored for read-back only — no digital effect.
  * `drive` is the DRIVE field code (0=2mA, 1=4mA, 2=8mA, 3=12mA). */
 void pio_sim_pad_set_drive(pio_sim_t *pio, uint8_t pin, uint8_t drive);
+/** Store the SLEWFAST bit for `pin` (analog, read-back only, no digital effect). */
 void pio_sim_pad_set_slew_fast(pio_sim_t *pio, uint8_t pin, bool fast);
+/** Store the SCHMITT bit for `pin` (analog, read-back only, no digital effect). */
 void pio_sim_pad_set_schmitt(pio_sim_t *pio, uint8_t pin, bool enable);
+/** Read back the DRIVE field code set above for `pin` (0=2mA…3=12mA). */
 uint8_t pio_sim_pad_get_drive(const pio_sim_t *pio, uint8_t pin);
+/** Read back the SLEWFAST bit set above for `pin`. */
 bool pio_sim_pad_get_slew_fast(const pio_sim_t *pio, uint8_t pin);
+/** Read back the SCHMITT bit set above for `pin`. */
 bool pio_sim_pad_get_schmitt(const pio_sim_t *pio, uint8_t pin);
 
 #if PIO_SIM_HAS_PAD_ISO

@@ -1,5 +1,6 @@
-/*
- * SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: MIT */
+/**
+ * @file
  * pio_asm — a minimal PIO assembler for pio_sim.
  *
  * Where no pioasm toolchain is available, this assembles the common subset of
