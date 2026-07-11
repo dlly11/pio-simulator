@@ -439,6 +439,21 @@ static void test_pin_priority_same_cycle_higher_sm_wins(void)
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 5)); /* SM1 (higher) wins -> low */
 }
 
+/* Pin *direction* (OE) resolves by priority, not a union: when two SMs drive the
+ * same pin's direction oppositely, the highest-numbered SM wins (RP2040 §3.5.6.1),
+ * so a lower SM can flip a pad back to input instead of it being stuck an output. */
+static void test_pindir_priority_higher_sm_wins(void)
+{
+    /* SM0 output, SM1 (higher) input -> input wins (a union would say output). */
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, 5, 1, true);
+    pio_sim_sm_set_consecutive_pindirs(&pio, 1, 5, 1, false);
+    TEST_ASSERT_FALSE(pio_sim_pin_is_pio_output(&pio, 5));
+
+    /* Flip the higher SM to output: it now drives output, so the pad is output. */
+    pio_sim_sm_set_consecutive_pindirs(&pio, 1, 5, 1, true);
+    TEST_ASSERT_TRUE(pio_sim_pin_is_pio_output(&pio, 5));
+}
+
 /* Without OUT_STICKY a pin write is a one-shot event: SM1 writes pin 5 low, and
  * on a *later* cycle SM0 writes it high with no competing write — SM0's write
  * lands (last writer), regardless of SM numbers. */
@@ -1382,6 +1397,26 @@ static void test_rxfifo_mode_enforced(void)
     TEST_ASSERT_EQUAL_HEX32(0x22222222U, pio.sm[0].isr); /* ISR untouched */
 }
 
+/* The RX register-file modes repurpose only the RX FIFO; the TX FIFO stays a
+ * normal 4-deep FIFO (regression: it was wrongly disabled, so puts always
+ * overflowed and a blocking PULL stalled forever). */
+static void test_rxfifo_mode_leaves_tx_fifo(void)
+{
+    sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX_PUTGET);
+    const uint16_t prog[] = {pio_sim_encode_pull(false, true)}; /* pull block */
+    load_prog(prog, 1);
+    /* TX behaves as a 4-deep FIFO: four puts succeed, the fifth overflows. */
+    for (uint32_t i = 0; i < 4U; i++) {
+        TEST_ASSERT_TRUE(pio_sim_sm_put(&pio, 0, 0x10U + i));
+    }
+    TEST_ASSERT_EQUAL_UINT8(4U, pio_sim_sm_get_tx_fifo_level(&pio, 0));
+    TEST_ASSERT_FALSE(pio_sim_sm_put(&pio, 0, 99U)); /* full -> overflow, not accepted */
+    /* A blocking PULL drains it instead of stalling forever. */
+    pio_sim_run(&pio, 1);
+    TEST_ASSERT_EQUAL_HEX32(0x10U, pio.sm[0].osr); /* first-pushed word */
+    TEST_ASSERT_EQUAL_UINT8(3U, pio_sim_sm_get_tx_fifo_level(&pio, 0));
+}
+
 /* Operand bit 4 discriminates the indexed RX-FIFO MOV from PUSH/PULL: a
  * PUSH/PULL word with only reserved low bits set must still execute as a
  * PUSH/PULL, not be misrouted to the RX register file. */
@@ -1842,6 +1877,27 @@ static void test_fdebug_flags(void)
     TEST_ASSERT_FALSE(pio_sim_sm_get(&pio, 0, &w));
     TEST_ASSERT_TRUE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_RXUNDER) != 0U);
     TEST_ASSERT_EQUAL_UINT8(0U, pio_sim_sm_get_rx_fifo_level(&pio, 0));
+}
+
+/* FDEBUG is a sticky write-1-to-clear register: neither restart nor re-init
+ * clears it (matching the SDK / silicon); only pio_sim_sm_clear_fdebug does. */
+static void test_fdebug_sticky_across_init_and_restart(void)
+{
+    const uint16_t prog[] = {
+        pio_sim_encode_pull(false, true), /* blocking PULL on empty TX -> TXSTALL */
+        pio_sim_encode_jmp(PIO_COND_ALWAYS, 0),
+    };
+    load_prog(prog, 2);
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_TRUE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
+
+    pio_sim_sm_restart(&pio, 0); /* restart preserves it... */
+    TEST_ASSERT_TRUE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
+    pio_sim_sm_init(&pio, 0, 0, &cfg); /* ...and so does a re-init */
+    TEST_ASSERT_TRUE((pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL) != 0U);
+
+    pio_sim_sm_clear_fdebug(&pio, 0, PIO_FDEBUG_TXSTALL); /* only WC1 clears it */
+    TEST_ASSERT_EQUAL_UINT8(0U, (uint8_t)(pio_sim_sm_get_fdebug(&pio, 0) & PIO_FDEBUG_TXSTALL));
 }
 
 /* ── System interrupt lines (IRQ0 / IRQ1) ──────────────────────────────────── */
@@ -2309,6 +2365,7 @@ int main(void)
     RUN_TEST(test_out_inline_enable_gates_write);
     RUN_TEST(test_multi_sm_pin_priority_and_override);
     RUN_TEST(test_pin_priority_same_cycle_higher_sm_wins);
+    RUN_TEST(test_pindir_priority_higher_sm_wins);
     RUN_TEST(test_pin_no_sticky_last_writer_wins);
     RUN_TEST(test_out_sticky_retains_priority_each_cycle);
     RUN_TEST(test_out_count_clamped_to_32);
@@ -2395,6 +2452,7 @@ int main(void)
     RUN_TEST(test_mov_rxfifo_y_indexed);
     RUN_TEST(test_rxfifo_host_index_access);
     RUN_TEST(test_rxfifo_mode_enforced);
+    RUN_TEST(test_rxfifo_mode_leaves_tx_fifo);
     RUN_TEST(test_mov_rxfifo_discriminator_bit4);
 #endif
     RUN_TEST(test_irq_next_prev_have_no_local_effect);
@@ -2430,6 +2488,7 @@ int main(void)
     RUN_TEST(test_input_sync_bypass);
     RUN_TEST(test_sm_mask_enabled);
     RUN_TEST(test_fdebug_flags);
+    RUN_TEST(test_fdebug_sticky_across_init_and_restart);
     RUN_TEST(test_system_irq_lines);
     RUN_TEST(test_intr_irq_flag_routing);
     RUN_TEST(test_irq_enable_force_read_back);

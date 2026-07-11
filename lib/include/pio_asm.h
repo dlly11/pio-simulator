@@ -51,7 +51,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define PIO_ASM_MAX_INSNS 32U
+#define PIO_ASM_MAX_INSNS PIO_SIM_INSN_COUNT /* same 32-word instruction memory */
 #define PIO_ASM_ERR_LEN 128U
 #define PIO_ASM_MAX_PUBLIC 8U
 

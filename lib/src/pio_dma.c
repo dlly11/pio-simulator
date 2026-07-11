@@ -288,6 +288,12 @@ static uint32_t crc_update_lsb(uint32_t crc, uint8_t byte, uint32_t poly)
 static void dma_sniff(pio_dma_t *d, uint32_t value, uint8_t bytes)
 {
     uint32_t crc = d->sniff.data;
+    /* Only the low `bytes` bytes of the element are transferred; mask off the
+     * high bytes so SUM/EVEN honour the transfer width like the CRC modes (which
+     * already fold exactly `bytes` bytes). Without this, a sub-word FIFO source
+     * leaks its high bytes into the accumulator. */
+    uint32_t mask = (bytes >= 4U) ? 0xFFFFFFFFU : (uint32_t)(((uint32_t)1U << (8U * bytes)) - 1U);
+    value &= mask;
     switch (d->sniff.calc) {
     case (uint8_t)PIO_DMA_SNIFF_CRC32:
         for (uint8_t i = 0; i < bytes; i++) {
@@ -332,7 +338,8 @@ static bool dma_treq_ready(const pio_dma_t *d, const pio_dma_channel_t *chan)
     if (treq == PIO_DMA_TREQ_FORCE) {
         return true;
     }
-    if ((treq >= PIO_DMA_TREQ_TIMER(0)) && (treq <= PIO_DMA_TREQ_TIMER(3))) {
+    if ((treq >= PIO_DMA_TREQ_TIMER(0)) &&
+        (treq <= PIO_DMA_TREQ_TIMER(PIO_SIM_DMA_NUM_TIMERS - 1U))) {
         return d->timer[treq - PIO_DMA_TREQ_TIMER(0)].credit;
     }
     uint8_t pio_index = treq / 8U;
@@ -448,7 +455,8 @@ static void dma_transfer_one(pio_dma_t *d, uint8_t c)
 
     /* Consume a timer credit if that is what paced us. */
     uint8_t treq = chan->ctrl.treq_sel;
-    if ((treq >= PIO_DMA_TREQ_TIMER(0)) && (treq <= PIO_DMA_TREQ_TIMER(3))) {
+    if ((treq >= PIO_DMA_TREQ_TIMER(0)) &&
+        (treq <= PIO_DMA_TREQ_TIMER(PIO_SIM_DMA_NUM_TIMERS - 1U))) {
         d->timer[treq - PIO_DMA_TREQ_TIMER(0)].credit = false;
     }
 

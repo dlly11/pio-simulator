@@ -1,0 +1,7 @@
+; RP2350 RX-FIFO register file MOVs and the PUTGET join.
+.program rxfile
+.fifo putget
+    mov rxfifo[1], isr
+    mov osr, rxfifo[2]
+    mov rxfifo[y], isr
+    mov osr, rxfifo[y]

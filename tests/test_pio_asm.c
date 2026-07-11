@@ -233,6 +233,82 @@ static void test_assemble_rel_rejected_on_wait_pin(void)
     TEST_ASSERT_EQUAL_INT(2, p.error_line);
 }
 
+/* The side-set count (data bits + the optional enable bit) shares a 5-bit field
+ * with the delay, so it must be 0..5; pioasm rejects anything wider. */
+static void test_assemble_side_set_count_range(void)
+{
+    pio_program_t p;
+    /* Six data bits overflow the field. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.side_set 6\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(2, p.error_line);
+    /* Five data bits plus the optional enable bit is also six. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.side_set 5 opt\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(2, p.error_line);
+    /* A wrapping expression must not slip through as a huge count. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.side_set 0-1\n", NULL, &p));
+    /* Exactly five bits is the legal maximum: five data bits (side mandatory)... */
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program t\n.side_set 5\nnop side 0\n", NULL, &p),
+                             p.error);
+    /* ...or four data bits plus the optional enable bit. */
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program t\n.side_set 4 opt\nnop\n", NULL, &p),
+                             p.error);
+}
+
+/* A label may not start with a digit: the reference grammar (expr_primary) never
+ * starts an identifier on one, so such a label could never be used. */
+static void test_assemble_label_rejects_leading_digit(void)
+{
+    pio_program_t p;
+    const char *bad = ".program t\n"
+                      "3foo:\n"
+                      "    nop\n";
+    TEST_ASSERT_FALSE(pio_asm_assemble(bad, NULL, &p));
+    TEST_ASSERT_EQUAL_INT(2, p.error_line);
+}
+
+/* A duplicate label is an error (pioasm rejects it) rather than being silently
+ * shadowed by the first definition. */
+static void test_assemble_duplicate_label_rejected(void)
+{
+    pio_program_t p;
+    const char *bad = ".program t\n"
+                      "loop:\n"
+                      "    nop\n"
+                      "loop:\n"
+                      "    nop\n";
+    TEST_ASSERT_FALSE(pio_asm_assemble(bad, NULL, &p));
+    TEST_ASSERT_EQUAL_INT(4, p.error_line);
+}
+
+/* .pio_version must not exceed the build target (features it can't encode). */
+static void test_assemble_pio_version_vs_target(void)
+{
+    pio_program_t p;
+#if PIO_SIM_PIO_VERSION < 1
+    /* v0 build: declaring rp2350 exceeds the target. */
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n.pio_version rp2350\nnop\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(2, p.error_line);
+#else
+    /* v1 build: rp2350 is within the target. */
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program t\n.pio_version rp2350\nnop\n", NULL, &p),
+                             p.error);
+#endif
+    /* Declaring the base version is always within range. */
+    TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program t\n.pio_version rp2040\nnop\n", NULL, &p),
+                             p.error);
+}
+
+#if PIO_SIM_HAS_IRQ_PREVNEXT
+/* `rel` and `prev`/`next` are mutually exclusive in the encoding; `wait irq`
+ * must reject the combination just as `irq` does (it used to drop it silently). */
+static void test_assemble_wait_irq_rel_rejects_prev_next(void)
+{
+    pio_program_t p;
+    TEST_ASSERT_FALSE(pio_asm_assemble(".program t\n    wait 1 irq prev 2 rel\n", NULL, &p));
+    TEST_ASSERT_EQUAL_INT(2, p.error_line);
+}
+#endif
+
 static void test_select_program_by_name(void)
 {
     /* A file with both programs; select swd_read explicitly. */
@@ -581,8 +657,7 @@ static void test_assemble_directives_and_apply(void)
     TEST_ASSERT_EQUAL_UINT8(2U, p.count); /* nop + .word */
     TEST_ASSERT_EQUAL_HEX16(0x1234, p.insns[1]);
 
-    pio_sim_t pio;
-    pio_sim_init(&pio);
+    pio_sim_init(&pio); /* the file-scope pio, freshly inited for this apply */
     pio_asm_apply_program_config(&pio, 0, &p);
     TEST_ASSERT_EQUAL_INT(PIO_SHIFT_LEFT, pio.sm[0].out_dir);
     TEST_ASSERT_TRUE(pio.sm[0].autopull);
@@ -608,8 +683,7 @@ static void test_clock_div_matches_set_clkdiv_truncation(void)
     pio_program_t p;
     TEST_ASSERT_TRUE_MESSAGE(pio_asm_assemble(".program s\n.clock_div 2.502\n    nop\n", NULL, &p),
                              p.error);
-    pio_sim_t pio;
-    pio_sim_init(&pio);
+    pio_sim_init(&pio); /* the file-scope pio, freshly inited for this apply */
     pio_asm_apply_program_config(&pio, 0, &p);
 
     pio_sm_config cfg = pio_get_default_sm_config();
@@ -642,8 +716,7 @@ static void test_mov_status_irq_next_prev_directive(void)
     TEST_ASSERT_EQUAL_INT(PIO_STATUS_IRQ_SET, p.mov_status_sel);
 
     /* Applied config lands on the SM. */
-    pio_sim_t pio;
-    pio_sim_init(&pio);
+    pio_sim_init(&pio); /* the file-scope pio, freshly inited for this apply */
     TEST_ASSERT_TRUE(
         pio_asm_assemble(".program s\n.mov_status irq next set 3\n    nop\n", NULL, &p));
     pio_asm_apply_program_config(&pio, 0, &p);
@@ -894,7 +967,7 @@ static void test_instruction_operand_range_errors(void)
     /* In-range operands still assemble, including count 32 (encoded as field 0). */
     TEST_ASSERT_TRUE(pio_asm_assemble(".program t\n    jmp 31\n    wait 1 gpio 31\n"
                                       "    wait 0 irq 7\n    irq 7\n    set x, 31\n"
-                                      "    in pins, 32\n    out pins, 1\n.pio_version 1\n",
+                                      "    in pins, 32\n    out pins, 1\n.pio_version 0\n",
                                       NULL, &p));
 }
 
@@ -1039,6 +1112,13 @@ int main(void)
     RUN_TEST(test_assemble_wait_jmppin);
 #endif
     RUN_TEST(test_assemble_rel_rejected_on_wait_pin);
+    RUN_TEST(test_assemble_side_set_count_range);
+    RUN_TEST(test_assemble_label_rejects_leading_digit);
+    RUN_TEST(test_assemble_duplicate_label_rejected);
+    RUN_TEST(test_assemble_pio_version_vs_target);
+#if PIO_SIM_HAS_IRQ_PREVNEXT
+    RUN_TEST(test_assemble_wait_irq_rel_rejects_prev_next);
+#endif
     RUN_TEST(test_select_program_by_name);
     RUN_TEST(test_jmp_conditions);
     RUN_TEST(test_wait_sources);

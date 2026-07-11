@@ -236,6 +236,11 @@ void pio_sim_pad_set_iso(pio_sim_t *pio, uint8_t pin, bool iso)
     }
     mask_set(&p->pad_iso, bit, iso);
 }
+
+bool pio_sim_pad_get_iso(const pio_sim_t *pio, uint8_t pin)
+{
+    return (pio->pads->pad_iso & pin_bit(pin)) != 0U;
+}
 #endif
 
 void pio_sim_pads_reset_hw(pio_sim_t *pio)

@@ -115,15 +115,20 @@ typedef struct {
 
     /* Per-SM output registers. out_pin_val latches the value of pins written via
      * OUT/SET/MOV PINS or side-set; out_pin_oe marks the pins driven as outputs
-     * (the pindir register); wrote_this_cycle records which pins were actually
-     * written during the current SM cycle. The pad applies each cycle's writes
-     * with highest-SM-wins priority (hardware collates only *simultaneous*
-     * writes — see resolve_pads); unwritten pins hold their latched level.
-     * Mutate these only through the API / instructions, never directly, or the
-     * resolved pad state desynchronises. */
+     * (the pindir register); wrote_this_cycle records which pins had their level
+     * actually written during the current SM cycle. dir_driven is the persistent
+     * set of pins whose *direction* this SM drives (any pindir write adds a pin;
+     * an inline-enable release removes it): the pad resolves each pin's direction
+     * from the highest-numbered SM that drives it, so a conflict is priority — not
+     * a union — and a released pin falls through to a lower SM (see resolve_pads).
+     * The pad applies same-cycle level writes with the same highest-SM-wins
+     * priority; unwritten pins hold their latched level. Mutate these only through
+     * the API / instructions, never directly, or the resolved pad state
+     * desynchronises. */
     uint64_t out_pin_val;
     uint64_t out_pin_oe;
     uint64_t wrote_this_cycle;
+    uint64_t dir_driven;
 
     /* EXECCTRL output controls (sm_config_set_out_special). out_inline_en uses bit
      * out_en_sel of the OUT data as an output enable; when it is 0 the OUT does not
@@ -298,14 +303,18 @@ typedef struct pio_sim {
 /** Reset the whole block: clears instruction memory, all SMs, pins, and IRQs. */
 void pio_sim_init(pio_sim_t *pio);
 
-/** Load `count` instruction words at `offset` into shared instruction memory. */
+/** Load `count` instruction words at `offset` into shared instruction memory.
+ * Words that would land past the 32-word memory (offset + i >= 32) are silently
+ * dropped, consistent with this header's other out-of-range masking. */
 void pio_sim_load(pio_sim_t *pio, uint8_t offset, const uint16_t *insns, uint8_t count);
 
 /** Reset a single state machine's execution state: PC to wrap_bottom, X/Y/OSR/ISR
  * and their counts, delay/stall/pending-exec, the clock accumulator, and both
- * FIFOs (the join capacity is preserved). Note this is broader than the SDK's
- * pio_sm_restart, which leaves the PC and scratch registers untouched; reposition
- * the PC afterwards with pio_sim_sm_set_pc if you need a specific start address. */
+ * FIFOs (the join capacity is preserved). The sticky FDEBUG flags are preserved
+ * (cleared only via pio_sim_sm_clear_fdebug), matching pio_sim_sm_init. Note this
+ * is broader than the SDK's pio_sm_restart, which leaves the PC and scratch
+ * registers untouched; reposition the PC afterwards with pio_sim_sm_set_pc if you
+ * need a specific start address. */
 void pio_sim_sm_restart(pio_sim_t *pio, uint8_t sm);
 
 /** Enable or disable a state machine. */
@@ -497,7 +506,8 @@ void sm_config_set_out_special(pio_sm_config *c, bool sticky, bool has_enable_pi
                                uint8_t enable_bit_index);
 
 /** Apply `c` to `sm`, reset it, and set its PC to `initial_pc` (SDK
- * pio_sm_init). */
+ * pio_sm_init). Clears the FIFOs but preserves the sticky FDEBUG flags, which
+ * are cleared only via pio_sim_sm_clear_fdebug (as on hardware). */
 void pio_sim_sm_init(pio_sim_t *pio, uint8_t sm, uint8_t initial_pc, const pio_sm_config *c);
 /** Apply `c` to `sm` without resetting its execution state (SDK
  * pio_sm_set_config). Like the hardware, the FIFOs are cleared only when the

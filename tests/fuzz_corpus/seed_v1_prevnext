@@ -1,0 +1,9 @@
+; RP2350 inter-PIO irq/wait prev|next and mov pindirs.
+.program prevnext
+    irq next 3
+    irq prev 4
+    irq next set 5
+    wait 1 irq next 3
+    wait 1 irq prev 2
+    mov pindirs, x
+    mov pindirs, null

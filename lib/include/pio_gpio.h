@@ -137,6 +137,8 @@ bool pio_sim_pad_get_schmitt(const pio_sim_t *pio, uint8_t pin);
  * reconnects the live chip drive. Reset (sim): off — pio_sim_pads_reset_hw
  * applies the datasheet's ISO=1. */
 void pio_sim_pad_set_iso(pio_sim_t *pio, uint8_t pin, bool iso);
+/** Read back the RP2350 pad-isolation latch (see pio_sim_pad_set_iso). */
+bool pio_sim_pad_get_iso(const pio_sim_t *pio, uint8_t pin);
 #endif
 
 /** Apply the datasheet PADS_BANK0 reset values to every pin: IE=1, OD=0,

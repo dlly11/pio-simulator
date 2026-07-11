@@ -1,0 +1,7 @@
+; RP2350 config/grammar: pio_version, jmppin waits, mov pindirs, and a raw word.
+.program v1cfg
+.pio_version 1
+    wait 1 jmppin
+    wait 0 jmppin + 3
+    mov pindirs, null
+.word 0x1234

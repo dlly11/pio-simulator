@@ -152,12 +152,16 @@ void pio_pads_init_defaults(pio_pads_t *p)
  * of each cycle: when multiple state machines write the same GPIO on the same
  * cycle, the highest-numbered one wins (RP2040 §3.5.6.1 / RP2350 PIO GPIO output
  * priority); a pin nobody writes this cycle holds its latched level, so on a
- * later cycle any SM's write lands regardless of number. OUT_STICKY makes an SM
- * re-assert its driven pins every cycle (see pio_sim_tick), which is what gives
- * it continuous priority. Called after every pin/pindir write and once per tick. */
+ * later cycle any SM's write lands regardless of number. Pin *directions* (OE)
+ * are recomputed here each call from the highest-numbered SM that drives the pin
+ * (its dir_driven set, gated by the current function mux): a conflict resolves by
+ * priority rather than a union, and a pin an SM has released falls through to a
+ * lower-numbered SM or to input. OUT_STICKY makes an SM re-assert its driven pins
+ * every cycle (see pio_sim_tick), which is what gives it continuous priority.
+ * Called after every pin/pindir write and once per tick. */
 static void resolve_pads(pio_pads_t *p)
 {
-    uint64_t oe = 0;
+    uint64_t oe = 0;              /* directions are recomputed from the drivers   */
     uint64_t val = p->pin_levels; /* unwritten pins keep their latched level */
     for (uint8_t o = 0; o < p->owner_count; o++) {
         const struct pio_sim *b = p->owners[o];
@@ -165,11 +169,13 @@ static void resolve_pads(pio_pads_t *p)
          * FUNC_PIO<o> (or the legacy any-PIO default). */
         uint64_t fmask = p->pio_func_mask[o];
         for (uint8_t s = 0; s < PIO_SIM_NUM_SM; s++) {
-            /* Later iterations overwrite earlier ones, so on a same-cycle
-             * conflict the highest-numbered SM (of the latest owner) wins. */
+            /* Later iterations overwrite earlier ones, so on a conflict the
+             * highest-numbered SM (of the latest owner) wins — for the same-cycle
+             * level and for the driven direction. */
             uint64_t written = b->sm[s].wrote_this_cycle & fmask;
+            uint64_t driven = b->sm[s].dir_driven & fmask;
             val = (val & ~written) | (b->sm[s].out_pin_val & written);
-            oe |= b->sm[s].out_pin_oe & fmask;
+            oe = (oe & ~driven) | (b->sm[s].out_pin_oe & driven);
         }
     }
     p->pin_dirs = oe;
@@ -461,9 +467,11 @@ static void apply_fifo_join(pio_sm_t *s, pio_fifo_join_t join)
     case PIO_FIFO_JOIN_RX_GET:
     case PIO_FIFO_JOIN_RX_PUTGET:
 #if PIO_SIM_HAS_RXFIFO_MOV
-        /* RP2350 random-access RX: a 4-entry register file addressed by the
-         * MOV-RX-FIFO instructions; the TX FIFO is disabled. */
-        s->tx.cap = 0;
+        /* RP2350 random-access RX: the RX FIFO becomes a 4-entry register file
+         * addressed by the MOV-RX-FIFO instructions. Only the RX FIFO is
+         * repurposed — the TX FIFO stays a normal 4-deep FIFO (RP2350 datasheet
+         * §11.6: FJOIN_RX_PUT/GET affect the RX FIFO alone). */
+        s->tx.cap = PIO_SIM_FIFO_DEPTH;
         s->rx.cap = PIO_SIM_FIFO_DEPTH;
 #else
         /* RP2040: these modes do not exist; behave as the default 4+4 split. */
@@ -543,7 +551,10 @@ void pio_sim_sm_init(pio_sim_t *pio, uint8_t sm, uint8_t initial_pc, const pio_s
     s->exec_pending = false;
     s->exec_insn = 0;
     s->clk_accum = 0;
-    s->fdebug = 0;
+    /* FDEBUG is a sticky write-1-to-clear register independent of SM reset: the
+     * SDK's pio_sm_init/pio_sm_restart both leave it standing (clear it
+     * explicitly with pio_sim_sm_clear_fdebug). pio_sim_sm_restart preserves it
+     * too, so the two reset paths agree. */
     s->enabled = false;
     /* Keep the PC in range like pio_sim_sm_set_pc does, so an out-of-range
      * initial_pc can't desync the post-commit PC increment. */
@@ -562,6 +573,7 @@ void pio_sim_sm_set_consecutive_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base
         } else {
             s->out_pin_oe &= ~bit;
         }
+        s->dir_driven |= bit; /* this SM now drives the pin's direction */
     }
     resolve_pads(pio->pads);
 }
@@ -766,6 +778,7 @@ static void drive_pindirs(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t co
         } else {
             sm->out_pin_oe &= ~bit;
         }
+        sm->dir_driven |= bit; /* this SM now drives the pin's direction */
     }
     resolve_pads(pio->pads);
 }
@@ -778,7 +791,8 @@ static void release_out_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t
     for (uint8_t i = 0; i < count; i++) {
         uint64_t bit = (uint64_t)1U << phys_pin(pio, (uint8_t)(base + i));
         sm->out_pin_oe &= ~bit;
-        sm->wrote_this_cycle &= ~bit; /* released pins no longer compete */
+        sm->wrote_this_cycle &= ~bit; /* released pins no longer compete on level */
+        sm->dir_driven &= ~bit;       /* and this SM stops driving their direction */
     }
     resolve_pads(pio->pads);
 }
@@ -1625,8 +1639,10 @@ void pio_sim_tick(pio_sim_t *pio)
             if (sm->enabled) {
                 sm_cycle(pio, i);
                 if (sm->out_sticky) {
-                    /* OUT_STICKY: re-assert every driven pin each cycle, keeping
-                     * this SM in the priority contest even without a new write. */
+                    /* OUT_STICKY: re-assert every driven pin's level each cycle,
+                     * keeping this SM in the priority contest even without a new
+                     * write. (Directions persist via dir_driven, so they need no
+                     * per-cycle re-assertion.) */
                     sm->wrote_this_cycle |= sm->out_pin_oe;
                 }
             }
@@ -1703,6 +1719,7 @@ void pio_sim_group_init(pio_sim_group_t *g, pio_sim_t *const *blocks, uint8_t co
         count = PIO_SIM_NUM_PIO;
     }
     g->count = count;
+    g->shared = false; /* pio_sim_group_init_shared sets this true after init */
     for (uint8_t i = 0; i < count; i++) {
         g->blk[i] = blocks[i];
     }

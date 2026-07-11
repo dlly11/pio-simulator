@@ -150,7 +150,7 @@ static bool next_json_program(const char *cursor, json_program_t *out)
     out->count = 0;
     const char *p = strstr(q2, "\"instructions\"");
     if (p != NULL && p < end) {
-        while (out->count < PIO_ASM_MAX_INSNS) {
+        while (out->count < (int)PIO_ASM_MAX_INSNS) {
             const char *h = strstr(p, "\"hex\"");
             if (h == NULL || h >= end) {
                 break;

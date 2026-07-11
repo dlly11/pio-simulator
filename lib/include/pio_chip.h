@@ -14,6 +14,9 @@
 #ifndef PIO_CHIP_H
 #define PIO_CHIP_H
 
+/* Included directly (IWYU): this header uses uint*_t itself. */
+#include <stdint.h>
+
 #include "pio_clk.h"
 #include "pio_dma.h"
 #include "pio_sim.h"

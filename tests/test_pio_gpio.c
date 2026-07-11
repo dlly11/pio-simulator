@@ -176,13 +176,15 @@ static void test_iso_freezes_output_and_gates_input(void)
     pio_sim_run(&pio, 2);
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 6));
 
-    pio_sim_pad_set_iso(&pio, 6, true); /* latch: driven high */
+    pio_sim_pad_set_iso(&pio, 6, true);             /* latch: driven high */
+    TEST_ASSERT_TRUE(pio_sim_pad_get_iso(&pio, 6)); /* getter mirrors the setter */
     /* Remove the live drive behind the latch — the pad must stay frozen. */
     pio_sim_gpio_set_function(&pio, 6, PIO_GPIO_FUNC_NULL);
     pio_sim_run(&pio, 1);                       /* resolve drops the PIO's routing */
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 6)); /* frozen at latched level */
 
     pio_sim_pad_set_iso(&pio, 6, false); /* release: live (no) drive resumes */
+    TEST_ASSERT_FALSE(pio_sim_pad_get_iso(&pio, 6));
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 6));
 }
 #endif

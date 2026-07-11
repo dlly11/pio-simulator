@@ -455,6 +455,76 @@ static void test_sniffer_sum_and_parity(void)
                             pio_dma_sniffer_get_data_accumulator(&dma)); /* lane XOR */
 }
 
+/* SUM/EVEN must honour the transfer width like the CRC modes. A FIFO source
+ * always yields a full 32-bit word, so an 8-bit sniffed drain must fold only the
+ * low byte: 4 * 0xFF = 0x3FC, not 4 * 0xFFFFFFFF truncated to 0xFFFFFFFC. */
+static void test_sniffer_sum_masks_transfer_width(void)
+{
+    load_echo_prog();
+    static uint32_t in[4] = {0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU};
+    static uint8_t out[4] = {0};
+    dma_channel_config c;
+    /* Feed full 32-bit words into TX; the echo SM moves each to RX intact. */
+    c = pio_dma_channel_get_default_config(0);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(in), 4, true);
+    /* Drain RX one byte per element with the SUM sniffer enabled. */
+    c = pio_dma_channel_get_default_config(1);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_sniff_enable(&c, true);
+    channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_RX(0, 0));
+    pio_dma_sniffer_enable(&dma, 1, PIO_DMA_SNIFF_SUM, false);
+    pio_dma_sniffer_set_data_accumulator(&dma, 0);
+    pio_dma_channel_configure(&dma, 1, &c, pio_dma_addr_mem(out), pio_dma_addr_rxf(0, 0), 4, true);
+    tick_all(100);
+    TEST_ASSERT_EQUAL_HEX32(0x3FCU, pio_dma_sniffer_get_data_accumulator(&dma));
+    TEST_ASSERT_EQUAL_HEX8(0xFFU, out[0]); /* the low byte was the one transferred */
+}
+
+/* The sniffer output-reverse transform bit-reverses the accumulator on read,
+ * mirroring the tested invert path. */
+static void test_sniffer_output_reverse(void)
+{
+    pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_SUM, false);
+    pio_dma_sniffer_set_data_accumulator(&dma, 0x00000001U);
+    pio_dma_sniffer_set_output_reverse_enabled(&dma, true);
+    TEST_ASSERT_EQUAL_HEX32(0x80000000U, pio_dma_sniffer_get_data_accumulator(&dma));
+    pio_dma_sniffer_set_output_reverse_enabled(&dma, false); /* raw accumulator again */
+    TEST_ASSERT_EQUAL_HEX32(0x00000001U, pio_dma_sniffer_get_data_accumulator(&dma));
+}
+
+/* A disabled channel makes no progress even while busy; re-enabling resumes it.
+ * Guards the chan->en term of the readiness gate (dma_channel_ready). */
+static void test_channel_disable_pauses_then_resumes(void)
+{
+    static uint32_t src[4] = {1, 2, 3, 4};
+    static uint32_t dst[4] = {0};
+    dma_channel_config c = pio_dma_channel_get_default_config(0);
+    channel_config_set_read_increment(&c, true);
+    channel_config_set_write_increment(&c, true);
+    pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), pio_dma_addr_mem(src), 4, true);
+    TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 0));
+
+    pio_dma_channel_set_enabled(&dma, 0, false);
+    for (int i = 0; i < 8; i++) {
+        (void)pio_dma_tick(&dma);
+    }
+    /* get_trans_count is the count still *remaining*: a paused channel moves
+     * nothing, so all four remain and it stays armed (busy). */
+    TEST_ASSERT_EQUAL_UINT32(4U, pio_dma_channel_get_trans_count(&dma, 0));
+    TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&dma, 0));
+
+    pio_dma_channel_set_enabled(&dma, 0, true);
+    for (int i = 0; i < 20; i++) {
+        (void)pio_dma_tick(&dma);
+    }
+    TEST_ASSERT_FALSE(pio_dma_channel_is_busy(&dma, 0));
+    TEST_ASSERT_EQUAL_UINT32(0U, pio_dma_channel_get_trans_count(&dma, 0)); /* all moved */
+    TEST_ASSERT_EQUAL_UINT32(4U, dst[3]);
+}
+
 static void test_pacing_timer_quarter_rate(void)
 {
     /* Timer 0 at X/Y = 1/4: one transfer every 4 ticks. */
@@ -671,6 +741,9 @@ int main(void)
     RUN_TEST(test_sniffer_crc32_check_value);
     RUN_TEST(test_sniffer_crc16_ccitt_check_value);
     RUN_TEST(test_sniffer_sum_and_parity);
+    RUN_TEST(test_sniffer_sum_masks_transfer_width);
+    RUN_TEST(test_sniffer_output_reverse);
+    RUN_TEST(test_channel_disable_pauses_then_resumes);
     RUN_TEST(test_pacing_timer_quarter_rate);
     RUN_TEST(test_one_transfer_per_tick_and_priority);
     RUN_TEST(test_channel_count_matches_platform);
