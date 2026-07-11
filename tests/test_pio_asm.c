@@ -1254,15 +1254,20 @@ static void test_define_forward_define_reference(void)
 static void test_define_lazy_undefined_and_cycle(void)
 {
     pio_program_t p;
-    /* USED undefined symbol / USED cycle -> rejected. The error pins to the
-     * offending define's declaration line (the deepest define entered, for a
-     * cycle) — J is on line 2; the cycle latches on B, line 3. */
+    /* USED undefined symbol -> rejected; the error names the define and pins to
+     * its declaration line (J on line 2). */
     TEST_ASSERT_FALSE(
         pio_asm_assemble(".program t\n.define J (nosuch + 1)\n    set x, J\n", NULL, &p));
     TEST_ASSERT_EQUAL_INT(2, p.error_line);
+    TEST_ASSERT_NOT_NULL(strstr(p.error, "unresolvable"));
+    TEST_ASSERT_NOT_NULL(strstr(p.error, "'J'"));
+    /* USED cycle -> rejected as a distinct "circular" error, named + pinned to
+     * the cycle anchor (the used define A, line 2). */
     TEST_ASSERT_FALSE(pio_asm_assemble(
         ".program t\n.define A (B + 1)\n.define B (A + 1)\n    set x, A\n", NULL, &p));
-    TEST_ASSERT_EQUAL_INT(3, p.error_line);
+    TEST_ASSERT_EQUAL_INT(2, p.error_line);
+    TEST_ASSERT_NOT_NULL(strstr(p.error, "circular"));
+    TEST_ASSERT_NOT_NULL(strstr(p.error, "'A'"));
     /* UNUSED undefined symbol / UNUSED cycle -> accepted (never evaluated) */
     TEST_ASSERT_TRUE_MESSAGE(
         pio_asm_assemble(".program t\n.define J (nosuch + 1)\n    set x, 1\n", NULL, &p), p.error);

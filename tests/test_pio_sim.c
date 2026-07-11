@@ -2444,6 +2444,37 @@ static void test_wait_pin_high_satisfied(void)
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);
 }
 
+/* The library is reentrant — all state lives in the caller-passed pio_sim_t, with
+ * no module globals or heap. Two independent instances running different programs
+ * must not interfere; a future accidental global would break this. */
+static void test_two_instances_are_independent(void)
+{
+    pio_sim_t a;
+    pio_sim_t b;
+    pio_sim_init(&a);
+    pio_sim_init(&b);
+    pio_sm_config ca = pio_get_default_sm_config();
+    pio_sm_config cb = pio_get_default_sm_config();
+    sm_config_set_wrap(&ca, 0, 0); /* each SM just re-runs its single SET */
+    sm_config_set_wrap(&cb, 0, 0);
+    const uint16_t pa[] = {pio_sim_encode_set(PIO_DST_X, 5)};
+    const uint16_t pb[] = {pio_sim_encode_set(PIO_DST_X, 20)};
+    pio_sim_load(&a, 0, pa, 1);
+    pio_sim_load(&b, 0, pb, 1);
+    pio_sim_sm_init(&a, 0, 0, &ca);
+    pio_sim_sm_init(&b, 0, 0, &cb);
+    pio_sim_sm_set_enabled(&a, 0, true);
+    pio_sim_sm_set_enabled(&b, 0, true);
+    /* Interleave the two — neither sees the other's state. */
+    pio_sim_run(&a, 1);
+    pio_sim_run(&b, 3);
+    pio_sim_run(&a, 2);
+    TEST_ASSERT_EQUAL_UINT32(5U, a.sm[0].x);
+    TEST_ASSERT_EQUAL_UINT32(20U, b.sm[0].x);
+    TEST_ASSERT_EQUAL_UINT64(3U, b.cycle);
+    TEST_ASSERT_EQUAL_UINT64(3U, a.cycle);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -2609,6 +2640,7 @@ int main(void)
     RUN_TEST(test_clear_fifos);
     RUN_TEST(test_group_enable_sm_mask_in_sync);
     RUN_TEST(test_unwritten_fetch_is_flagged);
+    RUN_TEST(test_two_instances_are_independent);
 
     return UNITY_END();
 }

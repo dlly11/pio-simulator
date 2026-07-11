@@ -185,7 +185,8 @@ static bool resolve_uint(asm_ctx_t *ctx, const char *s, uint32_t *out); /* fwd d
  * declared anywhere). The result is memoised; `visiting` detects a cyclic
  * reference. A define that is never referenced is never evaluated, so an unused
  * define over an undefined symbol is accepted (as pioasm does). On failure the
- * error is pinned to the offending define's line. `name` must be a declared
+ * error names the offending define and distinguishes a cycle from an unresolvable
+ * value, pinned to that define's declaration line. `name` must be a declared
  * define (check define_declared first). */
 static bool resolve_define_value(asm_ctx_t *ctx, const char *name, uint32_t *out)
 {
@@ -199,14 +200,24 @@ static bool resolve_define_value(asm_ctx_t *ctx, const char *name, uint32_t *out
             return true;
         }
         if (d->visiting) {
-            return false; /* cyclic — the enclosing frame reports the error */
+            /* Re-entered while resolving: this define is in a reference cycle.
+             * Name it and pin the error here; first-error-wins keeps this over
+             * the enclosing frame's generic resolve failure as the stack unwinds. */
+            char msg[PIO_ASM_ERR_LEN];
+            (void)snprintf(msg, sizeof(msg), "circular .define reference: '%s'", d->name);
+            ctx->line_no = d->line;
+            pa_set_error(ctx, msg);
+            return false;
         }
         d->visiting = true;
         bool ok = resolve_uint(ctx, d->expr, &d->value);
         d->visiting = false;
         if (!ok) {
+            char msg[PIO_ASM_ERR_LEN];
+            (void)snprintf(msg, sizeof(msg), "unresolvable .define '%s' (undefined symbol)",
+                           d->name);
             ctx->line_no = d->line;
-            pa_set_error(ctx, "unresolved define (undefined symbol or cyclic reference)");
+            pa_set_error(ctx, msg);
             return false;
         }
         d->resolved = true;

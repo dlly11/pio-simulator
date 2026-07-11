@@ -270,6 +270,12 @@ Still intentionally out of scope: analog pad behaviour (drive-strength
 contention, slew, hysteresis), real-time execution, bus-cycle-exact DMA
 pipelining, and the RP2350 DMA MPU/security attributes.
 
+**Reentrancy.** The library holds no mutable global state and never allocates —
+each instance's state lives entirely in the caller-owned struct (`pio_sim_t`,
+`pio_dma_t`; the assembler keeps its context on the stack). Independent instances
+don't interfere, so you can run many in one process (or across threads, one per
+thread). A single shared instance is not internally synchronised.
+
 ## Build & test
 
 The unit tests use [Unity](https://github.com/ThrowTheSwitch/Unity), pulled in as
