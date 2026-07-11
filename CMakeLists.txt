@@ -8,6 +8,10 @@ include(GNUInstallDirs)
 # build floor there so embedders on older toolchains aren't forced past it.
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+# Build as strict ISO C11 (-std=c11), not the -std=gnu11 default, so a GNU-only
+# extension is caught here rather than by a stricter downstream/MSVC toolchain —
+# the "pure C11" invariant the README and CHANGELOG advertise.
+set(CMAKE_C_EXTENSIONS OFF)
 
 # Target chip: RP2040 (PIO version 0) or RP2350 (PIO version 1, a superset).
 # Maps to PIO_SIM_PIO_VERSION (see lib/config/pio_sim_config.h) and to the

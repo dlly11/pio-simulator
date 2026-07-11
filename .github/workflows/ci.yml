@@ -20,7 +20,7 @@ jobs:
         cc: [gcc, clang-21]
         platform: [RP2350, RP2040]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           submodules: recursive
       - name: Install toolchain
@@ -47,7 +47,7 @@ jobs:
       matrix:
         platform: [RP2350, RP2040] # exercise the v0-gated paths under ASan/UBSan too
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           submodules: recursive
       - name: Install toolchain
@@ -94,13 +94,13 @@ jobs:
       matrix:
         platform: [RP2350, RP2040]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           submodules: recursive
       - name: Install toolchain
         run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ bison flex
       - name: Checkout pinned Pico SDK (for pioasm)
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: raspberrypi/pico-sdk
           ref: '2.1.0'
@@ -132,7 +132,7 @@ jobs:
       matrix:
         platform: [RP2350, RP2040]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           submodules: recursive
       - name: Install toolchain
@@ -140,7 +140,7 @@ jobs:
         # agree). `llvm.sh 21 all` pulls in clang-tidy-21.
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build lsb-release wget gnupg
+          sudo apt-get install -y cmake ninja-build lsb-release wget gnupg jq
           wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
           sudo bash /tmp/llvm.sh 21 all
       - name: Configure (export compile_commands.json)
@@ -149,22 +149,20 @@ jobs:
           -DPIO_SIM_PLATFORM=${{ matrix.platform }}
           -DPIO_SIM_BUILD_EXAMPLES=ON
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-      - name: Run clang-tidy on the library, examples, and tests
-        # Only the deterministic test executables are analysed here: the fuzz
-        # harness and the pioasm differential test are conditionally built and so
-        # are absent from this job's compile_commands.json.
-        run: >
-          clang-tidy-21 -p build lib/src/pio_sim.c lib/src/pio_gpio.c lib/src/pio_clk.c
-          lib/src/pio_dma.c lib/src/pio_chip.c lib/src/pio_asm.c
-          examples/01_blink.c examples/02_fifo_echo.c examples/03_uart_tx.c
-          examples/04_ws2812.c examples/05_spi_dma.c examples/06_chip_bus.c
-          tests/test_pio_sim.c tests/test_pio_asm.c tests/test_pio_gpio.c
-          tests/test_pio_clk.c tests/test_pio_dma.c tests/test_pio_programs.c
+      - name: Run clang-tidy on every compiled project TU
+        # Driven from compile_commands.json so a newly-added source can't silently
+        # escape the gate. third_party (Unity) is excluded; the fuzz harnesses and
+        # the pioasm differential are conditionally built and so are absent from
+        # this job's database.
+        run: |
+          jq -r '.[].file' build/compile_commands.json | sort -u \
+            | grep -vE '/third_party/' \
+            | xargs clang-tidy-21 -p build
 
   format:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Install clang-format
         # clang-format 21, matching the flake dev shell and the rest of CI.
         run: |
@@ -173,25 +171,12 @@ jobs:
           wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
           sudo bash /tmp/llvm.sh 21 all
       - name: Check formatting
-        run: >
-          clang-format-21 --dry-run --Werror
-          lib/src/pio_sim.c lib/include/pio_sim.h
-          lib/src/pio_dma.c lib/include/pio_dma.h lib/src/pio_sim_internal.h
-          lib/src/pio_gpio.c lib/include/pio_gpio.h
-          lib/src/pio_clk.c lib/include/pio_clk.h
-          lib/src/pio_chip.c lib/include/pio_chip.h
-          lib/src/pio_asm.c lib/include/pio_asm.h
-          lib/include/pio.h
-          lib/config/pio_sim_config.h
-          tests/test_pio_sim.c tests/test_pio_asm.c
-          tests/test_pio_gpio.c tests/test_pio_clk.c tests/test_pio_dma.c
-          tests/test_pio_programs.c tests/fuzz_pio_asm.c tests/fuzz_pio_sim.c
-          tests/fuzz_pio_dma.c
-          tests/unity_config.h
-          tests/consumer/main.c
-          tests/test_pio_asm_vs_pioasm.c
-          examples/01_blink.c examples/02_fifo_echo.c examples/03_uart_tx.c
-          examples/04_ws2812.c examples/05_spi_dma.c examples/06_chip_bus.c
+        # Glob the tree (all C sources/headers under lib, tests, examples;
+        # third_party is not searched) so a new file can't escape the gate. Keep
+        # in sync with the local command documented in README/CONTRIBUTING.
+        run: |
+          find lib tests examples -type f \( -name '*.c' -o -name '*.h' \) \
+            -print0 | xargs -0 clang-format-21 --dry-run --Werror
 
   # Fuzz the untrusted entry points under ASan+UBSan for a short smoke each PR:
   # fuzz_pio_asm (assembler text) and fuzz_pio_sim (execution core, arbitrary
@@ -205,7 +190,7 @@ jobs:
         platform: [RP2350, RP2040]
         target: [fuzz_pio_asm, fuzz_pio_sim, fuzz_pio_dma]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           submodules: recursive
       - name: Install toolchain
@@ -239,7 +224,7 @@ jobs:
         # crash/leak/oom/timeout. The artifact name must be unique per matrix cell
         # (upload-artifact v4+ rejects duplicate names).
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: fuzz-artifacts-${{ matrix.target }}-${{ matrix.platform }}
           path: /tmp/fuzz-arts/
@@ -251,7 +236,7 @@ jobs:
   coverage:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           submodules: recursive
       - name: Install toolchain
@@ -296,7 +281,7 @@ jobs:
           llvm-cov-21 show $OBJS -instr-profile=merged.profdata -format=html \
             -ignore-filename-regex="$IGNORE" -output-dir=coverage-html
       - name: Upload HTML coverage report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-html
           path: coverage-html
@@ -306,7 +291,7 @@ jobs:
   install-consumer:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Install toolchain
         run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
       - name: Install pio_sim to a prefix
@@ -332,7 +317,7 @@ jobs:
       matrix:
         platform: [RP2350, RP2040]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           submodules: recursive
       - name: Install toolchain
@@ -375,7 +360,7 @@ jobs:
   cppcheck:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Install cppcheck
         run: sudo apt-get update && sudo apt-get install -y cppcheck
       - name: Analyse both PIO versions
@@ -410,7 +395,7 @@ jobs:
   doc-coverage:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Install Doxygen
         run: sudo apt-get update && sudo apt-get install -y doxygen
       - name: Fail on any undocumented public symbol
