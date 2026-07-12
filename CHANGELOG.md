@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **PULL under autopull** — the no-op barrier rule now applies only when the
+  OSR is *full* (shift count 0), per RP2040 datasheet §3.4.7/§3.5.4.2. A PULL
+  on a partially consumed OSR executes normally again — discarding the residue
+  and loading a fresh word — so programs that realign on a transfer boundary
+  (e.g. a JTAG prologue's `pull` after an odd-length scan) behave as on
+  hardware. The over-broad rule (introduced with the barrier fix) made such
+  PULLs silently no-op, leaving stale residue in the OSR.
 
 ## [0.2.0] - 2026-07-11
 

@@ -1381,11 +1381,14 @@ static bool exec_pushpull(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
     if (cond && (sm->osr_count < sm->pull_thresh)) {
         return false; /* ifempty but not empty enough → nop */
     }
-    /* With autopull enabled, a PULL is a no-op while the OSR still holds data
-     * (shift count below threshold): autopull already keeps the OSR topped up,
-     * so PULL acts as a barrier rather than popping — and losing — another TX
-     * word (RP2040 datasheet §3.5.4.2). */
-    if (sm->autopull && (sm->osr_count < sm->pull_thresh)) {
+    /* With autopull enabled, a PULL is a no-op only while the OSR is *full*
+     * (shift count 0, nothing consumed): it acts as a barrier and must not
+     * pop — and lose — a word autopull already prefetched. On a partially
+     * consumed OSR it executes normally, discarding the residue and loading a
+     * fresh word, which is how programs realign on a transfer boundary
+     * (RP2040 datasheet §3.4.7 / §3.5.4.2: "any PULL instruction is a no-op
+     * when the OSR is full"). */
+    if (sm->autopull && (sm->osr_count == 0U)) {
         return false;
     }
     if (pio_sim_sm_is_tx_fifo_empty(pio, sm_idx)) {

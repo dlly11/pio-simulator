@@ -317,6 +317,29 @@ static void test_pull_noop_when_autopull_osr_full(void)
     TEST_ASSERT_EQUAL_UINT8(1U, pio_sim_sm_get_tx_fifo_level(&pio, 0)); /* C still queued */
 }
 
+/* Counterpart: with autopull enabled but the OSR only *partially* consumed,
+ * PULL executes normally — it discards the residue and loads a fresh word;
+ * the datasheet's no-op rule applies only to a full OSR (§3.4.7: "any PULL
+ * instruction is a no-op when the OSR is full"). Programs rely on this to
+ * realign on a transfer boundary after a sequence that did not consume a
+ * whole word (e.g. a JTAG prologue's `pull` after an odd-length scan). */
+static void test_pull_discards_residue_when_osr_partially_consumed(void)
+{
+    sm_config_set_out_shift(&cfg, true, true, 32);
+    const uint16_t prog[] = {
+        pio_sim_encode_out(PIO_DST_X, 8), /* consume 8 bits: OSR keeps a residue */
+        pio_sim_encode_pull(false, true), /* OSR not full: discard residue, load B */
+        pio_sim_encode_mov(PIO_DST_Y, PIO_MOV_NONE, PIO_SRC_OSR),
+    };
+    load_prog(prog, 3);
+    pio_sim_sm_put(&pio, 0, 0xDEADBEA5U);
+    pio_sim_sm_put(&pio, 0, 0xBBBBBBBBU);
+    pio_sim_run(&pio, 3);
+    TEST_ASSERT_EQUAL_HEX32(0xA5U, pio.sm[0].x);            /* low 8 bits of word A  */
+    TEST_ASSERT_EQUAL_HEX32(0xBBBBBBBBU, pio.sm[0].y);      /* PULL reloaded, no residue */
+    TEST_ASSERT_TRUE(pio_sim_sm_is_tx_fifo_empty(&pio, 0)); /* B was consumed by PULL */
+}
+
 /* Under OUT_STICKY, an OUT whose inline-enable bit is 0 *releases* the pins (clears
  * the SM's output enable) so they fall back to the pull / float — distinct from the
  * non-sticky case, which merely holds the previous value. */
@@ -2364,8 +2387,7 @@ static void test_push_iffull_noop_below_threshold(void)
      * no-op — nothing reaches the RX FIFO and the ISR is retained. */
     sm_config_set_in_shift(&cfg, false, false, 32);
     const uint16_t prog[] = {
-        pio_sim_encode_set(PIO_DST_X, 1),
-        pio_sim_encode_in(PIO_SRC_X, 1),
+        pio_sim_encode_set(PIO_DST_X, 1), pio_sim_encode_in(PIO_SRC_X, 1),
         pio_sim_encode_push(true, true), /* iffull, block */
     };
     load_prog(prog, 3);
@@ -2735,6 +2757,7 @@ int main(void)
     RUN_TEST(test_trace_hook_fires_on_commit_only);
     RUN_TEST(test_run_until_tx_drained_waits_for_osr);
     RUN_TEST(test_pull_noop_when_autopull_osr_full);
+    RUN_TEST(test_pull_discards_residue_when_osr_partially_consumed);
     RUN_TEST(test_out_sticky_releases_on_inline_disable);
     RUN_TEST(test_out_inline_enable_gates_write);
     RUN_TEST(test_multi_sm_pin_priority_and_override);
