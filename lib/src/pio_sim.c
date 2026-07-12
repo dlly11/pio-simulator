@@ -171,10 +171,31 @@ static void resolve_pads(pio_pads_t *p)
         for (uint8_t s = 0; s < PIO_SIM_NUM_SM; s++) {
             /* Later iterations overwrite earlier ones, so on a conflict the
              * highest-numbered SM (of the latest owner) wins — for the same-cycle
-             * level and for the driven direction. */
+             * level and for the driven direction. Levels land from any SM
+             * (host-exec'd writes on a disabled SM reach the pad, as on
+             * hardware); this pass takes only DISABLED SMs' direction claims —
+             * the enabled pass below overwrites them. */
             uint64_t written = b->sm[s].wrote_this_cycle & fmask;
-            uint64_t driven = b->sm[s].dir_driven & fmask;
+            uint64_t driven = b->sm[s].enabled ? 0U : (b->sm[s].dir_driven & fmask);
             val = (val & ~written) | (b->sm[s].out_pin_val & written);
+            oe = (oe & ~driven) | (b->sm[s].out_pin_oe & driven);
+        }
+    }
+    /* Second pass: ENABLED SMs' direction claims outrank every parked SM's —
+     * hardware keeps per-pin OE latches that the active writer overwrites, so a
+     * configured-but-disabled SM must not occlude a running lower-numbered one
+     * that shares its pins (e.g. a probe's parked JTAG SMs vs the active SWD SM
+     * on the shared SWCLK/SWDIO pair), while pre-enable pindir setup on an
+     * otherwise-unclaimed pin still reaches the pad. Within the pass, the
+     * higher-numbered SM of the latest owner wins as usual. */
+    for (uint8_t o = 0; o < p->owner_count; o++) {
+        const struct pio_sim *b = p->owners[o];
+        uint64_t fmask = p->pio_func_mask[o];
+        for (uint8_t s = 0; s < PIO_SIM_NUM_SM; s++) {
+            if (!b->sm[s].enabled) {
+                continue;
+            }
+            uint64_t driven = b->sm[s].dir_driven & fmask;
             oe = (oe & ~driven) | (b->sm[s].out_pin_oe & driven);
         }
     }
@@ -243,6 +264,9 @@ void pio_sim_sm_restart(pio_sim_t *pio, uint8_t sm) { sm_reset_exec(&pio->sm[SM_
 void pio_sim_sm_set_enabled(pio_sim_t *pio, uint8_t sm, bool enabled)
 {
     pio->sm[SM_IDX(sm)].enabled = enabled;
+    /* Direction claims go dormant/live with the SM (see resolve_pads), so the
+     * pad must be re-resolved at the enable edge, not at the next pin write. */
+    resolve_pads(pio->pads);
 }
 
 bool pio_sim_sm_is_enabled(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].enabled; }
@@ -256,6 +280,7 @@ void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled)
             pio->sm[i].enabled = enabled;
         }
     }
+    resolve_pads(pio->pads); /* direction claims follow enable — see set_enabled */
 }
 
 void pio_sim_enable_sm_mask_in_sync(pio_sim_t *pio, uint8_t sm_mask)

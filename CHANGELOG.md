@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **Enabled SMs outrank disabled ones for pin directions** — `resolve_pads` no
+  longer lets a configured-but-disabled state machine's persistent pindir
+  claims occlude an enabled lower-numbered SM sharing the same pins. Real
+  silicon keeps per-pin OE latches that the active writer overwrites, so a
+  parked SM cannot hold a pad against a running one — e.g. a debug probe's
+  disabled JTAG SMs (SM1/SM2) vs its running SWD SM (SM0) on one shared
+  SWCLK/SWDIO pair, which previously left the pad output-locked and made an
+  attached device's responses invisible. Priority is now (enabled, SM number):
+  pre-enable pindir setup on an otherwise-unclaimed pin still reaches the pad,
+  and a claim revives at the enable edge (`pio_sim_sm_set_enabled` and the
+  mask variant re-resolve the pads).
 
 ## [0.2.1] - 2026-07-12
 

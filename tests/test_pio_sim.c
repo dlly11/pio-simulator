@@ -427,6 +427,34 @@ static void test_multi_sm_pin_priority_and_override(void)
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 4)); /* SM1 released -> SM0 high shows */
 }
 
+/* An ENABLED SM's direction claim outranks any DISABLED SM's, regardless of SM
+ * number: real silicon keeps per-pin OE latches the active writer overwrites,
+ * so a configured-but-parked SM must not occlude a running lower-numbered SM
+ * sharing its pins (a probe's parked JTAG SMs vs its active SWD SM on one
+ * SWCLK/SWDIO pair). Pre-enable pindir setup on an otherwise-unclaimed pin
+ * still reaches the pad, and a claim revives at the enable edge. */
+static void test_disabled_sm_dir_claims_yield_to_enabled(void)
+{
+    /* SM1 claims pin 6 as OUTPUT, then parks (configured, never enabled). The
+     * pre-enable claim reaches the pad while nothing outranks it. */
+    pio_sim_sm_set_consecutive_pindirs(&pio, 1, 6, 1, true);
+    pio_sim_sm_set_enabled(&pio, 1, false);
+    TEST_ASSERT_TRUE(pio_sim_pin_is_pio_output(&pio, 6));
+
+    /* Enabled SM0 releases pin 6 (direction input): the running SM outranks
+     * the parked one, so the pad becomes an input an external device can
+     * drive. */
+    pio_sim_sm_set_enabled(&pio, 0, true);
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, 6, 1, false);
+    TEST_ASSERT_FALSE(pio_sim_pin_is_pio_output(&pio, 6));
+    pio_sim_set_pin(&pio, 6, true); /* external drive shows through */
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 6));
+
+    /* Re-enabling SM1 revives its claim (higher SM wins): an output again. */
+    pio_sim_sm_set_enabled(&pio, 1, true);
+    TEST_ASSERT_TRUE(pio_sim_pin_is_pio_output(&pio, 6));
+}
+
 /* Shared helper: SM0 and SM1 both own pin 5 (drive it as output). */
 static void set_pin5_dirs_both(void)
 {
@@ -2762,6 +2790,7 @@ int main(void)
     RUN_TEST(test_out_sticky_releases_on_inline_disable);
     RUN_TEST(test_out_inline_enable_gates_write);
     RUN_TEST(test_multi_sm_pin_priority_and_override);
+    RUN_TEST(test_disabled_sm_dir_claims_yield_to_enabled);
     RUN_TEST(test_pin_priority_same_cycle_higher_sm_wins);
     RUN_TEST(test_pindir_priority_higher_sm_wins);
     RUN_TEST(test_pin_no_sticky_last_writer_wins);

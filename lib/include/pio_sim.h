@@ -132,7 +132,10 @@ typedef struct {
     uint64_t out_pin_val;      /**< latched level of pins this SM drives          */
     uint64_t out_pin_oe;       /**< pins this SM drives as outputs (pindir)       */
     uint64_t wrote_this_cycle; /**< pins whose level was written this SM cycle     */
-    uint64_t dir_driven;       /**< persistent set of pins whose direction this SM drives */
+    uint64_t dir_driven;       /**< persistent set of pins whose direction this SM drives.
+                                *   An ENABLED SM's claim outranks any disabled SM's (a
+                                *   parked SM must not occlude a running lower-numbered SM
+                                *   sharing its pins); among equals the higher SM wins. */
 
     /** EXECCTRL output controls (sm_config_set_out_special). out_inline_en uses bit
      * out_en_sel of the OUT data as an output enable; when it is 0 the OUT does not
