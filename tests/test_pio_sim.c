@@ -2387,7 +2387,8 @@ static void test_push_iffull_noop_below_threshold(void)
      * no-op — nothing reaches the RX FIFO and the ISR is retained. */
     sm_config_set_in_shift(&cfg, false, false, 32);
     const uint16_t prog[] = {
-        pio_sim_encode_set(PIO_DST_X, 1), pio_sim_encode_in(PIO_SRC_X, 1),
+        pio_sim_encode_set(PIO_DST_X, 1),
+        pio_sim_encode_in(PIO_SRC_X, 1),
         pio_sim_encode_push(true, true), /* iffull, block */
     };
     load_prog(prog, 3);
