@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.2.1] - 2026-07-12
+
+One behavioural bug fix.
+
 ### Fixed
 
 - **PULL under autopull** — the no-op barrier rule now applies only when the
@@ -127,7 +133,8 @@ around it (pads, DMA, clock tree) modelled too.
   cppcheck, clang-format, the pioasm differential, libFuzzer harnesses
   (assembler, execution core, DMA), and an 80% line-coverage gate.
 
-[Unreleased]: https://github.com/dlly11/pio-simulator/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/dlly11/pio-simulator/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/dlly11/pio-simulator/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dlly11/pio-simulator/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/dlly11/pio-simulator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/dlly11/pio-simulator/releases/tag/v0.1.0
