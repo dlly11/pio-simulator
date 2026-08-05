@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.2.1] - 2026-07-12
+
+One behavioural bug fix.
+
+### Fixed
+
+- **PULL under autopull** — the no-op barrier rule now applies only when the
+  OSR is *full* (shift count 0), per RP2040 datasheet §3.4.7/§3.5.4.2. A PULL
+  on a partially consumed OSR executes normally again — discarding the residue
+  and loading a fresh word — so programs that realign on a transfer boundary
+  (e.g. a JTAG prologue's `pull` after an odd-length scan) behave as on
+  hardware. The over-broad rule (introduced with the barrier fix) made such
+  PULLs silently no-op, leaving stale residue in the OSR.
+
 ## [0.2.0] - 2026-07-11
 
 Clears the audit backlog: assembler pioasm error-parity, simulator/GPIO fidelity,
@@ -119,7 +133,8 @@ around it (pads, DMA, clock tree) modelled too.
   cppcheck, clang-format, the pioasm differential, libFuzzer harnesses
   (assembler, execution core, DMA), and an 80% line-coverage gate.
 
-[Unreleased]: https://github.com/dlly11/pio-simulator/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/dlly11/pio-simulator/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/dlly11/pio-simulator/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dlly11/pio-simulator/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/dlly11/pio-simulator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/dlly11/pio-simulator/releases/tag/v0.1.0
