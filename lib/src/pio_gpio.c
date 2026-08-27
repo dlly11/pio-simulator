@@ -4,7 +4,7 @@
  *
  * All state lives in the block's pio_pads_t (shared across a group); this
  * file is only the register-style setter/getter surface. Resolution happens
- * in pio_sim.c (pads_live / resolve_pads), which reads these fields.
+ * in pio_sim.c (pads_live / pio_pads_resolve), which reads these fields.
  */
 
 #include "pio_gpio.h"
@@ -31,9 +31,9 @@ static void mask_set(uint64_t *m, uint64_t bit, bool on)
     }
 }
 
-/* ── FUNCSEL routing cache ─────────────────────────────────────────────────── */
+/* ── FUNCSEL routing ───────────────────────────────────────────────────────── */
 
-void pio_pads_recompute_funcsel(pio_pads_t *p)
+void pio_pads_apply_funcsel(pio_pads_t *p)
 {
     for (uint8_t o = 0; o < PIO_SIM_NUM_PIO; o++) {
         p->pio_func_mask[o] = 0;
@@ -55,6 +55,14 @@ void pio_pads_recompute_funcsel(pio_pads_t *p)
             /* FUNC_NULL: nothing drives the pad through the mux. */
         }
     }
+    /* The caches above only say who may drive each pad. pio_pads_chip_drive
+     * reads pin_dirs for who currently does, and only pio_pads_resolve rebuilds
+     * pin_dirs. Resolving here instead of leaving it to the caller is what makes
+     * the mux combinational, as it is on silicon (FUNCSEL encoding: RP2040
+     * datasheet Table 289, RP2350 Table 9-1). Selecting another function stops
+     * the PIO's output reaching the pad at once, not at the next pin write or
+     * tick. */
+    pio_pads_resolve(p);
 }
 
 void pio_sim_gpio_set_function(pio_sim_t *pio, uint8_t pin, pio_gpio_func_t f)
@@ -64,7 +72,7 @@ void pio_sim_gpio_set_function(pio_sim_t *pio, uint8_t pin, pio_gpio_func_t f)
      * so the getter never returns a value outside the documented enum. */
     uint8_t raw = (f == PIO_GPIO_FUNC_LEGACY_ANY_PIO) ? (uint8_t)f : (uint8_t)((uint8_t)f & 0x1FU);
     pio->pads->funcsel[pin_idx(pin)] = raw;
-    pio_pads_recompute_funcsel(pio->pads);
+    pio_pads_apply_funcsel(pio->pads);
 }
 
 pio_gpio_func_t pio_sim_gpio_get_function(const pio_sim_t *pio, uint8_t pin)

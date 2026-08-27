@@ -123,8 +123,9 @@ typedef struct {
      * actually written during the current SM cycle. dir_driven is the persistent
      * set of pins whose *direction* this SM drives (any pindir write adds a pin;
      * an inline-enable release removes it): the pad resolves each pin's direction
-     * from the highest-numbered SM that drives it, so a conflict is priority — not
-     * a union — and a released pin falls through to a lower SM (see resolve_pads).
+     * from the highest-numbered SM that drives it, so a conflict resolves by
+     * priority, not by union, and a released pin falls through to a lower SM
+     * (see pio_pads_resolve).
      * The pad applies same-cycle level writes with the same highest-SM-wins
      * priority; unwritten pins hold their latched level. Mutate these only through
      * the API / instructions, never directly, or the resolved pad state
@@ -184,8 +185,9 @@ struct pio_sim; /* owners[] below points back at the blocks sharing these pads *
  * sampled by the owning PIO block(s) and any external device. */
 typedef struct {
     /** Resolved PIO drive: recomputed from the owning state machines' per-SM output
-     * registers on every pin/pindir write (see resolve_pads). pin_dirs marks pins
-     * the PIO drives as outputs; pin_levels is their value. */
+     * registers on every pin/pindir write, once per tick, and on a FUNCSEL change
+     * (see pio_pads_resolve). pin_dirs marks pins the PIO drives as outputs;
+     * pin_levels is their value. */
     uint64_t pin_levels; /**< PIO-driven line level per GPIO   */
     uint64_t pin_dirs;   /**< 1 = driven as output by the PIO  */
 

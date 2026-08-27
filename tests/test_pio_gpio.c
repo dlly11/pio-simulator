@@ -281,6 +281,39 @@ static void test_periph_output_drives_pad_when_selected(void)
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 8)); /* deselected again */
 }
 
+/* Routing a pad away from the PIO must stop the PIO's drive reaching it at
+ * once, not at the next tick.
+ *
+ * The test above uses a pad no state machine drives, so the PIO's output enable
+ * is clear anyway and the bug cannot show. Here SM0 drives the pad first, which
+ * is the case that exposed it. A FUNCSEL write refreshed the routing caches but
+ * never re-resolved pin_dirs, so pio_pads_chip_drive kept reading the state
+ * machine's stale output enable and masked the selected peripheral straight
+ * back out. */
+static void test_funcsel_change_stops_pio_drive_without_a_tick(void)
+{
+    /* SM0 drives GPIO 0 high and re-asserts every cycle. */
+    sm_config_set_set_pins(&cfg, 0, 1);
+    sm_config_set_out_special(&cfg, true, false, 0);
+    const uint16_t prog[] = {pio_sim_encode_set(PIO_DST_PINS, 1),
+                             pio_sim_encode_jmp(PIO_COND_ALWAYS, 0)};
+    load_prog(prog, 2);
+    pio_sim_sm_set_consecutive_pindirs(&pio, 0, 0, 1, true);
+    pio_sim_run(&pio, 2);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 0)); /* the PIO owns the pad */
+
+    /* Hand the pad to another function driving LOW, with no tick in between.
+     * The mux is combinational on silicon. */
+    pio_sim_gpio_set_periph_output(&pio, 0, true, false);
+    pio_sim_gpio_set_function(&pio, 0, PIO_GPIO_FUNC_SIO);
+    TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 0));
+
+    /* The same on the way back. The state machine's claim is still latched, so
+     * returning the pad restores its drive with no tick either. */
+    pio_sim_gpio_set_function(&pio, 0, PIO_GPIO_FUNC_PIO0);
+    TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 0));
+}
+
 /* The override and peripheral-output getters read back exactly what was set. */
 static void test_override_and_periph_getters_roundtrip(void)
 {
@@ -445,6 +478,7 @@ int main(void)
     RUN_TEST(test_funcsel_selects_between_shared_blocks);
     RUN_TEST(test_input_visible_when_funcsel_is_sio);
     RUN_TEST(test_periph_output_drives_pad_when_selected);
+    RUN_TEST(test_funcsel_change_stops_pio_drive_without_a_tick);
     RUN_TEST(test_override_and_periph_getters_roundtrip);
     RUN_TEST(test_outover_inverts_and_forces);
     RUN_TEST(test_oeover_forces_drive_with_no_function);

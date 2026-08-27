@@ -9,17 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Enabled SMs outrank disabled ones for pin directions** — `resolve_pads` no
-  longer lets a configured-but-disabled state machine's persistent pindir
-  claims occlude an enabled lower-numbered SM sharing the same pins. Real
-  silicon keeps per-pin OE latches that the active writer overwrites, so a
-  parked SM cannot hold a pad against a running one — e.g. a debug probe's
-  disabled JTAG SMs (SM1/SM2) vs its running SWD SM (SM0) on one shared
-  SWCLK/SWDIO pair, which previously left the pad output-locked and made an
-  attached device's responses invisible. Priority is now (enabled, SM number):
-  pre-enable pindir setup on an otherwise-unclaimed pin still reaches the pad,
-  and a claim revives at the enable edge (`pio_sim_sm_set_enabled` and the
-  mask variant re-resolve the pads).
+- **A FUNCSEL change re-resolves the pads.** Routing a pad away from a PIO now
+  stops that PIO's drive reaching it at once, the way the combinational function
+  mux behaves on silicon. Before, the pad did not move until an unrelated
+  pin/pindir write or the next tick resolved it. `pio_sim_gpio_set_function`
+  refreshed only the routing caches and left the resolved PIO output enable
+  stale, so a state machine that was no longer routed anywhere masked the newly
+  selected peripheral straight back out. A pad borrowed from the PIO through
+  SIO, driven and read back with no tick in between, never followed its drive.
+
+- **Enabled SMs outrank disabled ones for pin directions.** `pio_pads_resolve` no
+  longer lets a configured-but-disabled state machine's persistent pindir claims
+  block an enabled lower-numbered SM sharing the same pins. Real silicon keeps
+  per-pin OE latches that the active writer overwrites, so a parked SM cannot
+  hold a pad against a running one. A debug probe's disabled JTAG SMs (SM1/SM2)
+  against its running SWD SM (SM0) on one shared SWCLK/SWDIO pair used to leave
+  the pad output-locked, which made an attached device's responses invisible.
+  Priority is now (enabled, SM number). Pre-enable pindir setup on an
+  otherwise-unclaimed pin still reaches the pad, and a claim revives at the
+  enable edge, since `pio_sim_sm_set_enabled` and the mask variant re-resolve
+  the pads.
 
 ## [0.2.1] - 2026-07-12
 

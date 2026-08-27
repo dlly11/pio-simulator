@@ -66,7 +66,7 @@ static uint8_t phys_pin(const pio_sim_t *pio, uint8_t view)
 }
 
 /* Chip-side drive after the function mux and IO_BANK0 overrides, before the
- * pad stage: PIO drive (already FUNCSEL-gated in resolve_pads) plus the
+ * pad stage: PIO drive (already FUNCSEL-gated in pio_pads_resolve) plus the
  * selected peripheral's output on non-PIO pins, with OUTOVER/OEOVER applied. */
 void pio_pads_chip_drive(const pio_pads_t *p, uint64_t *oe_out, uint64_t *lvl_out)
 {
@@ -158,8 +158,10 @@ void pio_pads_init_defaults(pio_pads_t *p)
  * priority rather than a union, and a pin an SM has released falls through to a
  * lower-numbered SM or to input. OUT_STICKY makes an SM re-assert its driven pins
  * every cycle (see pio_sim_tick), which is what gives it continuous priority.
- * Called after every pin/pindir write and once per tick. */
-static void resolve_pads(pio_pads_t *p)
+ * Called after every pin/pindir write, once per tick, and from
+ * pio_pads_apply_funcsel. The fmask gating below is what stops a PIO's drive
+ * reaching a pad the mux has routed elsewhere. */
+void pio_pads_resolve(pio_pads_t *p)
 {
     uint64_t oe = 0;              /* directions are recomputed from the drivers   */
     uint64_t val = p->pin_levels; /* unwritten pins keep their latched level */
@@ -264,9 +266,9 @@ void pio_sim_sm_restart(pio_sim_t *pio, uint8_t sm) { sm_reset_exec(&pio->sm[SM_
 void pio_sim_sm_set_enabled(pio_sim_t *pio, uint8_t sm, bool enabled)
 {
     pio->sm[SM_IDX(sm)].enabled = enabled;
-    /* Direction claims go dormant/live with the SM (see resolve_pads), so the
+    /* Direction claims go dormant/live with the SM (see pio_pads_resolve), so the
      * pad must be re-resolved at the enable edge, not at the next pin write. */
-    resolve_pads(pio->pads);
+    pio_pads_resolve(pio->pads);
 }
 
 bool pio_sim_sm_is_enabled(const pio_sim_t *pio, uint8_t sm) { return pio->sm[SM_IDX(sm)].enabled; }
@@ -280,7 +282,7 @@ void pio_sim_set_sm_mask_enabled(pio_sim_t *pio, uint8_t sm_mask, bool enabled)
             pio->sm[i].enabled = enabled;
         }
     }
-    resolve_pads(pio->pads); /* direction claims follow enable — see set_enabled */
+    pio_pads_resolve(pio->pads); /* direction claims follow enable; see set_enabled */
 }
 
 void pio_sim_enable_sm_mask_in_sync(pio_sim_t *pio, uint8_t sm_mask)
@@ -617,7 +619,7 @@ void pio_sim_sm_set_consecutive_pindirs(pio_sim_t *pio, uint8_t sm, uint8_t base
         }
         s->dir_driven |= bit; /* this SM now drives the pin's direction */
     }
-    resolve_pads(pio->pads);
+    pio_pads_resolve(pio->pads);
 }
 
 void pio_sim_set_device(pio_sim_t *pio, void (*on_tick)(pio_sim_t *, void *), void *ctx)
@@ -810,7 +812,7 @@ static void drive_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t count
         }
         sm->wrote_this_cycle |= bit;
     }
-    resolve_pads(pio->pads);
+    pio_pads_resolve(pio->pads);
 }
 
 /* An OUT/SET/MOV PINDIRS or side-set-pindirs write updates this SM's output-enable
@@ -827,7 +829,7 @@ static void drive_pindirs(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t co
         }
         sm->dir_driven |= bit; /* this SM now drives the pin's direction */
     }
-    resolve_pads(pio->pads);
+    pio_pads_resolve(pio->pads);
 }
 
 /* Drop an OUT pin span from this SM's output enable (inline OUT enable = 0 under
@@ -841,7 +843,7 @@ static void release_out_pins(pio_sim_t *pio, pio_sm_t *sm, uint8_t base, uint8_t
         sm->wrote_this_cycle &= ~bit; /* released pins no longer compete on level */
         sm->dir_driven &= ~bit;       /* and this SM stops driving their direction */
     }
-    resolve_pads(pio->pads);
+    pio_pads_resolve(pio->pads);
 }
 
 static uint32_t read_in_pins(const pio_sim_t *pio, uint8_t base, uint8_t count)
@@ -1732,7 +1734,7 @@ void pio_sim_tick(pio_sim_t *pio)
 {
     /* Open a fresh write window: a pin write is a one-shot event of the cycle
      * it happens in, so last tick's writes must not keep competing for the
-     * same-cycle priority collation in resolve_pads. */
+     * same-cycle priority collation in pio_pads_resolve. */
     for (uint8_t i = 0; i < PIO_SIM_NUM_SM; i++) {
         pio->sm[i].wrote_this_cycle = 0;
     }
@@ -1764,7 +1766,7 @@ void pio_sim_tick(pio_sim_t *pio)
     /* Re-resolve once with every SM's final write set for this tick, so sticky
      * re-assertions and the cross-SM priority collation land before the device
      * hook and the input synchroniser observe the pads. */
-    resolve_pads(pio->pads);
+    pio_pads_resolve(pio->pads);
     if (pio->on_tick != NULL) {
         pio->on_tick(pio, pio->device_ctx);
     }
@@ -1863,7 +1865,7 @@ void pio_sim_group_init_shared(pio_sim_group_t *g, pio_sim_t *const *blocks, uin
 void pio_sim_group_tick(pio_sim_group_t *g)
 {
     /* Open the write window for the whole group before any block runs: with
-     * shared pads, resolve_pads at the end of block A's tick scans every
+     * shared pads, pio_pads_resolve at the end of block A's tick scans every
      * owner's SMs, so block B's flags from the previous tick must already be
      * cleared or B's stale writes would wrongly win same-cycle priority in the
      * pad state block A's on_tick hook observes. (Each block's own tick
