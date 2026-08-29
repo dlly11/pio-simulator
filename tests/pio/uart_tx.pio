@@ -1,4 +1,4 @@
-; 8n1 UART transmit — the canonical pico-examples program. OUT pin 0 and the
+; 8n1 UART transmit, the canonical pico-examples program. OUT pin 0 and the
 ; side-set pin are both the TX line. One bit period is 8 SM cycles, so the
 ; clock divider sets the baud rate. Exercises side-set (opt), set, out and a
 ; delayed jmp loop.

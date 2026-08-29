@@ -1,5 +1,5 @@
-/* 06_chip_bus — the capstone: two PIO blocks talk over shared GPIOs, with DMA
- * feeding one side and draining the other, all driven by the chip model.
+/* 06_chip_bus: two PIO blocks talk over shared GPIOs, with DMA feeding one side
+ * and draining the other, all driven by the chip model.
  *
  * pio_chip_t composes every PIO block around one shared pad set, a DMA
  * controller and a clock tree. Here:
@@ -14,8 +14,8 @@
  *   - a trace hook counts the producer's committed instructions.
  *
  * The received buffer is compared byte-for-byte against the transmitted one, so
- * running this proves the whole stack — assembler, two state machines, shared
- * pad model, DMA (both directions) and clock tree — works together.
+ * running this proves the whole stack works together: assembler, two state
+ * machines, shared pad model, DMA (both directions) and clock tree.
  */
 #include "pio_asm.h"
 #include "pio_chip.h"

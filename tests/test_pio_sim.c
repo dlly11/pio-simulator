@@ -1,4 +1,4 @@
-/* test_pio_sim.c — unit tests for the PIO instruction-set simulator.
+/* test_pio_sim.c: unit tests for the PIO instruction-set simulator.
  *
  * Exercises every instruction class (JMP/WAIT/IN/OUT/PUSH/PULL/MOV/IRQ/SET)
  * plus side-set, delay, the clock divider, wrap, shift directions, and
@@ -117,7 +117,7 @@ static void test_out_autopull_refills(void)
 }
 
 /* Eager autopull: the OUT that empties the OSR refills it immediately, so the
- * next instruction sees a full OSR (the prefetched word) — not an empty one. */
+ * next instruction sees a full OSR (the prefetched word), not an empty one. */
 static void test_out_autopull_background_refill(void)
 {
     /* Autopull is a background refill at the top of each SM cycle: the OUT
@@ -161,8 +161,8 @@ static void test_out_autopull_streams_word_per_cycle(void)
 static void test_out_autopull_empty_then_fed_stalls_one_extra_cycle(void)
 {
     /* An OUT that finds OSR exhausted and TX empty stalls with TXSTALL; after
-     * a word is pushed it cannot complete the same cycle the refill happens —
-     * the OUT commits on the following SM cycle (§3.5.4.1). */
+     * a word is pushed it cannot complete the same cycle the refill happens.
+     * The OUT commits on the following SM cycle (§3.5.4.1). */
     sm_config_set_out_shift(&cfg, true, true, 32);
     const uint16_t prog[] = {pio_sim_encode_out(PIO_DST_X, 32),
                              pio_sim_encode_jmp(PIO_COND_ALWAYS, 1)};
@@ -286,19 +286,19 @@ static void test_autopull_background_refill_without_out(void)
     TEST_ASSERT_EQUAL_UINT8(0U, pio_sim_sm_get_pc(&pio, 0));
     pio_sim_sm_put(&pio, 0, 0xCAFEF00DU);
     pio_sim_sm_put(&pio, 0, 0xDEADBEEFU);
-    /* Background refill pulls 0xCAFEF00D before the jmp executes — no OUT ran. */
+    /* Background refill pulls 0xCAFEF00D before the jmp executes, no OUT ran. */
     pio_sim_run(&pio, 1);
     TEST_ASSERT_EQUAL_HEX32(0xCAFEF00DU, pio.sm[0].osr);
     TEST_ASSERT_EQUAL_UINT8(0U, pio.sm[0].osr_count);
     TEST_ASSERT_EQUAL_UINT8(2U, pio_sim_sm_get_pc(&pio, 0)); /* !OSRE taken */
-    pio_sim_run(&pio, 1); /* pull: no-op barrier — must not pop 0xDEADBEEF */
+    pio_sim_run(&pio, 1); /* pull: no-op barrier, must not pop 0xDEADBEEF */
     TEST_ASSERT_EQUAL_HEX32(0xCAFEF00DU, pio.sm[0].osr);
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].tx.count);
     TEST_ASSERT_EQUAL_UINT8(3U, pio_sim_sm_get_pc(&pio, 0));
 }
 
-/* With autopull enabled, PULL is a no-op (a barrier) while the OSR is full —
- * it must not pop and discard another TX word (RP2040 §3.5.4.2). */
+/* With autopull enabled, PULL is a no-op (a barrier) while the OSR is full.
+ * It must not pop and discard another TX word (RP2040 §3.5.4.2). */
 static void test_pull_noop_when_autopull_osr_full(void)
 {
     sm_config_set_out_shift(&cfg, true, true, 32);
@@ -318,7 +318,7 @@ static void test_pull_noop_when_autopull_osr_full(void)
 }
 
 /* Counterpart: with autopull enabled but the OSR only *partially* consumed,
- * PULL executes normally — it discards the residue and loads a fresh word;
+ * PULL executes normally, discarding the residue and loading a fresh word;
  * the datasheet's no-op rule applies only to a full OSR (§3.4.7: "any PULL
  * instruction is a no-op when the OSR is full"). Programs rely on this to
  * realign on a transfer boundary after a sequence that did not consume a
@@ -341,7 +341,7 @@ static void test_pull_discards_residue_when_osr_partially_consumed(void)
 }
 
 /* Under OUT_STICKY, an OUT whose inline-enable bit is 0 *releases* the pins (clears
- * the SM's output enable) so they fall back to the pull / float — distinct from the
+ * the SM's output enable) so they fall back to the pull / float, distinct from the
  * non-sticky case, which merely holds the previous value. */
 static void test_out_sticky_releases_on_inline_disable(void)
 {
@@ -506,7 +506,7 @@ static void test_pindir_priority_higher_sm_wins(void)
 }
 
 /* Without OUT_STICKY a pin write is a one-shot event: SM1 writes pin 5 low, and
- * on a *later* cycle SM0 writes it high with no competing write — SM0's write
+ * on a *later* cycle SM0 writes it high with no competing write, so SM0's write
  * lands (last writer), regardless of SM numbers. */
 static void test_pin_no_sticky_last_writer_wins(void)
 {
@@ -635,7 +635,7 @@ static void test_out_exec_injected_instruction_honors_delay(void)
     TEST_ASSERT_EQUAL_UINT32(5U, pio.sm[0].y);
 }
 
-/* The OUT EXEC word's OWN delay field is ignored — only the injected instruction
+/* The OUT EXEC word's OWN delay field is ignored; only the injected instruction
  * inserts delay, so the two delays do not stack (RP2040 datasheet §3.4.5.2). */
 static void test_out_exec_own_delay_is_ignored(void)
 {
@@ -882,7 +882,7 @@ static void test_sideset_drives_pin(void)
     TEST_ASSERT_FALSE(pio_sim_get_pin(&pio, 2));
 }
 
-/* Side-set with pindirs=true drives pin DIRECTION (OE), not level — the
+/* Side-set with pindirs=true drives pin DIRECTION (OE), not level. This is the
  * drive_pindirs branch, sibling of test_sideset_drives_pin. side 1 makes the
  * side-set pin an output; side 0 makes it an input again. */
 static void test_sideset_pindirs_drives_direction(void)
@@ -901,7 +901,7 @@ static void test_sideset_pindirs_drives_direction(void)
 }
 
 /* Autopush crossing the threshold on a TX-joined SM (RX capacity 0) must stall
- * with RXSTALL, never drain — the zero-capacity is_rx_fifo_full boundary on the
+ * with RXSTALL, never drain. This is the zero-capacity is_rx_fifo_full boundary on the
  * autopush path. The IN stalls before shifting, so the ISR is untouched. */
 static void test_autopush_into_tx_joined_sm_stalls(void)
 {
@@ -958,7 +958,7 @@ static void test_clkdiv_fractional_cadence(void)
     TEST_ASSERT_EQUAL_UINT8(4U, pio_sim_sm_get_pc(&pio, 0)); /* avg 2.5 over 10 ticks */
 }
 
-/* div_int == 0 encodes a divider of 65536 (plus the fraction) — it must not
+/* div_int == 0 encodes a divider of 65536 (plus the fraction). It must not
  * collapse to full speed when div_frac is non-zero. */
 static void test_clkdiv_int0_frac_is_65536(void)
 {
@@ -1078,7 +1078,7 @@ static void test_tx_empty_and_irq_clear_accessors(void)
 /* ── Regression tests for review findings #1–#4 ────────────────────────────── */
 
 /* #1: an IN that crosses the autopush threshold while the RX FIFO is full must
- * stall *before* shifting — it must not shift the same source bits into the ISR
+ * stall *before* shifting. It must not shift the same source bits into the ISR
  * again on each retry. */
 static void test_in_autopush_full_does_not_reshift(void)
 {
@@ -1132,7 +1132,7 @@ static void test_irq_wait_parks_until_cleared(void)
 }
 
 /* An `irq ... wait` injected via pio_sim_sm_exec must raise its flag exactly once.
- * Once it has parked, a later external clear lets it commit — it must not re-raise
+ * Once it has parked, a later external clear lets it commit. It must not re-raise
  * the flag on its retry cycle (which would defeat the acknowledge). */
 static void test_sm_exec_irq_wait_does_not_rearm(void)
 {
@@ -1151,7 +1151,7 @@ static void test_sm_exec_irq_wait_does_not_rearm(void)
 }
 
 /* An `irq n wait` injected while the SM is already stalled (e.g. parked on a
- * blocking PULL) must still raise its flag on first presentation — the stale
+ * blocking PULL) must still raise its flag on first presentation. The stale
  * program stall must not suppress it, or the wait deadlocks forever. */
 static void test_sm_exec_irq_wait_from_stalled_sm(void)
 {
@@ -1577,7 +1577,7 @@ static void test_mov_rxfifo_discriminator_bit4(void)
 
 /* In an RX register-file join mode the RX FIFO is not a live push target (it is
  * addressed only by MOV rxfifo[]). A blocking PUSH must stall (RXSTALL) rather
- * than drain the ISR into the register file — which would clobber a MOV slot and
+ * than drain the ISR into the register file, which would clobber a MOV slot and
  * desync rx.count (is_rx_fifo_full never fires because the MOVs don't touch it). */
 static void test_push_into_rx_register_file_stalls(void)
 {
@@ -1729,7 +1729,7 @@ static void test_gpio_base_offsets_output(void)
 }
 
 /* Top of the GPIOBASE window: with base 16, view pin 31 maps to physical GPIO 47
- * (the last pin of the 32-pin window) — the edge of the window mapping. */
+ * (the last pin of the 32-pin window), the edge of the window mapping. */
 static void test_gpio_base_window_top_edge(void)
 {
     pio_sim_set_gpio_base(&pio, 16);
@@ -1916,8 +1916,8 @@ static void test_group_shared_pads(void)
 /* Regression: with shared pads, a block's previous-tick pin writes must not
  * compete for same-cycle priority during a later block's tick of the next
  * cycle. B (the later, higher-priority owner) writes GPIO 0 high on tick 1
- * only; A writes it low on tick 2. A's on_tick hook — which fires after A's
- * own resolve but before B's tick — must see A's write win on tick 2, because
+ * only; A writes it low on tick 2. A's on_tick hook, which fires after A's
+ * own resolve but before B's tick, must see A's write win on tick 2, because
  * B wrote nothing that cycle. */
 static uint8_t group_seen_levels[8];
 static uint8_t group_seen_count;
@@ -1972,7 +1972,7 @@ static void test_group_stale_write_does_not_win_priority(void)
     TEST_ASSERT_EQUAL_UINT8(3, group_seen_count);
     /* Tick 1: B's set lands after A's hook ran, so A saw the idle level. */
     TEST_ASSERT_EQUAL_UINT8(0, group_seen_levels[0]);
-    /* Tick 2: only A wrote this cycle — its low write must win even though
+    /* Tick 2: only A wrote this cycle, so its low write must win even though
      * B is the higher-priority owner (B's tick-1 write is stale). */
     TEST_ASSERT_EQUAL_UINT8(0, group_seen_levels[1]);
     /* Tick 3: nobody writes; the pad holds A's latched level. */
@@ -2412,7 +2412,7 @@ static void test_in_pins_shift_right(void)
 static void test_push_iffull_noop_below_threshold(void)
 {
     /* push threshold 32; in x,1 leaves isr_count=1 < 32, so `push iffull` is a
-     * no-op — nothing reaches the RX FIFO and the ISR is retained. */
+     * no-op, so nothing reaches the RX FIFO and the ISR is retained. */
     sm_config_set_in_shift(&cfg, false, false, 32);
     const uint16_t prog[] = {
         pio_sim_encode_set(PIO_DST_X, 1),
@@ -2446,7 +2446,7 @@ static void test_push_noblock_on_full_rx_drops_and_clears_isr(void)
 {
     /* All-noblock pushes: the first four fill the depth-4 RX FIFO, and the fifth
      * push drops the word, clears the ISR, and sets RXSTALL. The 3-instruction
-     * loop never stalls, so the fifth push lands exactly at cycle 15 (5 * 3) —
+     * loop never stalls, so the fifth push lands exactly at cycle 15 (5 * 3);
      * stopping there makes the post-drop ISR state deterministic. */
     sm_config_set_in_shift(&cfg, false, false, 32);
     const uint16_t prog[] = {
@@ -2549,7 +2549,7 @@ static void test_wait_pin_high_satisfied(void)
     TEST_ASSERT_EQUAL_UINT32(1U, pio.sm[0].y);
 }
 
-/* The library is reentrant — all state lives in the caller-passed pio_sim_t, with
+/* The library is reentrant. All state lives in the caller-passed pio_sim_t, with
  * no module globals or heap. Two independent instances running different programs
  * must not interfere; a future accidental global would break this. */
 static void test_two_instances_are_independent(void)
@@ -2570,7 +2570,7 @@ static void test_two_instances_are_independent(void)
     pio_sim_sm_init(&b, 0, 0, &cb);
     pio_sim_sm_set_enabled(&a, 0, true);
     pio_sim_sm_set_enabled(&b, 0, true);
-    /* Interleave the two — neither sees the other's state. */
+    /* Interleave the two; neither sees the other's state. */
     pio_sim_run(&a, 1);
     pio_sim_run(&b, 3);
     pio_sim_run(&a, 2);
@@ -2582,8 +2582,8 @@ static void test_two_instances_are_independent(void)
 
 /* ── regression pins for correct-but-previously-unexercised branches ─────────── */
 
-/* `wait 0 irq N` stalls while flag N is SET and proceeds once it is clear, and —
- * unlike `wait 1 irq` — must not clear the flag. */
+/* `wait 0 irq N` stalls while flag N is SET and proceeds once it is clear, and,
+ * unlike `wait 1 irq`, must not clear the flag. */
 static void test_wait_irq_polarity0_waits_for_clear(void)
 {
     const uint16_t prog[] = {
@@ -2705,7 +2705,7 @@ static void test_joined_fifo_reads_full_and_empty(void)
 
 #if PIO_SIM_HAS_IN_PIN_COUNT
 /* A `wait 0 pin` on a masked pin (index >= in_count) reads 0, so the pol-0 wait
- * is satisfied immediately — the inverse of test_wait_pin_above_in_count_never_ready. */
+ * is satisfied immediately, the inverse of test_wait_pin_above_in_count_never_ready. */
 static void test_wait_pin0_masked_satisfies_immediately(void)
 {
     sm_config_set_in_pins(&cfg, 0);
@@ -2724,7 +2724,7 @@ static void test_wait_pin0_masked_satisfies_immediately(void)
 
 #if PIO_SIM_HAS_IRQ_PREVNEXT
 /* `wait 1 irq prev N` on block B waits on neighbour block A's flag and clears it
- * on satisfy — a cross-block WAIT clear the local-block tests never reach. */
+ * on satisfy, a cross-block WAIT clear the local-block tests never reach. */
 static void test_wait_irq_neighbour_clears_and_parks(void)
 {
     pio_sim_t a;
@@ -2747,7 +2747,7 @@ static void test_wait_irq_neighbour_clears_and_parks(void)
 #if PIO_SIM_HAS_RXFIFO_MOV
 /* Autopush is prohibited with FJOIN_RX_PUT (RP2350 §11.5.4.1, undefined); the
  * model resolves an IN that crosses the threshold to RXSTALL without writing the
- * register file — the will_autopush register-file guard. */
+ * register file, the will_autopush register-file guard. */
 static void test_autopush_into_rx_register_file_stalls(void)
 {
     sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX_PUT);

@@ -266,7 +266,7 @@ jobs:
           llvm-cov-21 report $OBJS -instr-profile=merged.profdata \
             -ignore-filename-regex="$IGNORE" | tee coverage.txt
           {
-            echo '### Coverage — lib/src, RP2040 + RP2350 merged'
+            echo '### Coverage: lib/src, RP2040 + RP2350 merged'
             echo '```'
             cat coverage.txt
             echo '```'
@@ -344,12 +344,12 @@ jobs:
           fi
 
   # Supplementary static analysis: cppcheck over the library, a second opinion
-  # alongside clang-tidy. Runs both feature surfaces (v0/v1) via the config macro
-  # — no build needed. Fails the build on any finding (--error-exitcode).
+  # alongside clang-tidy. Runs both feature surfaces (v0/v1) via the config macro,
+  # so no build is needed. Fails the build on any finding (--error-exitcode).
   #
   # Genuine false positives are suppressed inline in the source (grep
   # "cppcheck-suppress"). .cppcheck-suppressions holds only cppcheck's own
-  # non-findings, as bare ids (that file format must stay comment-free — older
+  # non-findings, as bare ids (that file format must stay comment-free, since older
   # cppcheck rejects '#' lines in a --suppressions-list):
   #   - missingIncludeSystem      we don't feed it the system include path
   #   - checkersReport            the "active checkers" summary epilogue
@@ -384,7 +384,7 @@ jobs:
   # without docs.
   #
   # Two classes of warning are filtered on purpose, neither a doc gap:
-  #  - "(macro definition)": the #define constants — mostly the low-level
+  #  - "(macro definition)": the #define constants, mostly the low-level
   #    instruction-encoding field values (PIO_OP_/COND_/SRC_/DST_/MOV_/…). The
   #    encode_* functions are the documented API for building words; gating ~80
   #    self-evident field constants is noise. Functions, types, enums and struct

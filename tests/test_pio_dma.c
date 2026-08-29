@@ -1,4 +1,4 @@
-/* test_pio_dma.c — unit tests for the DMA controller model (pio_dma.h):
+/* test_pio_dma.c: unit tests for the DMA controller model (pio_dma.h):
  * DREQ pacing, sizes, bswap, ring, chaining, null triggers, IRQs, IRQ_QUIET,
  * abort, sniffer CRCs, pacing timers, arbitration, and mem-to-mem. */
 
@@ -223,7 +223,7 @@ static void test_chain_to_next_channel(void)
     static uint32_t out[4] = {0};
     dma_channel_config c;
     /* ch0 sends a[], chains to ch2 which sends b[]. ch2 is programmed but not
-     * triggered — the chain starts it. */
+     * triggered; the chain starts it. */
     c = pio_dma_channel_get_default_config(2);
     channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(0, 0));
     pio_dma_channel_configure(&dma, 2, &c, pio_dma_addr_txf(0, 0), pio_dma_addr_mem(b), 2, false);
@@ -379,7 +379,7 @@ static void test_transfer_size_out_of_range_clamped(void)
  * config struct (bypassing channel_config_set_transfer_data_size): a caller may
  * hand-build the config, so pio_dma_channel_configure has to re-clamp on its
  * register-write path. Without it, elem_bytes(1<<3)=8 makes the transfer move 8
- * bytes and shift a uint32_t by up to 56 bits — a shift-UB the ASan/UBSan CI
+ * bytes and shift a uint32_t by up to 56 bits, a shift-UB the ASan/UBSan CI
  * catches, and here the guard tail (dst[4..7]) also pins it on a normal build. */
 static void test_transfer_size_out_of_range_raw_config_clamped(void)
 {
@@ -389,7 +389,7 @@ static void test_transfer_size_out_of_range_raw_config_clamped(void)
     c.data_size = (pio_dma_size_t)3;
 
     /* Contiguous 8-byte buffers: only the low 4 bytes must move (32-bit), the
-     * high 4 (guard) must stay 0xA5 — an in-array, host-portable overrun check. */
+     * high 4 (guard) must stay 0xA5, an in-array, host-portable overrun check. */
     static unsigned char src[8] = {0xEF, 0xBE, 0xAD, 0xDE, 0x11, 0x22, 0x33, 0x44};
     static unsigned char dst[8] = {0, 0, 0, 0, 0xA5, 0xA5, 0xA5, 0xA5};
     static const unsigned char want[8] = {0xEF, 0xBE, 0xAD, 0xDE, 0xA5, 0xA5, 0xA5, 0xA5};
@@ -449,7 +449,7 @@ static void test_sniffer_crc16_ccitt_check_value(void)
     channel_config_set_sniff_enable(&c, true);
     pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_CRC16, false);
     pio_dma_sniffer_set_data_accumulator(&dma, 0xFFFFU);
-    /* NOLINTNEXTLINE(performance-no-int-to-ptr) — see the CRC32 test above. */
+    /* NOLINTNEXTLINE(performance-no-int-to-ptr); see the CRC32 test above. */
     pio_dma_addr_t msg_addr = pio_dma_addr_mem((void *)(uintptr_t)msg);
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), msg_addr, 9, true);
     tick_all(12);
@@ -459,7 +459,7 @@ static void test_sniffer_crc16_ccitt_check_value(void)
 /* CRC-32/MPEG-2: MSB-first, poly 0x04C11DB7, seed 0xFFFFFFFF, no output invert
  * -> 0x0376E6E7 (a published check value). Exercises PIO_DMA_SNIFF_CRC32 and the
  * width-32 branch of crc_update_msb, which the reflected CRC32R test never
- * reaches. (Do NOT reuse 0xCBF43926 — that is the reflected-algorithm check.) */
+ * reaches. (Do NOT reuse 0xCBF43926; that is the reflected-algorithm check.) */
 static void test_sniffer_crc32_msb_check_value(void)
 {
     static const char msg[] = "123456789";
@@ -471,7 +471,7 @@ static void test_sniffer_crc32_msb_check_value(void)
     channel_config_set_sniff_enable(&c, true);
     pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_CRC32, false);
     pio_dma_sniffer_set_data_accumulator(&dma, 0xFFFFFFFFU);
-    /* NOLINTNEXTLINE(performance-no-int-to-ptr) — see the CRC32R test above. */
+    /* NOLINTNEXTLINE(performance-no-int-to-ptr); see the CRC32R test above. */
     pio_dma_addr_t msg_addr = pio_dma_addr_mem((void *)(uintptr_t)msg);
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), msg_addr, 9, true);
     tick_all(12);
@@ -492,7 +492,7 @@ static void test_sniffer_crc16r_check_value(void)
     channel_config_set_sniff_enable(&c, true);
     pio_dma_sniffer_enable(&dma, 0, PIO_DMA_SNIFF_CRC16R, false);
     pio_dma_sniffer_set_data_accumulator(&dma, 0xFFFFU);
-    /* NOLINTNEXTLINE(performance-no-int-to-ptr) — see the CRC32R test above. */
+    /* NOLINTNEXTLINE(performance-no-int-to-ptr); see the CRC32R test above. */
     pio_dma_addr_t msg_addr = pio_dma_addr_mem((void *)(uintptr_t)msg);
     pio_dma_channel_configure(&dma, 0, &c, pio_dma_addr_mem(dst), msg_addr, 9, true);
     tick_all(12);

@@ -1,7 +1,7 @@
 ; Forward symbol references. pioasm builds the whole symbol table before
 ; evaluating, so a `.define` value may reference a label OR another define
-; declared further down (verified bit-exact against real pioasm 2.1.0 — the
-; pinned CI version — and 2.2.0, identical encodings). The in-tree assembler
+; declared further down (verified bit-exact against real pioasm 2.1.0, the
+; pinned CI version, and 2.2.0, identical encodings). The in-tree assembler
 ; collects all symbols in a scan pass then resolves each define lazily on first
 ; reference (memoised, cycle-detecting), so it must match pioasm here; the
 ; differential makes pioasm the authority.

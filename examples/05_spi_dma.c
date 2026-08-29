@@ -1,4 +1,4 @@
-/* 05_spi_dma — stream data out of an SPI-style PIO program using DMA.
+/* 05_spi_dma: stream data out of an SPI-style PIO program using DMA.
  *
  * A memory buffer is pushed through a DMA channel into a state machine's TX
  * FIFO, paced by the PIO's TX data request (DREQ), and the SM clocks each byte

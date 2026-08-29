@@ -1,21 +1,21 @@
-/* fuzz_pio_sim.c — libFuzzer entry point for the PIO simulator execution core.
+/* fuzz_pio_sim.c: libFuzzer entry point for the PIO simulator execution core.
  *
  * The engine executes arbitrary 16-bit instruction words fed via the public API
  * (pio_sim_load / pio_sim_sm_exec), bypassing the assembler. This harness turns
  * fuzzer bytes into an SM configuration, a program of raw words, and a bounded
  * stream of stimulus actions (tick / FIFO push-pop / pin drive / injected exec /
- * INTE-INTF / RX register-file), then runs a capped number of cycles — looking
+ * INTE-INTF / RX register-file), then runs a capped number of cycles, looking
  * for crashes, UB (UBSan) and memory errors (ASan). It asserts nothing about the
  * result; a stalled or garbage program is a valid outcome, only a crash is a bug.
  *
  * The library masks/clamps every index and count internally (sm & 3, pin %
  * NUM_PINS, thresholds/wrap clamped, pio_sim_load drops words past addr 31), so
- * raw bytes are safe to feed — EXCEPT the two enum-typed config setters, which
+ * raw bytes are safe to feed, EXCEPT the two enum-typed config setters, which
  * this harness masks to their declared range so a garbage value can't trip
  * UBSan's enum check. pio_sim_run advances exactly n ticks (no unbounded loop
  * even on a permanently-stalled SM), so the tick budget is a hard cap.
  *
- * TODO: the DMA engine (pio_dma) is not fuzzed here — it takes raw host pointers
+ * TODO: the DMA engine (pio_dma) is not fuzzed here; it takes raw host pointers
  * + a transfer count, so a sound harness needs buffer-bounded address/count
  * clamping; add a separate fuzz_pio_dma.c for it.
  *
@@ -41,7 +41,7 @@
 #define FUZZ_TICKS_MAX 4096U
 
 /* Fuzzed-data provider: a cursor over the input that returns 0 once exhausted,
- * so even a tiny seed drives a full config+program+action pass. Deterministic —
+ * so even a tiny seed drives a full config+program+action pass. Deterministic,
  * no rand, time, or uninitialised reads. */
 typedef struct {
     const uint8_t *p;

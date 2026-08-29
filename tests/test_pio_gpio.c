@@ -1,4 +1,4 @@
-/* test_pio_gpio.c — unit tests for the PADS_BANK0 pad register model and the
+/* test_pio_gpio.c: unit tests for the PADS_BANK0 pad register model and the
  * IO_BANK0 FUNCSEL mux / overrides (pio_gpio.h). */
 
 #include "unity.h"
@@ -178,7 +178,7 @@ static void test_iso_freezes_output_and_gates_input(void)
 
     pio_sim_pad_set_iso(&pio, 6, true);             /* latch: driven high */
     TEST_ASSERT_TRUE(pio_sim_pad_get_iso(&pio, 6)); /* getter mirrors the setter */
-    /* Remove the live drive behind the latch — the pad must stay frozen. */
+    /* Remove the live drive behind the latch; the pad must stay frozen. */
     pio_sim_gpio_set_function(&pio, 6, PIO_GPIO_FUNC_NULL);
     pio_sim_run(&pio, 1);                       /* resolve drops the PIO's routing */
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 6)); /* frozen at latched level */
@@ -361,7 +361,7 @@ static void test_outover_inverts_and_forces(void)
 static void test_oeover_forces_drive_with_no_function(void)
 {
     /* No function output on pin 11 at all, but OEOVER=HIGH drives the pad
-     * (level comes from the — all zero — mux output). */
+     * (level comes from the mux output, which is all zero). */
     pio_sim_gpio_set_function(&pio, 11, PIO_GPIO_FUNC_NULL);
     pio_sim_pad_set_pulls(&pio, 11, true, false); /* pull-up to show OE wins */
     TEST_ASSERT_TRUE(pio_sim_get_pin(&pio, 11));  /* pulled high, undriven */

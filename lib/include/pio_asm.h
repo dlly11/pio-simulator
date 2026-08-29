@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 /**
  * @file
- * pio_asm — a minimal PIO assembler for pio_sim.
+ * pio_asm: a minimal PIO assembler for pio_sim.
  *
  * Where no pioasm toolchain is available, this assembles the common subset of
  * PIO assembly directly into instruction words plus the program metadata pio_sim
@@ -58,7 +58,7 @@
 
 /**
  * A `public <name>:` label and its instruction index (relative to program
- * start) — mirrors pioasm's `<prog>_offset_<name>` defines.
+ * start). Mirrors pioasm's `<prog>_offset_<name>` defines.
  */
 typedef struct {
     char name[32]; /**< Label identifier (NUL-terminated). */
@@ -131,18 +131,18 @@ bool pio_asm_assemble(const char *src, const char *name, pio_program_t *out);
 /**
  * Convenience: load an already-assembled `prog` into `pio` at `offset`
  * (relocating JMP targets), apply its side-set and wrap config to state
- * machine `sm`, and set the SM's PC to `offset` — the program's first
+ * machine `sm`, and set the SM's PC to `offset`, the program's first
  * instruction, as the SDK's pio_sm_init does, so a preamble before
  * .wrap_target runs once. Returns false and does nothing if `prog->ok` is
  * false, if `offset + prog->count` exceeds the 32-word instruction memory, or if
- * `prog`'s wrap window falls outside its instructions — so check the return
+ * `prog`'s wrap window falls outside its instructions, so check the return
  * value, not just `prog->ok`.
  */
 bool pio_asm_load_program(pio_sim_t *pio, uint8_t sm, uint8_t offset, const pio_program_t *prog);
 
 /**
  * Like pio_asm_load_program, but load at the program's `.origin` when one was
- * given (`prog->has_origin`), else at offset 0 — mirroring how a fixed-origin
+ * given (`prog->has_origin`), else at offset 0, mirroring how a fixed-origin
  * program is placed. Equivalent to pio_asm_load_program with the resolved offset.
  */
 bool pio_asm_load_program_at_origin(pio_sim_t *pio, uint8_t sm, const pio_program_t *prog);

@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: MIT */
 /**
  * @file
- * pio_chip.h — a thin chip-level umbrella composing every PIO block of the
+ * pio_chip.h: a thin chip-level umbrella composing every PIO block of the
  * device (2 on RP2040, 3 on RP2350) around one shared pad set, the DMA
  * controller, and the clock tree. Purely compositional: everything here can
- * be assembled by hand from pio_sim/pio_dma/pio_clk — this just wires the
+ * be assembled by hand from pio_sim/pio_dma/pio_clk; this just wires the
  * common whole-chip case in one call.
  *
  * pio_chip_tick runs the PIO group first, then the DMA, so the controller
@@ -47,7 +47,7 @@ void pio_chip_run(pio_chip_t *c, uint64_t n);
 pio_sim_t *pio_chip_pio(pio_chip_t *c, uint8_t index);
 
 /** Wall-clock duration of `ticks` chip cycles under the configured tree, and the
- * inverse conversions — thin wrappers over the embedded pio_clk tree. As in
+ * inverse conversions. Thin wrappers over the embedded pio_clk tree. As in
  * pio_clk.h, ticks_to_* round to nearest and *_to_ticks round up (ceiling, so a
  * derived deadline is never short). */
 uint64_t pio_chip_ticks_to_ns(const pio_chip_t *c, uint64_t ticks);

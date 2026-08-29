@@ -1,4 +1,4 @@
-/* pio_sim_internal.h — helpers shared between the simulator and assembler
+/* pio_sim_internal.h: helpers shared between the simulator and assembler
  * translation units. Private to lib/src; not installed with the public API. */
 #ifndef PIO_SIM_INTERNAL_H
 #define PIO_SIM_INTERNAL_H
@@ -10,7 +10,7 @@
 /* Pad plumbing shared between pio_sim.c and pio_gpio.c. */
 
 /* Chip-side drive after the function mux, IO_BANK0 overrides, pad OD and
- * (RP2350) isolation — what the chip presents to the pad, before external
+ * (RP2350) isolation. What the chip presents to the pad, before external
  * drivers and pulls. */
 void pio_pads_chip_drive(const pio_pads_t *p, uint64_t *oe_out, uint64_t *lvl_out);
 

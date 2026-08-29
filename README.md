@@ -3,17 +3,17 @@
 ![ci](https://github.com/dlly11/pio-simulator/actions/workflows/ci.yml/badge.svg)
 
 A pure-C functional simulator and assembler for the **RP2040 / RP2350 PIO**
-block. It runs real PIO programs off-hardware so you can unit-test PIO logic —
-protocols, timing, FIFO behaviour — in a normal host build. No silicon, no Pico
-SDK, no RTOS.
+block. It runs real PIO programs off-hardware in a normal host build, so you
+can unit-test protocols, timing and FIFO behaviour. No silicon, no Pico SDK, no
+RTOS.
 
-- **Runs real programs** — the full PIO instruction set with side-set, delays,
+- **Runs real programs.** The full PIO instruction set with side-set, delays,
   autopush/autopull, joinable FIFOs, scratch registers and per-SM clock dividers.
-- **pioasm-compatible assembler** — every mnemonic, directive and operand form,
+- **pioasm-compatible assembler.** Every mnemonic, directive and operand form,
   checked bit-exact against the real `pioasm` in CI.
-- **Models the whole block** — shared GPIO pads, DMA, a clock tree and multi-PIO
+- **Models the whole block.** Shared GPIO pads, DMA, a clock tree and multi-PIO
   groups, all behind one chip-level tick.
-- **Pure C11, zero dependencies** — only `<stddef.h>`, `<stdint.h>`, `<stdbool.h>`,
+- **Pure C11, zero dependencies.** Only `<stddef.h>`, `<stdint.h>`, `<stdbool.h>`,
   `<stdio.h>`, `<stdlib.h>` and `<string.h>`. MIT-licensed.
 
 ## Contents
@@ -31,39 +31,39 @@ SDK, no RTOS.
 
 ## The two components
 
-### pio_sim — the engine
+### The pio_sim engine
 
 Executes the full PIO instruction set (JMP, WAIT, IN, OUT, PUSH, PULL, MOV, IRQ,
 SET), one system clock per `pio_sim_tick()`. It models:
 
-- **Shift registers** — OSR/ISR with autopush/autopull and configurable thresholds.
-- **FIFOs** — joinable 4-deep TX/RX with hardware-exact non-blocking ops: `push
+- **Shift registers.** OSR/ISR with autopush/autopull and configurable thresholds.
+- **FIFOs.** Joinable 4-deep TX/RX with hardware-exact non-blocking ops: `push
   noblock` on a full RX FIFO discards the word and clears the ISR; `pull noblock`
   on an empty TX FIFO loads the OSR from scratch X.
-- **Timing** — side-set, per-instruction delay, and rate-exact per-SM clock dividers.
-- **Shared pads** — several state machines, and an external device model, driving
+- **Timing.** Side-set, per-instruction delay, and rate-exact per-SM clock dividers.
+- **Shared pads.** Several state machines, and an external device model, driving
   and sampling the same wires.
-- **RP2350 extras** — the 48-GPIO window (GPIOBASE), inter-PIO IRQ signalling, and
+- **RP2350 extras.** The 48-GPIO window (GPIOBASE), inter-PIO IRQ signalling, and
   multi-PIO groups.
 
-Companion modules cover the chip *around* the block — see [Scope](#scope):
+Companion modules cover the chip *around* the block. See [Scope](#scope).
 
 | Module | Models |
 |---|---|
 | `pio_gpio` | PADS_BANK0 pad registers and the IO_BANK0 FUNCSEL mux (output/input overrides) |
-| `pio_dma`  | the full 12/16-channel DMA controller — chaining, IRQs, pacing timers, CRC sniffer |
+| `pio_dma`  | the full 12/16-channel DMA controller: chaining, IRQs, pacing timers, CRC sniffer |
 | `pio_clk`  | the XOSC → PLL → clk_sys tree with tick↔time conversion |
 | `pio_chip` | all blocks + shared pads + DMA + clock behind one tick call |
 
-### pio_asm — the assembler
+### The pio_asm assembler
 
 A pioasm-compatible assembler, so tests can spell programs inline instead of
-shipping a `pioasm` toolchain — and a build-time differential checks the
-encodings stay bit-exact. It handles:
+shipping a `pioasm` toolchain. A build-time differential checks the encodings
+stay bit-exact. It handles:
 
 - **Every mnemonic and operand form**, including RP2350's `mov rxfifo[]`, `wait
   jmppin`, `irq`/`wait prev|next`, and `mov pindirs`.
-- **Every directive** — `.program`, `.define`, `.side_set`, `.wrap_target`,
+- **Every directive.** `.program`, `.define`, `.side_set`, `.wrap_target`,
   `.wrap`, `.origin`, `.pio_version`, `.clock_div`, `.fifo`, `.mov_status`,
   `.in`/`.out`/`.set`, `.word`, `.lang_opt`.
 - **Labels, comments** (`;`, `//`, `/* */`), hex/binary literals, and full integer
@@ -121,7 +121,7 @@ recipe.
 
 The public headers are the source of truth and are written to read as
 documentation. A browsable [Doxygen reference][docs] is generated from them and
-published on every push to `main` — every function, type and enum in the public
+published on every push to `main`. Every function, type and enum in the public
 surface carries a doc comment.
 
 [docs]: https://dlly11.github.io/pio-simulator/
@@ -156,7 +156,7 @@ The RP2350 PIO ("version 1") is a superset of the RP2040 PIO ("version 0"): it
 adds the indexed RX-FIFO `mov rxfifo[]` instructions, `MOV STATUS` from an IRQ
 flag, `wait ... jmppin`, inter-PIO (`irq`/`wait ... prev|next`) signalling, and
 the 48-GPIO window (GPIOBASE). `PIO_SIM_PIO_VERSION` selects which set the
-library exposes — `1` (RP2350, the default) or `0` (RP2040). The v1-only API is
+library exposes, either `1` (RP2350, the default) or `0` (RP2040). The v1-only API is
 **removed** from a v0 build, so using it on an RP2040 target is a compile error
 rather than a silent surprise.
 
@@ -179,64 +179,64 @@ against the same feature surface the library was built with.
 
 ## System modelling
 
-The chip surrounding the PIO block — pads, interrupts, DMA and multiple PIOs — is
-modelled too.
+The chip surrounding the PIO block is modelled too, including pads, interrupts,
+DMA and multiple PIOs.
 
-- **GPIOBASE** — `pio_sim_set_gpio_base(&pio, 16)` shifts the state machines'
+- **GPIOBASE.** `pio_sim_set_gpio_base(&pio, 16)` shifts the state machines'
   32-pin window to GPIO 16–47 (default 0 → GPIO 0–31), as on RP2350B. Every
   SM-side pin access (IN/OUT/SET/side-set/MOV pins, `WAIT GPIO/PIN`, `JMP PIN`)
   is offset; host access (`pio_sim_get_pin`/`set_pin`) stays absolute.
-- **Pin drive & arbitration** — each state machine has its own pin output and
+- **Pin drive & arbitration.** Each state machine has its own pin output and
   pin-direction (output-enable) registers; the pad's level is *resolved* from the
   pin **writes** of each cycle, as hardware collates them (RP2040 §3.5.6.1). When
   several SMs write one pin on the **same cycle** the **highest-numbered** wins;
   a pin nobody writes holds its latched level, so a later, uncontested write from
   any SM lands regardless of number (`OUT_STICKY` re-asserts an SM's pins every
   cycle, which is what gives it continuous priority). A state machine drives a
-  pad only where its **pindirs** mark the pin an output (as on hardware —
-  `SET/OUT PINS` to a pin left as input has no pad effect). A pin with no PIO
+  pad only where its **pindirs** mark the pin an output, as on hardware, where
+  `SET/OUT PINS` to a pin left as input has no pad effect. A pin with no PIO
   output, no external driver, and no pull is **high-impedance** and reads 0
   (true tri-state, not its last driven value).
-- **Output controls** — `sm_config_set_out_special` (the SDK name): `OUT_STICKY`
-  plus inline OUT-enable use a chosen OUT-data bit to gate the pin write — and
-  under sticky, an enable of 0 *releases* the pins (clears the SM's output enable)
+- **Output controls.** `sm_config_set_out_special` (the SDK name): `OUT_STICKY`
+  plus inline OUT-enable use a chosen OUT-data bit to gate the pin write. Under
+  sticky, an enable of 0 *releases* the pins (clears the SM's output enable)
   so a lower-priority SM, an external level, or a pull shows through (the
   documented override pattern).
-- **Pads, pulls & external drive** — `pio_sim_set_pull_level` gives a pin a
+- **Pads, pulls & external drive.** `pio_sim_set_pull_level` gives a pin a
   pull-up/down (open-drain buses like I²C); `pio_sim_set_pin` externally drives a
   pin and `pio_sim_release_pin` stops (so it floats/pulls);
   `pio_sim_set_input_sync_bypass` skips the two-cycle input synchroniser per pin.
   Priority is PIO > external > pull > float.
-- **Multiple PIO blocks** — a device has more than one PIO (`PIO_SIM_NUM_PIO`: 2
+- **Multiple PIO blocks.** A device has more than one PIO (`PIO_SIM_NUM_PIO`: 2
   on RP2040, 3 on RP2350). `pio_sim_group_init` ties several `pio_sim_t` blocks
   to one clock; `pio_sim_group_tick`/`_run` advance them in lockstep, and on
   RP2350 their `irq ... prev|next` links are auto-wired into a ring
   (PIO0→PIO1→PIO2→PIO0). `pio_sim_group_init_shared` additionally points the
   blocks at one shared pad set so they drive and sample the same GPIOs. (Link two
   blocks directly with `pio_sim_set_irq_neighbors` for the IRQ ring alone.)
-- **FIFO status** — `pio_sim_sm_get_tx_fifo_level`/`get_rx_fifo_level` report
+- **FIFO status.** `pio_sim_sm_get_tx_fifo_level`/`get_rx_fifo_level` report
   occupancy (FSTAT) and `pio_sim_sm_get_fdebug`/`clear_fdebug` expose the sticky
   TXSTALL/TXOVER/RXUNDER/RXSTALL debug flags. Host access is
   `pio_sim_sm_put`/`get` (SDK names); in the RP2350 random-access RX modes
   (`.fifo txput`/`txget`) the four entries are reached by index with
   `pio_sim_sm_rxfifo_get`/`_put` instead.
-- **System interrupts** — the two PIO interrupt lines are modelled:
+- **System interrupts.** The two PIO interrupt lines are modelled:
   `pio_sim_set_irqn_source_mask_enabled`/`pio_sim_set_intf` (INTE/INTF,
   toggle-with-bool like the SDK) over the INTR sources (per-SM RX-not-empty,
   TX-not-full, and the SM IRQ flags), read back with `pio_sim_get_ints` /
   `pio_sim_get_irqn_asserted`.
-- **Synchronised start** — `pio_sim_enable_sm_mask_in_sync` enables several SMs
+- **Synchronised start.** `pio_sim_enable_sm_mask_in_sync` enables several SMs
   at once and phase-aligns their dividers (the SDK's
   `pio_enable_sm_mask_in_sync`); `pio_sim_set_sm_mask_enabled` is the plain
   set/clear that leaves dividers alone.
-- **DMA** — a full controller model in `pio_dma.h`: build a channel with the
+- **DMA.** A full controller model in `pio_dma.h`: build a channel with the
   SDK-shaped `channel_config_set_*` mutators, program it with
   `pio_dma_channel_configure`, and advance it with `pio_dma_tick` (one transfer
   per system tick). Endpoints are host memory or a PIO FIFO
   (`pio_dma_addr_mem`/`_txf`/`_rxf`); DREQ pacing follows
   `pio_sim_sm_is_dreq_tx`/`_rx`. It covers chaining, null triggers, the
-  `dma_irqn_*` completion IRQs, the CRC sniffer, and fractional pacing timers —
-  see the [Scope](#scope) section.
+  `dma_irqn_*` completion IRQs, the CRC sniffer, and fractional pacing timers.
+  See the [Scope](#scope) section.
 
 The in-tree assembler also tracks the program-config directives in
 `pio_program_t`. `pio_asm_apply_program_config` applies the ones that map to SM
@@ -257,14 +257,14 @@ the PIO block are modelled too:
 
 - **Clock tree** (`pio_clk.h`): XOSC → PLL_SYS → clk_sys divider with
   datasheet-validated parameters and exact integer tick↔ns/µs conversion. It
-  does not change stepping — a tick is still one clk_sys cycle; the tree gives
+  does not change stepping. A tick is still one clk_sys cycle; the tree gives
   it a duration.
 - **GPIO pads** (`pio_gpio.h`): PADS_BANK0 with IE, OD, pulls and RP2350 pad
   isolation simulated exactly; DRIVE strength, SLEWFAST and SCHMITT are
   accepted/stored but are analog and do not affect the digital simulation.
 - **GPIO function mux** (`pio_gpio.h`): per-pin FUNCSEL routing with
   OUTOVER/OEOVER/INOVER; inputs always visible to the PIO, as on silicon.
-- **DMA** (`pio_dma.h`): the full 12/16-channel controller — address
+- **DMA** (`pio_dma.h`): the full 12/16-channel controller, covering address
   generation, rings, chaining/null triggers, DREQ + pacing timers, byte swap,
   the CRC sniffer, IRQ lines and abort.
 - **Chip umbrella** (`pio_chip.h`): all PIO blocks + shared pads + DMA + clock
@@ -277,22 +277,22 @@ Documented simulator-only deviations (each noted at its API):
   routing/reset are opt-in via `pio_sim_gpio_set_function` and
   `pio_sim_pads_reset_hw`.
 - The DMA moves one atomic element per tick, whole-controller, with
-  level-sensitive DREQ — deterministic, and equivalent for PIO-FIFO workloads,
-  but not the pipelined bus of real silicon.
+  level-sensitive DREQ. That is deterministic, and equivalent for PIO-FIFO
+  workloads, but it is not the pipelined bus of real silicon.
 - Autopull is a background OSR refill at one-tick granularity, following the
   datasheet rules (refills during stalls/delays; an OUT cannot fill and shift
   the OSR in one cycle). The datasheet notes the exact refill point is
   pipeline-dependent and not to be relied upon.
 - Both pull resistors enabled is modelled as a bus keeper holding the last
   driven level (a deterministic convenience). Real RP2040/RP2350 pads have no
-  keeper — both on at once is an indeterminate mid-rail divider.
+  keeper, so both on at once is an indeterminate mid-rail divider.
 
 Still intentionally out of scope: analog pad behaviour (drive-strength
 contention, slew, hysteresis), real-time execution, bus-cycle-exact DMA
 pipelining, and the RP2350 DMA MPU/security attributes.
 
-**Reentrancy.** The library holds no mutable global state and never allocates —
-each instance's state lives entirely in the caller-owned struct (`pio_sim_t`,
+**Reentrancy.** The library holds no mutable global state and never allocates.
+Each instance's state lives entirely in the caller-owned struct (`pio_sim_t`,
 `pio_dma_t`; the assembler keeps its context on the stack). Independent instances
 don't interfere, so you can run many in one process (or across threads, one per
 thread). A single shared instance is not internally synchronised.
@@ -321,7 +321,7 @@ gcc -std=c11 -Wall -Wextra -DPIO_SIM_PIO_VERSION=1 \
 
 Select the chip with `-DPIO_SIM_PIO_VERSION=0` (RP2040) or `=1` (RP2350, the
 default). Note `-DPIO_SIM_PLATFORM=…` only works through CMake; as a bare `-D`
-it does nothing — use `PIO_SIM_PIO_VERSION` for direct compiler builds.
+it does nothing; use `PIO_SIM_PIO_VERSION` for direct compiler builds.
 This compiles only `test_pio_sim`; swap in another `tests/test_*.c` for a
 different suite, or use CMake + `ctest` to build and run all six at once.
 
@@ -335,7 +335,7 @@ CI also runs `clang-format` (style in `.clang-format`) and `clang-tidy` (checks
 in `.clang-tidy`) over the library, examples, and tests. To reproduce locally:
 
 ```sh
-# formatting (no changes => clean) — the same file set CI checks
+# formatting (no changes => clean), the same file set CI checks
 clang-format --dry-run --Werror lib/src/*.c lib/src/pio_sim_internal.h \
     lib/include/*.h lib/config/*.h \
     tests/test_*.c tests/fuzz_*.c tests/unity_config.h tests/consumer/main.c \

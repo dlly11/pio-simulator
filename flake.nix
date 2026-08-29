@@ -1,5 +1,5 @@
 {
-  description = "pio-simulator — RP2040/RP2350 PIO functional simulator + assembler";
+  description = "pio-simulator: RP2040/RP2350 PIO functional simulator + assembler";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -9,7 +9,7 @@
       forAllSystems = f:
         nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
     in {
-      # `nix develop` — a working clang-21 toolchain on PATH. Built on the
+      # `nix develop` gives a working clang-21 toolchain on PATH. Built on the
       # llvmPackages_21 stdenv so the wrapped clang wires up crt/libc and its
       # resource dir: sanitizer, libFuzzer and source-coverage binaries link,
       # and clang-tidy finds the system headers (unlike a bare store-path clang).

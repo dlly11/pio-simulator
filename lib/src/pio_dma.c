@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * pio_dma.c — RP2040/RP2350-style DMA controller model. See pio_dma.h for the
+ * pio_dma.c: RP2040/RP2350-style DMA controller model. See pio_dma.h for the
  * behavioural contract and the documented simplifications.
  *
  * A pure client of the simulator's public FIFO API: FIFO endpoints move data
@@ -132,7 +132,7 @@ void pio_dma_channel_configure(pio_dma_t *d, uint8_t ch, const dma_channel_confi
     /* data_size is a directly-writable field; clamp on this register-write path
      * too (a caller may build the config struct by hand, bypassing the clamping
      * setter) so elem_bytes (1u << size) can never exceed 4 and overrun the
-     * 4-byte transfer word — mirroring the ring_size/chain_to guards. */
+     * 4-byte transfer word, mirroring the ring_size/chain_to guards. */
     if ((unsigned)chan->ctrl.data_size > (unsigned)DMA_SIZE_32) {
         chan->ctrl.data_size = DMA_SIZE_32;
     }
@@ -382,7 +382,7 @@ static bool dma_endpoints_ready(const pio_dma_t *d, const pio_dma_channel_t *cha
         return false;
     }
     /* A NULL memory endpoint (e.g. pio_dma_addr_mem(NULL)) would fault the
-     * transfer's byte copy — treat it as never ready instead. */
+     * transfer's byte copy, so treat it as never ready instead. */
     if (((r->kind == PIO_DMA_ADDR_MEM) && (r->mem == NULL)) ||
         ((w->kind == PIO_DMA_ADDR_MEM) && (w->mem == NULL))) {
         return false;
@@ -392,7 +392,7 @@ static bool dma_endpoints_ready(const pio_dma_t *d, const pio_dma_channel_t *cha
 
 /* Advance a MEM cursor by one element, honouring the ring if it applies to
  * this side. The wrap is address-aligned (the low ring_size bits wrap within
- * the naturally aligned window), exactly like CHx_CTRL RING — so the buffer
+ * the naturally aligned window), exactly like CHx_CTRL RING, so the buffer
  * must be 2^ring_size aligned, as on hardware. */
 static void dma_advance(pio_dma_addr_t *a, bool incr, uint8_t ring_size, bool ring_applies,
                         uint8_t bytes)
@@ -434,7 +434,7 @@ static void dma_transfer_one(pio_dma_t *d, uint8_t c)
     uint8_t bytes = elem_bytes(chan->ctrl.data_size);
 
     /* Read. Assemble `bytes` bytes little-endian into v's low bytes, matching the
-     * little-endian RP2040 regardless of the host's byte order — bswap and the
+     * little-endian RP2040 regardless of the host's byte order. bswap and the
      * sniffer below then operate on the value in its low bytes on any host. */
     uint32_t v = 0;
     if (chan->read_addr.kind == PIO_DMA_ADDR_MEM) {

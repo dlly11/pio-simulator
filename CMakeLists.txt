@@ -9,8 +9,8 @@ include(GNUInstallDirs)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 # Build as strict ISO C11 (-std=c11), not the -std=gnu11 default, so a GNU-only
-# extension is caught here rather than by a stricter downstream/MSVC toolchain —
-# the "pure C11" invariant the README and CHANGELOG advertise.
+# extension is caught here rather than by a stricter downstream/MSVC toolchain.
+# This is the "pure C11" invariant the README and CHANGELOG advertise.
 set(CMAKE_C_EXTENSIONS OFF)
 
 # Target chip: RP2040 (PIO version 0) or RP2350 (PIO version 1, a superset).
@@ -97,7 +97,7 @@ if(PIO_SIM_BUILD_DOCS)
             COMMENT "Generating API documentation (Doxygen) into docs/html"
             VERBATIM)
     else()
-        message(STATUS "Doxygen not found — the 'docs' target is unavailable")
+        message(STATUS "Doxygen not found; the 'docs' target is unavailable")
     endif()
 endif()
 

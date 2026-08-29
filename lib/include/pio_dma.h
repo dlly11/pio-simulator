@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 /**
  * @file
- * pio_dma.h — RP2040/RP2350-style DMA controller model for pio_sim.
+ * pio_dma.h: RP2040/RP2350-style DMA controller model for pio_sim.
  *
  * Models the DMA block as firmware sees it: 12 channels on RP2040, 16 on
  * RP2350 (PIO_SIM_DMA_NUM_CHANNELS), each with read/write address generation
@@ -45,7 +45,7 @@
 
 /* ── Transfer endpoints ────────────────────────────────────────────────────── */
 
-/** Element size — SDK-spelled (enum dma_channel_transfer_size). */
+/** Element size, SDK-spelled (enum dma_channel_transfer_size). */
 typedef enum {
     DMA_SIZE_8 = 0,  /**< byte transfers     */
     DMA_SIZE_16 = 1, /**< halfword transfers */
@@ -86,7 +86,7 @@ pio_dma_addr_t pio_dma_addr_rxf(uint8_t pio_index, uint8_t sm);
 
 /* ── Channel configuration (mirrors CHx_CTRL) ──────────────────────────────────
  * Build a config with pio_dma_channel_get_default_config() then the
- * channel_config_set_* mutators below — as with the pico-sdk's
+ * channel_config_set_* mutators below. As with the pico-sdk's
  * dma_channel_config, the fields are internal and should not be written
  * directly. (True compile-time hiding of a stack value type isn't possible in
  * C without aliasing hazards, so the fields remain declared, exactly as in the
@@ -94,17 +94,17 @@ pio_dma_addr_t pio_dma_addr_rxf(uint8_t pio_index, uint8_t sm);
 /** Per-channel CHx_CTRL image; build via pio_dma_channel_get_default_config()
  *  and the channel_config_set_* mutators, not by writing fields directly. */
 typedef struct {
-    bool high_priority;       /**< private — use channel_config_set_high_priority */
-    pio_dma_size_t data_size; /**< private — use channel_config_set_transfer_data_size */
-    bool incr_read;           /**< private — use channel_config_set_read_increment  */
-    bool incr_write;          /**< private — use channel_config_set_write_increment */
-    uint8_t ring_size;        /**< private — use channel_config_set_ring */
-    bool ring_sel;            /**< private — 2^ring_size-byte-aligned wrap */
-    uint8_t chain_to;         /**< private — use channel_config_set_chain_to */
-    uint8_t treq_sel;         /**< private — use channel_config_set_dreq */
-    bool bswap;               /**< private — use channel_config_set_bswap */
-    bool irq_quiet;           /**< private — use channel_config_set_irq_quiet */
-    bool sniff_en;            /**< private — use channel_config_set_sniff_enable */
+    bool high_priority;       /**< private, use channel_config_set_high_priority */
+    pio_dma_size_t data_size; /**< private, use channel_config_set_transfer_data_size */
+    bool incr_read;           /**< private, use channel_config_set_read_increment  */
+    bool incr_write;          /**< private, use channel_config_set_write_increment */
+    uint8_t ring_size;        /**< private, use channel_config_set_ring */
+    bool ring_sel;            /**< private, 2^ring_size-byte-aligned wrap */
+    uint8_t chain_to;         /**< private, use channel_config_set_chain_to */
+    uint8_t treq_sel;         /**< private, use channel_config_set_dreq */
+    bool bswap;               /**< private, use channel_config_set_bswap */
+    bool irq_quiet;           /**< private, use channel_config_set_irq_quiet */
+    bool sniff_en;            /**< private, use channel_config_set_sniff_enable */
 } dma_channel_config;
 
 /* SDK-named config mutators (config value only, no controller object). */
@@ -114,7 +114,7 @@ void channel_config_set_read_increment(dma_channel_config *c, bool incr);
 void channel_config_set_write_increment(dma_channel_config *c, bool incr);
 /** Data-request source: a PIO_DMA_DREQ_PIO_* level, PIO_DMA_TREQ_TIMER(n), or
  *  PIO_DMA_TREQ_FORCE. An unrecognised value leaves the channel permanently
- *  un-paced (never ready) rather than erroring — pick from the macros above. */
+ *  un-paced (never ready) rather than erroring, so pick from the macros above. */
 void channel_config_set_dreq(dma_channel_config *c, uint8_t dreq);
 /** Channel to trigger on completion (SDK channel_config_set_chain_to; taken
  *  modulo PIO_SIM_DMA_NUM_CHANNELS, chain to self = no chain). */
@@ -222,7 +222,7 @@ void pio_dma_channel_set_enabled(pio_dma_t *d, uint8_t ch, bool en);
 
 /** Trigger the channels in `mask`: each loads its reload count and goes busy.
  * A reload count of 0 is a NULL trigger (does not start; in IRQ_QUIET raises
- * the completion IRQ — the control-block chain termination idiom). Addresses
+ * the completion IRQ, the control-block chain termination idiom). Addresses
  * are NOT reset. */
 void pio_dma_start_channel_mask(pio_dma_t *d, uint32_t mask);
 
@@ -294,7 +294,7 @@ uint32_t pio_dma_get_ints(const pio_dma_t *d, uint8_t irq_index);
 uint32_t pio_dma_get_inte(const pio_dma_t *d, uint8_t irq_index);
 /** INTF force register read-back for `irq_index` (sim extension). */
 uint32_t pio_dma_get_intf(const pio_dma_t *d, uint8_t irq_index);
-/** Force (or clear) channel `ch`'s IRQ on line `irq_index` — INTF. Sim
+/** Force (or clear) channel `ch`'s IRQ on line `irq_index`, the INTF path. Sim
  * extension: the SDK exposes no DMA force helper. */
 void pio_dma_irqn_force_channel(pio_dma_t *d, uint8_t irq_index, uint8_t ch, bool on);
 

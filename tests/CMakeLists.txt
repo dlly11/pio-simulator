@@ -62,7 +62,7 @@ if(PIO_SIM_BUILD_FUZZERS)
         -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all -g -O1)
     target_link_options(fuzz_pio_asm PRIVATE -fsanitize=fuzzer,address,undefined)
 
-    # fuzz_pio_sim links pio_sim.c alone — it references no other lib TU (the asm
+    # fuzz_pio_sim links pio_sim.c alone; it references no other lib TU (the asm
     # harness above already links pio_asm.c + pio_sim.c without pio_gpio).
     add_executable(fuzz_pio_sim fuzz_pio_sim.c
         ${CMAKE_SOURCE_DIR}/lib/src/pio_sim.c)

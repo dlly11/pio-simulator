@@ -1,4 +1,4 @@
-/* 04_ws2812 — generate a WS2812 (NeoPixel) waveform and decode it back.
+/* 04_ws2812: generate a WS2812 (NeoPixel) waveform and decode it back.
  *
  * WS2812 LEDs are driven by a single-wire, self-clocked protocol: every bit is
  * a fixed-period pulse whose HIGH time encodes 0 or 1. This embeds the

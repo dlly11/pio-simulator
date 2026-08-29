@@ -1,4 +1,4 @@
-/* 03_uart_tx — drive a real UART transmitter and decode the wire.
+/* 03_uart_tx: drive a real UART transmitter and decode the wire.
  *
  * This embeds the canonical pico-examples `uart_tx` program (8n1, one bit every
  * 8 state-machine cycles) and shows a full transmit-and-verify loop:
@@ -62,14 +62,14 @@ int main(void)
     sm_config_set_out_pins(&c, TX_PIN, 1);
     sm_config_set_sideset_pins(&c, TX_PIN);
     sm_config_set_out_shift(&c, true, false, 32); /* LSB first, explicit pull */
-    /* NB: the clock divider is intentionally NOT set here — it comes from the
+    /* NB: the clock divider is intentionally NOT set here; it comes from the
      * program's `.clock_div` directive via pio_asm_apply_program_config below. */
     pio_sim_sm_init(&pio, 0, 0, &c);
     if (!pio_asm_load_program(&pio, 0, 0, &prog)) {
         (void)fprintf(stderr, "load failed\n");
         return 1;
     }
-    /* Applies the program's directive-derived config — here the .clock_div that
+    /* Applies the program's directive-derived config, here the .clock_div that
      * sets the baud rate. Without this call the divider would stay at 1. */
     pio_asm_apply_program_config(&pio, 0, &prog);
     pio_sim_sm_set_consecutive_pindirs(&pio, 0, TX_PIN, 1, true);

@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * pio_sim_config.h — compile-time configuration for the PIO simulator.
+ * pio_sim_config.h: compile-time configuration for the PIO simulator.
  *
  * Selects the target PIO hardware so the simulator and assembler expose only
  * the feature set that chip actually has:

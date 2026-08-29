@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 /**
  * @file
- * pio_clk.h — clk_sys clock-tree model: XOSC → PLL_SYS → clk_sys divider.
+ * pio_clk.h: clk_sys clock-tree model, XOSC → PLL_SYS → clk_sys divider.
  *
  * Behavioural contract: this module does NOT change how the simulator steps.
  * One pio_sim_tick() remains exactly one clk_sys cycle; the tree only assigns
@@ -9,9 +9,9 @@
  * (and back) with the same arithmetic real firmware implies. Configuration is
  * validated against the datasheet PLL limits (RP2040 §2.18 / RP2350 §8.6):
  * FBDIV 16–320, REFDIV 1–63 with FREF ≥ 5 MHz, VCO within the per-chip range
- * (750–1600 MHz on RP2040, 400–1600 MHz on RP2350 — PIO_SIM_PLL_VCO_MIN/MAX),
+ * (750–1600 MHz on RP2040, 400–1600 MHz on RP2350; PIO_SIM_PLL_VCO_MIN/MAX),
  * POSTDIV1/2 each 1–7. The clk_sys divider is 24.8 fractional on RP2040 and
- * 16.16 on RP2350. All arithmetic is 64-bit integer — no floating point.
+ * 16.16 on RP2350. All arithmetic is 64-bit integer, with no floating point.
  */
 
 #ifndef PIO_CLK_H
@@ -54,8 +54,8 @@ void pio_clk_init_default(pio_clk_tree_t *t);
 pio_clk_err_t pio_clk_validate(const pio_clk_tree_t *t);
 
 /** Set the PLL parameters, validating the result (the tree is only updated when
- * the whole configuration is legal). `refdiv`/`fbdiv` are `uint16_t` — they hold
- * a hardware register field (refdiv 1..63, fbdiv 16..320) — so a caller value
+ * the whole configuration is legal). `refdiv`/`fbdiv` are `uint16_t`, holding
+ * a hardware register field (refdiv 1..63, fbdiv 16..320), so a caller value
  * wider than 16 bits is taken modulo 2^16 before validation; an out-of-range
  * value is rejected only once truncated (e.g. 0x10001 aliases to refdiv 1). */
 pio_clk_err_t pio_clk_configure_pll(pio_clk_tree_t *t, uint16_t refdiv, uint16_t fbdiv,
@@ -76,9 +76,9 @@ uint64_t pio_clk_ticks_to_ns(const pio_clk_tree_t *t, uint64_t ticks);
 uint64_t pio_clk_ticks_to_us(const pio_clk_tree_t *t, uint64_t ticks);
 
 /** Convert a duration to the number of ticks that covers it (rounded UP, so
- * the returned tick count is never shorter than the requested time — the
+ * the returned tick count is never shorter than the requested time, the
  * right direction for timeouts). Returns 0 for an invalid clock tree
- * (indistinguishable from a 0-duration input — validate the tree first). */
+ * (indistinguishable from a 0-duration input, so validate the tree first). */
 uint64_t pio_clk_ns_to_ticks(const pio_clk_tree_t *t, uint64_t ns);
 /** As pio_clk_ns_to_ticks, but from microseconds. */
 uint64_t pio_clk_us_to_ticks(const pio_clk_tree_t *t, uint64_t us);

@@ -11,7 +11,7 @@ fuzzing and coverage. The repo ships a Nix flake that provides the identical
 toolchain, so local results match CI (no clang-format/clang-tidy version skew):
 
 ```sh
-nix develop           # clang, clang-format, clang-tidy, llvm-cov — all v21, on PATH
+nix develop           # clang, clang-format, clang-tidy, llvm-cov, all v21, on PATH
 ```
 
 With [direnv](https://direnv.net/): `direnv allow` once, and the shell loads
@@ -32,7 +32,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Both platforms must pass — RP2350 is the superset, RP2040 exercises the
+Both platforms must pass. RP2350 is the superset, RP2040 exercises the
 v0-gated paths. The encoding differential (`test_pio_asm_vs_pioasm`) runs only
 when a `pioasm` is available:
 
@@ -51,19 +51,19 @@ gcc -std=c11 -Wall -Wextra -Wpedantic -Ilib/include -Ilib/config -Ilib/src \
 ```
 
 Set `-DPIO_SIM_PIO_VERSION=0` for RP2040, `=1` for RP2350. (Note: the CMake-only
-`PIO_SIM_PLATFORM` name does nothing as a bare `-D` macro — the config header
+`PIO_SIM_PLATFORM` name does nothing as a bare `-D` macro; the config header
 reads `PIO_SIM_PIO_VERSION`.)
 
-## Before you push — reproduce the CI gate
+## Before you push: reproduce the CI gate
 
 ```sh
-# Formatting (must be clean) — the same file set CI checks
+# Formatting (must be clean), the same file set CI checks
 clang-format --dry-run --Werror lib/src/*.c lib/src/pio_sim_internal.h \
     lib/include/*.h lib/config/*.h \
     tests/test_*.c tests/fuzz_*.c tests/unity_config.h tests/consumer/main.c \
     examples/*.c
 
-# Static analysis (clean, WarningsAsErrors) — lib + examples + deterministic
+# Static analysis (clean, WarningsAsErrors) over lib + examples + deterministic
 # test suites, exactly as CI runs it. Build the examples so they land in
 # compile_commands.json.
 cmake -B build -G Ninja -DPIO_SIM_PLATFORM=RP2350 \
@@ -72,7 +72,7 @@ clang-tidy -p build lib/src/*.c examples/*.c \
     tests/test_pio_sim.c tests/test_pio_asm.c tests/test_pio_gpio.c \
     tests/test_pio_clk.c tests/test_pio_dma.c tests/test_pio_programs.c
 
-# Supplementary static analysis (cppcheck) — a second opinion over the library,
+# Supplementary static analysis (cppcheck), a second opinion over the library,
 # run against both feature surfaces (needs no build). Clean = exit 0. False
 # positives are suppressed inline in the source; .cppcheck-suppressions only
 # silences cppcheck's own environmental noise. (CI uses Ubuntu's packaged
@@ -95,7 +95,7 @@ cmake -B build-fuzz -G Ninja -DCMAKE_C_COMPILER=clang -DPIO_SIM_BUILD_FUZZERS=ON
 cmake --build build-fuzz --target fuzz_pio_asm
 mkdir -p /tmp/finds && ./build-fuzz/tests/fuzz_pio_asm -max_total_time=30 /tmp/finds tests/fuzz_corpus
 
-# Coverage (CI gates at 80% total lines, MERGING both platforms — a single
+# Coverage (CI gates at 80% total lines, MERGING both platforms; a single
 # platform reads lower because it misses the other's v0/v1-gated code).
 for plat in RP2040 RP2350; do
   cmake -B "build-cov-$plat" -G Ninja -DCMAKE_C_COMPILER=clang \
@@ -124,7 +124,7 @@ llvm-cov report $(find build-cov-RP2040 build-cov-RP2350 -name 'test_pio_*' -typ
 ## Pull requests
 
 Branch off `main`, keep commits focused, and make sure the full CI matrix is
-green — build (gcc + clang-21 × RP2040/RP2350), sanitizers, clang-tidy, cppcheck,
+green: build (gcc + clang-21 × RP2040/RP2350), sanitizers, clang-tidy, cppcheck,
 format, the pioasm differential, fuzz, the 80% coverage gate, and the
 install-consumer smoke.
 

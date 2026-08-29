@@ -1,4 +1,4 @@
-; WS2812 (NeoPixel) driver — the canonical pico-examples program. Drives a
+; WS2812 (NeoPixel) driver, the canonical pico-examples program. Drives a
 ; precisely-timed one-wire waveform: each bit is a fixed-period pulse whose
 ; high time encodes 0 or 1. Exercises side-set, per-instruction delays, and
 ; autopull (configured on the state machine, not in the program).

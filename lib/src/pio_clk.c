@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * pio_clk.c — clk_sys clock-tree model (see pio_clk.h).
+ * pio_clk.c: clk_sys clock-tree model (see pio_clk.h).
  */
 
 #include "pio_clk.h"
@@ -112,7 +112,7 @@ static uint64_t muldiv_round(uint64_t ticks, uint64_t scale, uint64_t hz)
 /* ceil(time * hz / scale), avoiding overflow in the remainder term:
  * (time % scale) * hz < 1e9 * 1.6e9 = 1.6e18 < 2^63. The whole term
  * (time / scale) * hz would only overflow past ~10^10 seconds. A 0 hz
- * (invalid tree) yields 0 — see the sentinel note on the public wrappers. */
+ * (invalid tree) yields 0; see the sentinel note on the public wrappers. */
 static uint64_t muldiv_ceil(uint64_t time, uint64_t hz, uint64_t scale)
 {
     uint64_t whole = (time / scale) * hz;

@@ -1,4 +1,4 @@
-/* 01_blink — the "hello world" of the PIO simulator.
+/* 01_blink: the "hello world" of the PIO simulator.
  *
  * A two-instruction program toggles one pin, so GPIO 0 emits a square wave.
  * This is the smallest complete use of the library and shows the canonical
@@ -43,7 +43,7 @@ int main(void)
     pio_sim_init(&pio);
 
     /* 3. Build the state-machine config the pico-sdk way: start from the reset
-     *    defaults and set only what this program needs — the SET pin group. */
+     *    defaults and set only what this program needs, the SET pin group. */
     pio_sm_config c = pio_get_default_sm_config();
     sm_config_set_set_pins(&c, BLINK_PIN, 1);
     pio_sim_sm_init(&pio, 0, 0, &c);
@@ -71,7 +71,7 @@ int main(void)
 
     /* Sanity check so CI's "run the example" step catches a regression. Each set
      * carries a [1] delay, so the pin holds each level for two cycles: the exact
-     * waveform is 1,1,0,0 repeated — a total count alone would pass many wrong
+     * waveform is 1,1,0,0 repeated. A total count alone would pass many wrong
      * shapes (e.g. 1,0,1,0 or an inverted phase). */
     static const uint8_t expect[8] = {1, 1, 0, 0, 1, 1, 0, 0};
     for (int cycle = 0; cycle < 8; cycle++) {

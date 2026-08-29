@@ -1,8 +1,8 @@
-/* 02_fifo_echo — move data through a state machine with no pins involved.
+/* 02_fifo_echo: move data through a state machine with no pins involved.
  *
  * The program loops: pull a word from the TX FIFO, copy it through the shift
  * registers, and push it to the RX FIFO. The host writes words in and reads
- * them back out — a software round-trip that shows the FIFO API without any
+ * them back out, a software round-trip that shows the FIFO API without any
  * GPIO or timing concerns:
  *
  *   pio_sim_sm_put            -> host writes the TX FIFO

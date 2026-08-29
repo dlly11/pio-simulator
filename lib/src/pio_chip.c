@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * pio_chip.c — chip-level composition of PIO blocks + DMA + clock tree.
+ * pio_chip.c: chip-level composition of PIO blocks + DMA + clock tree.
  */
 
 #include "pio_chip.h"

@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * pio_sim — RP2040/RP2350 PIO functional simulator. See pio_sim.h.
+ * pio_sim, the RP2040/RP2350 PIO functional simulator. See pio_sim.h.
  */
 
 #include "pio_sim.h"
@@ -43,7 +43,7 @@ static bool fifo_pop(pio_fifo_t *f, uint32_t *v)
 }
 
 /* Public-API state-machine index guard: out-of-range `sm` is masked into 0..3
- * rather than indexing out of bounds — the same defensive convention as the
+ * rather than indexing out of bounds, the same defensive convention as the
  * `irq & 7U` and `line & 1U` masks elsewhere in the API. */
 #define SM_IDX(sm) ((sm) & (PIO_SIM_NUM_SM - 1U))
 
@@ -89,7 +89,7 @@ void pio_pads_chip_drive(const pio_pads_t *p, uint64_t *oe_out, uint64_t *lvl_ou
 
 /* Resolved live pad level, by driver priority: the chip (PIO through the mux,
  * or the selected peripheral) wins on pins it drives; else an external
- * (off-chip) driver; else the pulls — up reads 1, down reads 0, both enabled
+ * (off-chip) driver; else the pulls, where up reads 1, down reads 0, both enabled
  * is the bus keeper holding the last driven level; else the pin floats and
  * reads 0 (true high-impedance). */
 static uint64_t pads_live(const pio_pads_t *p)
@@ -108,7 +108,7 @@ static uint64_t pads_live(const pio_pads_t *p)
  * gated by the pad's input enable (IE=0 reads 0; RP2350 isolation also gates
  * the input) and transformed by INOVER. INOVER is an IO_BANK0 override applied
  * upstream of the PIO's own two-stage synchroniser (matching silicon), which
- * is why it is folded in here — into what feeds in_sync[0] — rather than at the
+ * is why it is folded in here, into what feeds in_sync[0], rather than at the
  * SM read. */
 static uint64_t pads_input_view(const pio_pads_t *p)
 {
@@ -172,19 +172,19 @@ void pio_pads_resolve(pio_pads_t *p)
         uint64_t fmask = p->pio_func_mask[o];
         for (uint8_t s = 0; s < PIO_SIM_NUM_SM; s++) {
             /* Later iterations overwrite earlier ones, so on a conflict the
-             * highest-numbered SM (of the latest owner) wins — for the same-cycle
+             * highest-numbered SM (of the latest owner) wins, for the same-cycle
              * level and for the driven direction. Levels land from any SM
              * (host-exec'd writes on a disabled SM reach the pad, as on
-             * hardware); this pass takes only DISABLED SMs' direction claims —
-             * the enabled pass below overwrites them. */
+             * hardware); this pass takes only DISABLED SMs' direction claims,
+             * and the enabled pass below overwrites them. */
             uint64_t written = b->sm[s].wrote_this_cycle & fmask;
             uint64_t driven = b->sm[s].enabled ? 0U : (b->sm[s].dir_driven & fmask);
             val = (val & ~written) | (b->sm[s].out_pin_val & written);
             oe = (oe & ~driven) | (b->sm[s].out_pin_oe & driven);
         }
     }
-    /* Second pass: ENABLED SMs' direction claims outrank every parked SM's —
-     * hardware keeps per-pin OE latches that the active writer overwrites, so a
+    /* Second pass: ENABLED SMs' direction claims outrank every parked SM's.
+     * Hardware keeps per-pin OE latches that the active writer overwrites, so a
      * configured-but-disabled SM must not occlude a running lower-numbered one
      * that shares its pins (e.g. a probe's parked JTAG SMs vs the active SWD SM
      * on the shared SWCLK/SWDIO pair), while pre-enable pindir setup on an
@@ -392,7 +392,7 @@ void sm_config_set_clkdiv(pio_sm_config *c, float div)
 #endif
     uint16_t whole = (uint16_t)div;
     /* whole == floor(div) after the clamp above, so (div - whole) is in [0, 1)
-     * and the product is in [0, 256) — always representable in uint8_t. cppcheck
+     * and the product is in [0, 256), always representable in uint8_t. cppcheck
      * can't prove whole == floor(div), so it assumes the worst; suppress its
      * false positive rather than add a provably-dead clamp branch. */
     /* cppcheck-suppress floatConversionOverflow */
@@ -513,7 +513,7 @@ static void apply_fifo_join(pio_sm_t *s, pio_fifo_join_t join)
 #if PIO_SIM_HAS_RXFIFO_MOV
         /* RP2350 random-access RX: the RX FIFO becomes a 4-entry register file
          * addressed by the MOV-RX-FIFO instructions. Only the RX FIFO is
-         * repurposed — the TX FIFO stays a normal 4-deep FIFO (RP2350 datasheet
+         * repurposed; the TX FIFO stays a normal 4-deep FIFO (RP2350 datasheet
          * §11.6: FJOIN_RX_PUT/GET affect the RX FIFO alone). */
         s->tx.cap = PIO_SIM_FIFO_DEPTH;
         s->rx.cap = PIO_SIM_FIFO_DEPTH;
@@ -532,7 +532,7 @@ static void apply_fifo_join(pio_sm_t *s, pio_fifo_join_t join)
     }
     /* Silicon clears both FIFOs only when the FJOIN field actually changes (a
      * side effect of rewriting SHIFTCTRL); an unchanged join leaves FIFO
-     * contents intact. This is what pio_sm_set_config does — the explicit
+     * contents intact. This is what pio_sm_set_config does. The explicit
      * clear-on-init lives in pio_sim_sm_init, mirroring pio_sm_init's own
      * pio_sm_clear_fifos call. */
     if (s->fifo_join != old_join) {
@@ -580,7 +580,7 @@ void pio_sim_sm_init(pio_sim_t *pio, uint8_t sm, uint8_t initial_pc, const pio_s
     pio_sm_t *s = &pio->sm[SM_IDX(sm)];
     /* Reset the execution state (scratch, shift regs, delay, stall), as
      * pio_sm_init does, then point the PC at initial_pc. Clear the FIFOs
-     * explicitly (pio_sm_init calls pio_sm_clear_fifos) — set_config only
+     * explicitly (pio_sm_init calls pio_sm_clear_fifos), because set_config only
      * clears them on a join change, so init must do it unconditionally. */
     fifo_clear(&s->tx);
     fifo_clear(&s->rx);
@@ -773,8 +773,8 @@ bool pio_sim_pin_is_pio_output(const pio_sim_t *pio, uint8_t pin)
 {
     /* The PIO's resolved OE as it reaches the pad: the IO_BANK0 OEOVER stage
      * (invert / force low|high) applies first, then PADS_BANK0 output-disable and
-     * RP2350 isolation block the drive even though the SM's OE register stays set
-     * — the same pipeline pio_pads_chip_drive uses. Without OEOVER, a pad forced
+     * RP2350 isolation block the drive even though the SM's OE register stays
+     * set, the same pipeline pio_pads_chip_drive uses. Without OEOVER, a pad forced
      * hi-Z by OEOVER=LOW/INVERT would be misreported as a PIO output. */
     uint64_t oe = pio->pads->pin_dirs;
     oe = ((oe ^ pio->pads->oeover_inv) | pio->pads->oeover_high) & ~pio->pads->oeover_low;
@@ -907,7 +907,7 @@ uint32_t pio_sim_get_intr(const pio_sim_t *pio)
 /* Valid INTR/INTE/INTF source bits: SM RXNEMPTY[3:0], TXNFULL[7:4], and the
  * routable IRQ flags (IRQ0-3 -> [11:8] on RP2040, IRQ0-7 -> [15:8] on RP2350).
  * INTE/INTF writes are masked to these so the stored register image never holds
- * a bit INTR can't source (silicon reads unimplemented bits as 0) — an INTF bit
+ * a bit INTR can't source (silicon reads unimplemented bits as 0); an INTF bit
  * outside this set would otherwise leak straight into INTS. Mirrors pio_dma's
  * CH_VALID_MASK discipline. */
 #if PIO_SIM_HAS_INTR_IRQ8
@@ -985,7 +985,7 @@ static bool isr_drain(pio_sm_t *sm)
 /* True when the RX FIFO is repurposed as the RP2350 4-entry register file
  * (FJOIN_RX_PUT/GET/PUTGET). In those modes rx is addressed directly by the
  * MOV-RX-FIFO ops and rx.count is not maintained, so an autopush/PUSH must NOT
- * drain into it — silicon does not route the shift path into the register file.
+ * drain into it, since silicon does not route the shift path into the register file.
  * The caller treats it like a permanently-unavailable RX FIFO (RXSTALL). */
 static bool rx_fifo_is_register_file(const pio_sm_t *sm)
 {
@@ -1177,7 +1177,7 @@ static irq_target_t resolve_irq_target(uint8_t sm_idx, uint8_t field)
     /* RP2040 has no prev/next hardware: its IRQ index is bits[2:0] and the only
      * mode bit is rel = bit 4 (pico-sdk _pio_encode_irq). Bit 3 is not part of
      * the decode, so silicon ignores it. Fold a raw word that sets bit 3 down to
-     * its RP2040 meaning — self (bit 4 clear) or rel (bit 4 set) — so it acts on
+     * its RP2040 meaning, self (bit 4 clear) or rel (bit 4 set), so it acts on
      * the local flag like hardware, instead of decoding a nonexistent prev/next
      * target that would leave WAIT IRQ stalled forever. */
     mode = (uint8_t)(mode & PIO_IRQ_REL);
@@ -1351,7 +1351,7 @@ static bool exec_out(pio_sim_t *pio, pio_sm_t *sm, uint8_t operand, uint8_t *nex
     if (sm->autopull && (sm->osr_count >= sm->pull_thresh)) {
         /* The background refill at the top of this cycle already ran, so an
          * exhausted OSR here means TX was empty: stall. The OUT then completes
-         * on a later cycle — at least one after a word arrives — matching the
+         * on a later cycle, at least one after a word arrives, matching the
          * §3.5.4.1 rule that an OUT cannot fill and shift the OSR same-cycle. */
         sm->fdebug |= PIO_FDEBUG_TXSTALL;
         return true;
@@ -1410,7 +1410,7 @@ static bool exec_pushpull(pio_sim_t *pio, uint8_t sm_idx, uint8_t operand)
     }
     /* With autopull enabled, a PULL is a no-op only while the OSR is *full*
      * (shift count 0, nothing consumed): it acts as a barrier and must not
-     * pop — and lose — a word autopull already prefetched. On a partially
+     * pop, and lose, a word autopull already prefetched. On a partially
      * consumed OSR it executes normally, discarding the residue and loading a
      * fresh word, which is how programs realign on a transfer boundary
      * (RP2040 datasheet §3.4.7 / §3.5.4.2: "any PULL instruction is a no-op
@@ -1629,7 +1629,7 @@ static bool exec_one(pio_sim_t *pio, uint8_t sm_idx, uint16_t insn, uint8_t *nex
     }
 
     /* Side-set drives its pins every cycle the instruction is presented,
-     * including stall cycles — hardware applies side-set regardless of whether
+     * including stall cycles. Hardware applies side-set regardless of whether
      * the instruction itself can make progress. */
     if (ds.side_en && (ds.ss_data_bits > 0U)) {
         if (sm->sideset_pindirs) {
@@ -1654,8 +1654,8 @@ static void sm_cycle(pio_sim_t *pio, uint8_t sm_idx)
     pio_sm_t *sm = &pio->sm[sm_idx];
 
     /* Background autopull: hardware tops the OSR up from TX on any cycle where
-     * the shift count has reached the threshold — stall and delay cycles
-     * included — independently of what instruction is executing (RP2040
+     * the shift count has reached the threshold, stall and delay cycles
+     * included, independently of what instruction is executing (RP2040
      * datasheet §3.5.4.1). Running it before this cycle's instruction also
      * enforces the documented rule that an OUT cannot fill the OSR and shift
      * from it on the same cycle: an OUT that finds the OSR exhausted stalls at
@@ -1743,7 +1743,7 @@ void pio_sim_tick(pio_sim_t *pio)
         /* Clock divider: accumulate 1.0 (in 8-bit frac units = 256) each system
          * tick; an SM cycle is due when the accumulator reaches the divider. The
          * divider free-runs even while the SM is disabled (only execution is gated
-         * by enable) — matching hardware, which is why pio_enable_sm_mask_in_sync
+         * by enable), matching hardware, which is why pio_enable_sm_mask_in_sync
          * must restart the dividers to align them rather than rely on enable timing. */
         /* div_int == 0 encodes 65536 regardless of the fractional part. */
         uint32_t div_int = (sm->clkdiv_int == 0U) ? 65536U : (uint32_t)sm->clkdiv_int;
@@ -1802,7 +1802,7 @@ uint64_t pio_sim_run_until_tx_empty(pio_sim_t *pio, uint8_t sm, uint64_t max_tic
 {
     uint64_t t = 0;
     /* FIFO-empty only: the SM may still hold (and be shifting) a word it
-     * already pulled into the OSR — use pio_sim_run_until_tx_drained to wait
+     * already pulled into the OSR; use pio_sim_run_until_tx_drained to wait
      * for that word too. */
     while ((t < max_ticks) && !pio_sim_sm_is_tx_fifo_empty(pio, sm)) {
         pio_sim_tick(pio);
@@ -1814,7 +1814,7 @@ uint64_t pio_sim_run_until_tx_empty(pio_sim_t *pio, uint8_t sm, uint64_t max_tic
 uint64_t pio_sim_run_until_tx_drained(pio_sim_t *pio, uint8_t sm, uint64_t max_ticks)
 {
     /* The pico-sdk idiom: clear the sticky TXSTALL flag, then run until it
-     * sets again — the SM stalling on an empty TX means the FIFO is empty AND
+     * sets again. The SM stalling on an empty TX means the FIFO is empty AND
      * the OSR's last word has been fully consumed. Requires the program to
      * keep OUTing/PULLing (as streaming programs do); bounded by max_ticks. */
     pio_sim_sm_clear_fdebug(pio, sm, PIO_FDEBUG_TXSTALL);
@@ -1869,7 +1869,7 @@ void pio_sim_group_tick(pio_sim_group_t *g)
      * owner's SMs, so block B's flags from the previous tick must already be
      * cleared or B's stale writes would wrongly win same-cycle priority in the
      * pad state block A's on_tick hook observes. (Each block's own tick
-     * re-clears its own flags — harmless.) Remaining sequential-model caveat:
+     * re-clears its own flags, which is harmless.) Remaining sequential-model caveat:
      * block A's on_tick still runs before later blocks have executed this
      * tick, so it sees their *previous* outputs, one tick stale. */
     for (uint8_t i = 0; i < g->count; i++) {
@@ -1882,7 +1882,7 @@ void pio_sim_group_tick(pio_sim_group_t *g)
     }
     if (g->shared) {
         /* Blocks skip the synchroniser of pads they don't own, so clock the one
-         * shared pipeline here — exactly once per system tick. */
+         * shared pipeline here, exactly once per system tick. */
         pads_update_keeper(&g->pads);
         g->pads.in_sync[1] = g->pads.in_sync[0];
         g->pads.in_sync[0] = pads_input_view(&g->pads);
@@ -1908,14 +1908,14 @@ void pio_sim_group_enable_sm_mask_in_sync(pio_sim_group_t *g, const uint8_t *mas
 void pio_sim_sm_exec(pio_sim_t *pio, uint8_t sm, uint16_t insn)
 {
     /* Execute immediately, out of band, like pio_sm_exec(). Side-set still
-     * applies but the delay field is IGNORED — matching silicon, where delay
+     * applies but the delay field is IGNORED, matching silicon, where delay
      * cycles on a forced (SMx_INSTR-written) instruction do not occur (RP2040
      * datasheet §3.4.5.2; contrast OUT/MOV EXEC, whose injected instruction
-     * does execute its delay — see sm_cycle's from_exec path). PC is untouched
+     * does execute its delay; see sm_cycle's from_exec path). PC is untouched
      * unless the instruction writes it. Clear any stall latched by the SM's
      * own program first: the injected instruction is a fresh first
      * presentation, so first-cycle side effects (e.g. `irq n wait` raising its
-     * flag) must fire — otherwise the wait could never be satisfied. */
+     * flag) must fire, or the wait could never be satisfied. */
     pio->sm[SM_IDX(sm)].stalled = false;
     uint8_t next_pc = 0;
     bool set_pc = false;

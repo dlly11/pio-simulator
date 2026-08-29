@@ -1,4 +1,4 @@
-/* unity_config.h — pio_sim Unity configuration */
+/* unity_config.h: pio_sim Unity configuration */
 #ifndef UNITY_CONFIG_H
 #define UNITY_CONFIG_H
 

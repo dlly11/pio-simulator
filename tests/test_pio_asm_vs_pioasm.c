@@ -1,10 +1,10 @@
-/* test_pio_asm_vs_pioasm.c — encoding differential against the real pioasm.
+/* test_pio_asm_vs_pioasm.c: encoding differential against the real pioasm.
  *
  * The in-tree pio_asm is otherwise only checked against hand-derived golden
  * encodings (test_pio_asm.c). This test removes that single point of trust: for
  * every program in the tests/pio corpus it assembles the source with pio_asm and
- * compares the resulting 16-bit instruction words — plus wrap targets and
- * side-set config — against the authoritative Raspberry Pi pioasm.
+ * compares the resulting 16-bit instruction words, plus wrap targets and
+ * side-set config, against the authoritative Raspberry Pi pioasm.
  *
  * pioasm runs at build time (CMake, when -DPIOASM_EXECUTABLE is set) and emits
  * one golden `<base>.json` per corpus file; this test reads that JSON and the

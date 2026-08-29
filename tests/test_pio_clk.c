@@ -1,4 +1,4 @@
-/* test_pio_clk.c — unit tests for the clk_sys clock-tree model. */
+/* test_pio_clk.c: unit tests for the clk_sys clock-tree model. */
 
 #include "unity.h"
 
@@ -88,7 +88,7 @@ static void test_bypass_pll_runs_from_xosc(void)
 static void test_ticks_to_ns_exact_and_rounded(void)
 {
 #if PIO_SIM_PIO_VERSION >= 1
-    /* 150 MHz: 6.66… ns per tick — rounding to nearest. */
+    /* 150 MHz: 6.66… ns per tick, rounding to nearest. */
     TEST_ASSERT_EQUAL_UINT64(7ULL, pio_clk_ticks_to_ns(&clk, 1));
     TEST_ASSERT_EQUAL_UINT64(20ULL, pio_clk_ticks_to_ns(&clk, 3)); /* exactly 20 ns */
     TEST_ASSERT_EQUAL_UINT64(1000000000ULL, pio_clk_ticks_to_ns(&clk, 150000000ULL));

@@ -3,10 +3,10 @@
 Six standalone reference programs, from a first blink to a full multi-block bus.
 Each is a single `.c` file with a `main()` that sets something up, runs the
 simulation, prints observable output, and returns non-zero if a built-in sanity
-check fails — so they double as runnable smoke tests. They are built and run in
-CI on both RP2040 and RP2350, so they always match the current API.
+check fails, so they double as runnable smoke tests. CI builds and runs them on
+both RP2040 and RP2350, so they always match the current API.
 
-**Read them in order** — each introduces a little more of the library.
+**Read them in order.** Each introduces a little more of the library.
 
 | # | File | Tier | Shows |
 |---|------|------|-------|
@@ -19,17 +19,17 @@ CI on both RP2040 and RP2350, so they always match the current API.
 
 ## What each one does
 
-- **01 blink** — a two-instruction program toggles GPIO 0 into a square wave.
+- **01 blink.** A two-instruction program toggles GPIO 0 into a square wave.
   The smallest complete use of the library and the canonical setup path.
-- **02 fifo echo** — a program with no pins that echoes each TX word back to RX;
+- **02 fifo echo.** A program with no pins that echoes each TX word back to RX;
   the host drives it purely through the FIFO API.
-- **03 uart tx** — the canonical pico-examples 8n1 UART transmitter. Sends a
+- **03 uart tx.** The canonical pico-examples 8n1 UART transmitter. Sends a
   byte, samples the line at each bit centre, and decodes the frame back.
-- **04 ws2812** — the canonical NeoPixel driver. Streams two 24-bit pixels and
+- **04 ws2812.** The canonical NeoPixel driver. Streams two 24-bit pixels and
   decodes the one-wire waveform (bit value is the HIGH-time) back to RGB.
-- **05 spi dma** — a DMA channel streams a byte buffer into an SPI-style TX
+- **05 spi dma.** A DMA channel streams a byte buffer into an SPI-style TX
   program's FIFO, paced by the PIO TX DREQ; the clocked-out bits are recovered.
-- **06 chip bus** — the capstone. PIO0 clocks bytes onto shared GPIOs; PIO1,
+- **06 chip bus.** The capstone. PIO0 clocks bytes onto shared GPIOs; PIO1,
   on the same pins, samples them back. One DMA channel feeds the producer, a
   second drains the consumer, and the whole chip is driven by `pio_chip_tick`
   with the exchange time reported in real nanoseconds from the clock tree.

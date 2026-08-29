@@ -36,10 +36,10 @@ One behavioural bug fix.
 
 ### Fixed
 
-- **PULL under autopull** — the no-op barrier rule now applies only when the
+- **PULL under autopull.** The no-op barrier rule now applies only when the
   OSR is *full* (shift count 0), per RP2040 datasheet §3.4.7/§3.5.4.2. A PULL
-  on a partially consumed OSR executes normally again — discarding the residue
-  and loading a fresh word — so programs that realign on a transfer boundary
+  on a partially consumed OSR executes normally again, discarding the residue
+  and loading a fresh word, so programs that realign on a transfer boundary
   (e.g. a JTAG prologue's `pull` after an odd-length scan) behave as on
   hardware. The over-broad rule (introduced with the barrier fix) made such
   PULLs silently no-op, leaving stale residue in the OSR.
@@ -52,24 +52,24 @@ hardening.
 
 ### Added
 
-- **`pio_sim_irq_force`** — host-side setter for an SM IRQ flag (models the
+- **`pio_sim_irq_force`.** Host-side setter for an SM IRQ flag (models the
   `IRQ_FORCE` register), the SET counterpart to `pio_sim_irq_clear`.
 
 ### Fixed
 
-- **Assembler pioasm error-parity** — inputs the real `pioasm` rejects are now
+- **Assembler pioasm error-parity.** Inputs the real `pioasm` rejects are now
   rejected too (each pinned with a negative test, since the bit-exact differential
   can't see them): v1-only constructs used under `.pio_version 0`; `wait jmppin`
   offset capped at 0..3; `mov rxfifo[]` requires a matching `.fifo` join; `.set`
   capped at 0..5; `.wrap`/`.wrap_target` placement + duplicate; `.mov_status`
   positional markers; `.in` zero/`v0`-must-be-32 counts.
-- **Clock divider** — `sm_config_set_clkdiv` rounds the float divisor to the
+- **Clock divider.** `sm_config_set_clkdiv` rounds the float divisor to the
   nearest 1/256 (the SDK default) instead of flooring.
-- **GPIO** — `pio_sim_pin_is_pio_output` now honours the IO_BANK0 OEOVER stage,
+- **GPIO.** `pio_sim_pin_is_pio_output` now honours the IO_BANK0 OEOVER stage,
   so a pad forced hi-Z by `OEOVER=LOW/INVERT` is no longer reported as an output.
-- **OUT/MOV EXEC** — the executing word's own delay is ignored (per the
+- **OUT/MOV EXEC.** The executing word's own delay is ignored (per the
   datasheet); it no longer stacks with the injected instruction's delay.
-- **Docs** — bus-keeper reclassified as a sim-only convenience (silicon has no
+- **Docs.** Bus-keeper reclassified as a sim-only convenience (silicon has no
   keeper); MOV STATUS<-IRQ neighbour-select documented as one-hot bits, not an
   ordinal; `pio_fifo_t` head/tail comments corrected; `pio_asm_load_program`
   failure paths and the shared pacing-timer simplification documented; the local
@@ -77,10 +77,10 @@ hardening.
 
 ### Changed
 
-- **Assembler** — a program with more than `PIO_ASM_MAX_PUBLIC` public labels
+- **Assembler.** A program with more than `PIO_ASM_MAX_PUBLIC` public labels
   now errors instead of silently dropping the extras.
-- **Build** — `CMAKE_C_EXTENSIONS OFF`: the matrix builds strict `-std=c11`.
-- **CI** — format and clang-tidy gates are glob/compile-database driven (no
+- **Build.** `CMAKE_C_EXTENSIONS OFF`: the matrix builds strict `-std=c11`.
+- **CI.** Format and clang-tidy gates are glob/compile-database driven (no
   hand-maintained file lists); every GitHub Action is pinned to a commit SHA with
   a Dependabot config; the fuzz job (0.1.1) uploads crash reproducers on failure.
 
@@ -95,21 +95,21 @@ hardening.
 
 ### Fixed
 
-- **DMA** — `pio_dma_channel_configure()` now clamps an out-of-range `CHx_CTRL`
+- **DMA.** `pio_dma_channel_configure()` now clamps an out-of-range `CHx_CTRL`
   `DATA_SIZE` on the register-write path, not only in the
   `channel_config_set_transfer_data_size()` setter. A caller that hand-built the
   config struct could set `data_size` past 32-bit, making the transfer engine
   shift a word by up to 56 bits (undefined behaviour) and read/write past the
   4-byte transfer word. `DATA_SIZE` is a 2-bit field on silicon, so the model now
   truncates it at the boundary, matching the sibling `RING_SIZE`/`CHAIN_TO` guards.
-- **Assembler** — `in status, <n>` is now accepted (encodes `0x40a8`), matching
+- **Assembler.** `in status, <n>` is now accepted (encodes `0x40a8`), matching
   real `pioasm`; it was previously rejected in error. The simulator already reads
   `STATUS` as an `IN` source, and the encoding is now pinned bit-exact against
   `pioasm` in the differential corpus.
 
 ### Changed
 
-- **CI** — the fuzz job now points crash/leak/oom/timeout reproducers at a
+- **CI.** The fuzz job now points crash/leak/oom/timeout reproducers at a
   dedicated directory (`-artifact_prefix`) and uploads them as a build artifact
   when a run fails, so a red fuzz leg yields a downloadable minimized input
   instead of discarding it with the runner.
@@ -122,35 +122,35 @@ around it (pads, DMA, clock tree) modelled too.
 
 ### Added
 
-- **PIO simulator** — the full instruction set (JMP, WAIT, IN, OUT, PUSH, PULL,
+- **PIO simulator.** The full instruction set (JMP, WAIT, IN, OUT, PUSH, PULL,
   MOV, IRQ, SET) with side-set, per-instruction delay, OSR/ISR shift registers
   (autopush/autopull with configurable thresholds), joinable 4-deep TX/RX FIFOs,
-  scratch registers, and rate-exact per-SM fractional clock dividers — stepped one
+  scratch registers, and rate-exact per-SM fractional clock dividers, stepped one
   system clock per `pio_sim_tick()`.
-- **pioasm-compatible assembler** — every mnemonic, operand form and directive,
+- **pioasm-compatible assembler.** Every mnemonic, operand form and directive,
   full integer expressions over defines and labels, cross-checked **bit-exact**
   against the real `pioasm` in CI.
-- **Shared pad model** — PADS_BANK0 pad registers and the IO_BANK0 FUNCSEL mux
+- **Shared pad model.** PADS_BANK0 pad registers and the IO_BANK0 FUNCSEL mux
   (output/OE/input overrides), with several state machines and an external device
   model driving and sampling the same wires under hardware-exact arbitration.
-- **DMA controller** — 12 channels (RP2040) / 16 (RP2350): address generation with
+- **DMA controller.** 12 channels (RP2040) / 16 (RP2350): address generation with
   ring wrap, 8/16/32-bit transfers, byte swap, DREQ pacing (PIO TX/RX, fractional
   timers, unpaced), chaining, per-channel IRQs, and the CRC sniffer.
-- **Clock tree** — XOSC → PLL_SYS → clk_sys with datasheet-validated limits and
+- **Clock tree.** XOSC → PLL_SYS → clk_sys with datasheet-validated limits and
   exact 64-bit tick⇄time conversion.
-- **Chip umbrella** — every PIO block + shared pads + DMA + clock tree behind one
+- **Chip umbrella.** Every PIO block + shared pads + DMA + clock tree behind one
   `pio_chip_tick()`.
-- **RP2040 / RP2350 targets** — selected with `PIO_SIM_PIO_VERSION` (or the CMake
+- **RP2040 / RP2350 targets.** Selected with `PIO_SIM_PIO_VERSION` (or the CMake
   `PIO_SIM_PLATFORM`); the v1-only surface is compiled out of a v0 build, so using
   it on an RP2040 target is a compile error rather than a silent surprise.
-- **Reentrancy** — no mutable global state and no allocation; all state lives in
+- **Reentrancy.** No mutable global state and no allocation; all state lives in
   caller-owned structs, so independent instances don't interfere.
-- **Packaging** — CMake `install` + `find_package(pio_sim)` linking
+- **Packaging.** CMake `install` + `find_package(pio_sim)` linking
   `pio_sim::pio_sim`, with the platform surface pinned via a PUBLIC compile
   definition.
-- **Docs & examples** — six standalone, CI-run reference programs and a generated
+- **Docs & examples.** Six standalone, CI-run reference programs and a generated
   Doxygen API reference (published to GitHub Pages).
-- **CI** — build (gcc + clang-21) × RP2040/RP2350, ASan/UBSan, clang-tidy,
+- **CI.** Build (gcc + clang-21) × RP2040/RP2350, ASan/UBSan, clang-tidy,
   cppcheck, clang-format, the pioasm differential, libFuzzer harnesses
   (assembler, execution core, DMA), and an 80% line-coverage gate.
 

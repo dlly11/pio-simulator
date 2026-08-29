@@ -1,4 +1,4 @@
-; Expression operators and precedence — the differential makes real pioasm the
+; Expression operators and precedence. The differential makes real pioasm the
 ; authority. `.define` values take full expressions; instruction operands take a
 ; parenthesised expression (pioasm requires the parens). Mixes glued and spaced
 ; forms, defines referencing earlier defines, label arithmetic, and bin/hex.
@@ -8,8 +8,8 @@
 .define D 1 + 2 & 3
 ; `::` binds loosest of all in pioasm's grammar (and is right-recursive), so it
 ; applies to the whole expression to its right:
-;   E = ::(2 >> 27) = ::0 = 0        — not (::2) >> 27 = 8
-;   F = ::(A & 3) >> 28 = ::2 >> 28  — the outer parens stop the reverse, = 4
+;   E = ::(2 >> 27) = ::0 = 0        (not (::2) >> 27 = 8)
+;   F = ::(A & 3) >> 28 = ::2 >> 28  (the outer parens stop the reverse, = 4)
 .define E (::2 >> 27) & 0x1F
 .define F (::A & 3) >> 28
 .program exprcov

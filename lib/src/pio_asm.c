@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: MIT
- * pio_asm — minimal PIO assembler for pio_sim. See pio_asm.h.
+ * pio_asm: minimal PIO assembler for pio_sim. See pio_asm.h.
  */
 
 #include "pio_asm.h"
@@ -29,7 +29,7 @@ typedef struct {
     uint32_t value;
     int line;      /* source line of the declaration (for a resolve error) */
     bool resolved; /* value memoised (evaluated on first reference) */
-    bool visiting; /* on the current resolution stack — detects a cyclic define */
+    bool visiting; /* on the current resolution stack; detects a cyclic define */
 } define_t;
 
 typedef struct {
@@ -158,7 +158,7 @@ static void pa_set_error(asm_ctx_t *ctx, const char *msg)
 #if PIO_SIM_PIO_VERSION >= 1
 /* Reject a v1-only construct when the program's effective PIO version is older.
  * pioasm gates each construct on the DECLARED `.pio_version` (defaulting to the
- * build target when the directive is absent), not merely on the build target —
+ * build target when the directive is absent), not merely on the build target,
  * so `.pio_version 0` plus a v1 mnemonic must fail even in a v1 build. Encode
  * sites run in the emit pass, after `.pio_version` is applied, so the check is
  * order-independent there. */
@@ -252,8 +252,8 @@ static bool resolve_define_value(asm_ctx_t *ctx, const char *name, uint32_t *out
  * real pioasm's operators and precedence. Tightest binding first:
  *   & | ^  >  * /  >  (unary -) + -  >  << >>  >  ::(32-bit reverse)
  * (pioasm's grammar binds `::` loosest of all, so `::A + 1` is `::(A + 1)`.)
- * Unary minus inherits the precedence of pioasm's `-` token — the additive
- * level — so it binds looser than `& | ^` and `* /`: `-1 & 6` is `-(1 & 6)`,
+ * Unary minus inherits the precedence of pioasm's `-` token, the additive
+ * level, so it binds looser than `& | ^` and `* /`: `-1 & 6` is `-(1 & 6)`,
  * not `(-1) & 6`. It is handled in expr_primary so it can still appear as a
  * binary operand (`x & -1`), with its operand parsed at the multiplicative
  * tier so it grabs a whole `* / & | ^` chain but stops at a following `+`/`-`.
@@ -265,7 +265,7 @@ typedef struct {
     asm_ctx_t *ctx; /* non-const: an identifier may lazily resolve+memoise a define */
     const char *p;
     bool ok;
-    int depth; /* recursion guard: nested "(" / "::" — see expr_reverse */
+    int depth; /* recursion guard: nested "(" / "::"; see expr_reverse */
 } expr_t;
 
 /* Cap on nested sub-expressions. Real programs never nest anywhere near this;
@@ -363,7 +363,7 @@ static int64_t expr_primary(expr_t *e)
     return 0;
 }
 
-static int64_t expr_bit(expr_t *e) /* & | ^ — tightest binary */
+static int64_t expr_bit(expr_t *e) /* & | ^, tightest binary */
 {
     int64_t v = expr_primary(e);
     for (;;) {
@@ -398,7 +398,7 @@ static int64_t expr_mul(expr_t *e)
             } else if ((v == INT64_MIN) && (r == -1)) {
                 /* INT64_MIN / -1 overflows (C11 6.5.5p6 UB); the true quotient
                  * is unrepresentable. Truncated to 32 bits the answer is 0
-                 * either way, and no valid program divides like this — this
+                 * either way, and no valid program divides like this. This
                  * only keeps the pathological input defined under UBSan. */
                 v = INT64_MIN;
             } else {
@@ -432,7 +432,7 @@ static int64_t expr_add(expr_t *e)
 
 /* Shift `v` by `by`, computed in the unsigned domain so a negative value or a
  * shift wider than the type is defined rather than UB. A shift count outside
- * [0,63] is a malformed expression (no real program shifts that far) — flag it
+ * [0,63] is a malformed expression (no real program shifts that far), so flag it
  * and yield 0. */
 static int64_t expr_do_shift(expr_t *e, int64_t v, int64_t by, bool left)
 {
@@ -444,7 +444,7 @@ static int64_t expr_do_shift(expr_t *e, int64_t v, int64_t by, bool left)
     return (int64_t)(left ? (u << by) : (u >> by));
 }
 
-static int64_t expr_shift(expr_t *e) /* << >> — loosest binary */
+static int64_t expr_shift(expr_t *e) /* << >>, loosest binary */
 {
     int64_t v = expr_add(e);
     for (;;) {
@@ -699,7 +699,7 @@ static bool extract_side_delay(asm_ctx_t *ctx, char *tok[], uint8_t *n, uint32_t
     bool changed = true;
     while (changed && (*n > 0U)) {
         changed = false;
-        /* delay form "[<expr>]" — a single token "[k]", or several when the
+        /* delay form "[<expr>]": a single token "[k]", or several when the
          * bracketed expression is spaced ("[T3 - 1]" → tokens "[T3","-","1]",
          * which pioasm also accepts). Detect the closing ']', scan back to the
          * opening '[', join and evaluate the inner expression. */
@@ -709,7 +709,7 @@ static bool extract_side_delay(asm_ctx_t *ctx, char *tok[], uint8_t *n, uint32_t
             /* A delay bracket opens a fresh token ("[5]", or "[T3" of a spaced
              * "[T3 - 1]"). Scan back for that opener; if none exists the ']'
              * belongs to a glued operand like the rxfifo index "rxfifo[0]",
-             * which is not a delay — leave it for the instruction parser. */
+             * which is not a delay, so leave it for the instruction parser. */
             uint8_t si = *n;
             bool found = false;
             while (si > 0U) {
@@ -1018,7 +1018,7 @@ static bool enc_in(asm_ctx_t *ctx, char *tok[], uint8_t n, uint16_t *base)
     }
     /* `in status, <n>` encodes source 101 (0x40a8). Hardware documents IN
      * source 101 as reserved (STATUS is nominally a MOV source), but real pioasm
-     * accepts it, so for bit-exact parity we do too — src_field maps "status" to
+     * accepts it, so for bit-exact parity we do too. src_field maps "status" to
      * PIO_SRC_STATUS and read_source() already reads it as an IN source. */
     int src = src_field(tok[1]);
     uint32_t cnt;
@@ -1655,7 +1655,7 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
 
     if (ieq(tok[0], ".program")) {
         if (ps->seen_any_program && ps->in_program) {
-            return LINE_DONE; /* next program reached — stop */
+            return LINE_DONE; /* next program reached, so stop */
         }
         ps->seen_any_program = true;
         ps->in_program = (ps->name == NULL) || ((nt >= 2U) && (strcmp(tok[1], ps->name) == 0));
@@ -1665,7 +1665,7 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
         ps->idx = 0;
         return LINE_OK;
     }
-    /* `.define [PUBLIC] <NAME> <value>` — handled before the in_program gate
+    /* `.define [PUBLIC] <NAME> <value>`, handled before the in_program gate
      * because top-level defines precede any .program. Scoping matches pioasm:
      * top-level and PUBLIC defines are global; a non-public define inside a
      * program body is local to it, so one from a *non-selected* program must
@@ -1674,7 +1674,7 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
      * Declared (name + raw value expression) in the scan pass; the value is
      * evaluated lazily on first use (resolve_define_value), once every symbol is
      * known. So a define may reference a label or another define declared further
-     * down, and — as in pioasm — an unused define is never evaluated. */
+     * down, and, as in pioasm, an unused define is never evaluated. */
     if (ieq(tok[0], ".define")) {
         if (ps->pass == 0) {
             uint8_t ni = ((nt >= 2U) && ieq(tok[1], "public")) ? 2U : 1U;
@@ -1744,7 +1744,7 @@ static line_result_t handle_directive(pa_parse_state_t *ps, const char *line)
     } else if (ieq(tok[0], ".word")) {
         /* Emits a raw instruction word, so it occupies a slot in every pass. The
          * value is resolved only at emit time (pass 2), when all symbols are
-         * known — so .word may reference a forward label/define like operands. */
+         * known, so .word may reference a forward label/define like operands. */
         if (ps->idx >= PIO_ASM_MAX_INSNS) {
             pa_set_error(ps->ctx, "program exceeds 32 instructions");
             return LINE_ERROR;
@@ -2010,7 +2010,7 @@ static bool run_pass(pa_parse_state_t *ps, const char *src)
         buf[k] = '\0';
         /* Drain any tail past the length cap so an over-long physical line (e.g.
          * a long comment) maps to exactly one logical line, not phantom extra
-         * lines. Content beyond MAX_LINE-1 is dropped — realistically only ever
+         * lines. Content beyond MAX_LINE-1 is dropped, realistically only ever
          * comment text, which clean_line would cut anyway. */
         while ((*cursor != '\0') && (*cursor != '\n')) {
             cursor++;
@@ -2057,7 +2057,7 @@ bool pio_asm_assemble(const char *src, const char *name, pio_program_t *out)
      * (name + raw value expression). This builds the full symbol table before
      * any value is evaluated, so a define/operand may reference a symbol declared
      * further down. Define values are then resolved lazily on first use
-     * (resolve_define_value), matching pioasm — an unused define is never
+     * (resolve_define_value), matching pioasm, where an unused define is never
      * evaluated. */
     if (!run_pass(&ps, src)) {
         return false;
@@ -2138,7 +2138,7 @@ bool pio_asm_load_program(pio_sim_t *pio, uint8_t sm, uint8_t offset, const pio_
         return false;
     }
     pio_sim_load(pio, offset, relocated, prog->count);
-    /* Apply the program's structural config (wrap, side-set) directly — the
+    /* Apply the program's structural config (wrap, side-set) directly. The
      * pio_sm_t is a public struct, and doing so avoids reshaping/clearing the
      * FIFOs the way pio_sim_sm_set_config would. */
     pio_sm_t *s = &pio->sm[sm % PIO_SIM_NUM_SM];

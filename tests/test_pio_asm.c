@@ -1,4 +1,4 @@
-/* test_pio_asm.c — PIO assembler tests.
+/* test_pio_asm.c: PIO assembler tests.
  *
  * Verifies the assembler against the production SWD PIO programs: it checks
  * the emitted instruction words against independently hand-derived encodings,
@@ -437,7 +437,7 @@ static void test_delay_and_required_sideset(void)
 }
 
 /* A delay bracket may hold a spaced expression ("[T3 - 1]"), which tokenizes
- * into several tokens — pioasm accepts it, so we must too (the ws2812 corpus
+ * into several tokens. pioasm accepts it, so we must too (the ws2812 corpus
  * program uses exactly this). All spacings encode identically. */
 static void test_spaced_delay_expression(void)
 {
@@ -470,7 +470,7 @@ static void test_shift_expression_out_of_range_rejected(void)
 
 /* Arithmetic in a constant expression must not invoke signed-overflow UB: a
  * product of two valid 32-bit operands overflows int64 and wraps in the
- * unsigned domain (found by fuzzing — the sanitizer CI build turns any residual
+ * unsigned domain (found by fuzzing; the sanitizer CI build turns any residual
  * UB here into a failure). The result is masked to the instruction field, so
  * wrapping is observationally fine. */
 static void test_expression_overflow_is_defined(void)
@@ -481,7 +481,7 @@ static void test_expression_overflow_is_defined(void)
      * added for out-of-range immediates doesn't mask the real thing under test. */
     TEST_ASSERT_TRUE(pio_asm_assemble(
         ".program p\n.define A 2777777777 * 3983219825\n set x, (A & 31)\n", NULL, &p));
-    /* 0xFFFFFFFF * 0xFFFFFFFF ~= 1.8e19 > INT64_MAX — wraps, no UB. */
+    /* 0xFFFFFFFF * 0xFFFFFFFF ~= 1.8e19 > INT64_MAX, so it wraps, no UB. */
     TEST_ASSERT_TRUE(
         pio_asm_assemble(".program p\n set x, ((4294967295 * 4294967295) & 31)\n", NULL, &p));
 }
@@ -678,7 +678,7 @@ static void test_assemble_directives_and_apply(void)
 }
 
 /* .clock_div encodes the divider fraction exactly as sm_config_set_clkdiv (and
- * the SDK default) do — rounding to the nearest 1/256. 2.502 -> frac 129, so both
+ * the SDK default) do, rounding to the nearest 1/256. 2.502 -> frac 129, so both
  * config paths agree. */
 static void test_clock_div_matches_set_clkdiv(void)
 {
@@ -1104,7 +1104,7 @@ static void test_sideset_and_delay_errors(void)
  * divergences (unary-minus precedence, symbol-namespace collisions, comment
  * lexing, out-of-range indices) are structurally invisible to it. */
 
-/* Unary minus binds at pioasm's additive precedence — looser than `& | ^` — so
+/* Unary minus binds at pioasm's additive precedence, looser than `& | ^`, so
  * `-1 & 6` is `-(1 & 6)` = 0, not `(-1) & 6` = 6. It still parses as a binary
  * operand (`5 & -1`) and after `/` (`12 / -3`), matching pioasm. */
 static void test_unary_minus_precedence(void)
@@ -1350,7 +1350,7 @@ static void test_define_lazy_undefined_and_cycle(void)
 }
 
 /* A physical source line longer than the internal line buffer must still map to
- * exactly one logical line — an over-long comment (its own line, or trailing an
+ * exactly one logical line. An over-long comment (its own line, or trailing an
  * instruction) must not be chopped into phantom lines that desync line numbers
  * or emit spurious errors. (pioasm accepts these; verified against it.) */
 static void test_over_long_line_is_one_logical_line(void)
@@ -1390,7 +1390,7 @@ static void test_word_and_config_forward_references(void)
     TEST_ASSERT_EQUAL_UINT8(5U, p.set_cfg.count);
 }
 
-/* Invariant: a forward-referencing define does not shift instruction indices —
+/* Invariant: a forward-referencing define does not shift instruction indices.
  * label positions and the program length are independent of define values. */
 static void test_forward_define_does_not_shift_labels(void)
 {

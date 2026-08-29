@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: MIT */
 /**
  * @file
- * pio_gpio.h — GPIO pad registers (PADS_BANK0) and per-pin function mux
+ * pio_gpio.h: GPIO pad registers (PADS_BANK0) and per-pin function mux
  * (IO_BANK0) for the PIO simulator.
  *
- * Pads: the digital-relevant fields are simulated exactly — IE (input enable:
+ * Pads: the digital-relevant fields are simulated exactly. IE (input enable:
  * 0 makes the PIO read the pin as 0), OD (output disable: the pad is never
  * driven by the chip), PUE/PDE pulls (up reads 1 / down reads 0 when undriven),
  * and on RP2350 ISO (isolation: output frozen at the level latched when ISO was
@@ -14,11 +14,11 @@
  *
  * Deviation: both pulls enabled is modelled as a bus keeper (holds the last
  * driven level) for a deterministic read. Real RP2040/RP2350 pads have no
- * keeper — both weak resistors on at once form an indeterminate mid-rail
- * divider — so this is a sim-only convenience, not silicon-exact.
+ * keeper, since both weak resistors on at once form an indeterminate mid-rail
+ * divider, so this is a sim-only convenience, not silicon-exact.
  *
  * Mux: each pin's FUNCSEL routes the pad's output/OE. A PIO block only drives
- * pins whose FUNCSEL selects it — owner slot i of a pad set corresponds to
+ * pins whose FUNCSEL selects it. Owner slot i of a pad set corresponds to
  * FUNC_PIOi (a standalone block is slot 0, i.e. PIO0). Other functions (SIO,
  * UART, PWM…) drive through the explicit peripheral output register
  * (pio_sim_gpio_set_periph_output), which models an on-chip driver, distinct
@@ -107,7 +107,7 @@ pio_gpio_override_t pio_sim_gpio_get_inover(const pio_sim_t *pio, uint8_t pin);
 
 /** Output of the currently selected non-PIO peripheral (SIO, UART, PWM…) on
  * `pin`: reaches the pad only while the pin's FUNCSEL selects a non-PIO
- * function. Models an on-chip driver — for an off-chip device on the wire use
+ * function. Models an on-chip driver; for an off-chip device on the wire use
  * pio_sim_set_pin / pio_sim_release_pin. */
 void pio_sim_gpio_set_periph_output(pio_sim_t *pio, uint8_t pin, bool oe, bool level);
 /** Read back the peripheral output set above (either pointer may be NULL). */
@@ -129,14 +129,14 @@ bool pio_sim_pad_get_output_disable(const pio_sim_t *pio, uint8_t pin);
 
 /** Pull resistors: up only reads 1 when undriven, down only reads 0, neither
  * floats (reads 0). Both enabled is modelled as a bus keeper (holds the last
- * driven level) for determinism — a sim-only convenience, since silicon has no
+ * driven level) for determinism, a sim-only convenience, since silicon has no
  * keeper (both resistors on is an indeterminate mid-rail divider). Subsumes
  * pio_sim_set_pull_level. Reset: none. */
 void pio_sim_pad_set_pulls(pio_sim_t *pio, uint8_t pin, bool up, bool down);
 /** Read back the pull configuration set above (either pointer may be NULL). */
 void pio_sim_pad_get_pulls(const pio_sim_t *pio, uint8_t pin, bool *up, bool *down);
 
-/** Analog pad config, stored for read-back only — no digital effect.
+/** Analog pad config, stored for read-back only, with no digital effect.
  * `drive` is the DRIVE field code (0=2mA, 1=4mA, 2=8mA, 3=12mA). */
 void pio_sim_pad_set_drive(pio_sim_t *pio, uint8_t pin, uint8_t drive);
 /** Store the SLEWFAST bit for `pin` (analog, read-back only, no digital effect). */
@@ -153,7 +153,7 @@ bool pio_sim_pad_get_schmitt(const pio_sim_t *pio, uint8_t pin);
 #if PIO_SIM_HAS_PAD_ISO
 /** RP2350 pad isolation: raising ISO latches the pad's current output drive
  * and freezes it there; the input reads 0 while isolated. Clearing ISO
- * reconnects the live chip drive. Reset (sim): off — pio_sim_pads_reset_hw
+ * reconnects the live chip drive. Reset (sim): off, while pio_sim_pads_reset_hw
  * applies the datasheet's ISO=1. */
 void pio_sim_pad_set_iso(pio_sim_t *pio, uint8_t pin, bool iso);
 /** Read back the RP2350 pad-isolation latch (see pio_sim_pad_set_iso). */

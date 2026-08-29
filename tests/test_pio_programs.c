@@ -1,9 +1,9 @@
-/* test_pio_programs.c — end-to-end validation with real PIO programs.
+/* test_pio_programs.c: end-to-end validation with real PIO programs.
  *
  * Assembles the canonical pico-examples programs in tests/pio/ (the same
  * sources the encoding differential checks against real pioasm) and runs them
  * through the simulator, asserting observable behaviour: pin waveforms, bit
- * timing, and — for the headline test — a DMA-fed frame through pio_chip. This
+ * timing, and, for the headline test, a DMA-fed frame through pio_chip. This
  * exercises the assembler, instruction core, pad/side-set model, clock divider
  * and DMA engine together, the way a user actually drives the block. */
 

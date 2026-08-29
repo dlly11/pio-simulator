@@ -1,12 +1,12 @@
-/* fuzz_pio_dma.c — libFuzzer entry point for the DMA transfer engine.
+/* fuzz_pio_dma.c: libFuzzer entry point for the DMA transfer engine.
  *
  * The DMA model moves bytes between raw host addresses, applies bswap, feeds the
  * sniffer (CRC/sum), advances addresses (linear or ring-wrapped), chains, and
- * paces off DREQs — all driven by fuzzer bytes here, under ASan/UBSan. It asserts
+ * paces off DREQs, all driven by fuzzer bytes here, under ASan/UBSan. It asserts
  * nothing; only a crash/UB is a bug.
  *
  * Soundness: unlike the rest of the library the DMA does NOT bounds-check the mem
- * addresses or trans_count — it writes where told, like silicon. So the harness
+ * addresses or trans_count; it writes where told, like silicon. So the harness
  * keeps every transfer inside its own buffers: each MEM endpoint points at the
  * base of a dedicated 64 KB buffer and trans_count is clamped so the touched span
  * (and any ring window, capped below) stays in bounds. An ASan report is then a real
