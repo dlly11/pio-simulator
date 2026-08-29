@@ -4,7 +4,7 @@
  * pio.h: umbrella header pulling in the whole pio_sim public API in one
  * include: the instruction-set simulator, the assembler, the GPIO pad/mux
  * model, the clock tree, the DMA controller, and the chip-level umbrella.
- * Include the individual headers instead if you only need part of the surface.
+ * Include the individual headers instead if you only need part of the API.
  *
  * Reentrancy: the library holds no mutable global state and never allocates;
  * every instance's state lives entirely in the caller-owned struct (pio_sim_t,

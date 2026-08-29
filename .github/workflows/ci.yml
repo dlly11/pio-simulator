@@ -123,7 +123,7 @@ jobs:
 
   # Static analysis: clang-tidy over the library sources. Compile flags and the
   # per-platform feature defines come from CMake's compile_commands.json, so the
-  # gated v0/v1 surface is analysed exactly as built. Checks + WarningsAsErrors
+  # gated v0/v1 API is analysed exactly as built. Checks + WarningsAsErrors
   # live in .clang-tidy.
   clang-tidy:
     runs-on: ubuntu-24.04
@@ -344,7 +344,7 @@ jobs:
           fi
 
   # Supplementary static analysis: cppcheck over the library, a second opinion
-  # alongside clang-tidy. Runs both feature surfaces (v0/v1) via the config macro,
+  # alongside clang-tidy. Runs both feature sets (v0/v1) via the config macro,
   # so no build is needed. Fails the build on any finding (--error-exitcode).
   #
   # Genuine false positives are suppressed inline in the source (grep

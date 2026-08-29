@@ -1,5 +1,5 @@
 /* Smoke consumer: include the umbrella header and touch one symbol from each
- * module, so linking exercises the whole installed library surface. */
+ * module, so linking exercises the whole installed library. */
 #include "pio.h"
 
 #include <stdio.h>

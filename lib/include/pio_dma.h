@@ -13,7 +13,7 @@
  * priority round-robin arbitration. MEM-to-MEM transfers work with TREQ_FORCE.
  * RP2350 MPU/security attributes are out of scope.
  *
- * API note: the surface mirrors the pico-sdk (channel_config_set_*,
+ * API note: the naming mirrors the pico-sdk (channel_config_set_*,
  * dma_channel_configure, dma_irqn_set_channel_enabled, dma_sniffer_*,
  * dma_timer_set_fraction). Because there is no global hardware instance, the
  * functions that act on the controller take a pio_dma_t* first; the pure

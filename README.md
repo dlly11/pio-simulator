@@ -97,8 +97,8 @@ for (int i = 0; i < 8; i++) pio_sim_tick(&pio);
 bool pin0 = pio_sim_get_pin(&pio, 0);
 ```
 
-`pio.h` pulls in the whole API in one include. See the headers for the full
-surface and `tests/` for worked examples (instruction-level and assembler
+`pio.h` pulls in the whole API in one include. See the headers for everything
+it covers, and `tests/` for worked examples (instruction-level and assembler
 round-trips).
 
 ## Examples
@@ -120,9 +120,9 @@ recipe.
 ## API reference
 
 The public headers are the source of truth and are written to read as
-documentation. A browsable [Doxygen reference][docs] is generated from them and
-published on every push to `main`. Every function, type and enum in the public
-surface carries a doc comment.
+documentation. CI generates a browsable [Doxygen reference][docs] from them and
+publishes it on every push to `main`. Every function, type and enum in the
+public API carries a doc comment.
 
 [docs]: https://dlly11.github.io/pio-simulator/
 
@@ -174,13 +174,13 @@ cmake -B build -G Ninja -DPIO_SIM_PLATFORM=RP2040   # or RP2350 (default)
 
 Embedders can instead vendor their own `pio_sim_config.h` earlier on the include
 path (`lib/config` is on the public include path) to pin the default. The macro
-is exported as a **PUBLIC** compile definition, so a consumer always compiles
-against the same feature surface the library was built with.
+is a **PUBLIC** compile definition, so a consumer always compiles against the
+same feature set the library was built with.
 
 ## System modelling
 
-The chip surrounding the PIO block is modelled too, including pads, interrupts,
-DMA and multiple PIOs.
+The library models the chip around the PIO block too: pads, interrupts, DMA and
+multiple PIOs.
 
 - **GPIOBASE.** `pio_sim_set_gpio_base(&pio, 16)` shifts the state machines'
   32-pin window to GPIO 16–47 (default 0 → GPIO 0–31), as on RP2350B. Every
@@ -189,10 +189,10 @@ DMA and multiple PIOs.
 - **Pin drive & arbitration.** Each state machine has its own pin output and
   pin-direction (output-enable) registers; the pad's level is *resolved* from the
   pin **writes** of each cycle, as hardware collates them (RP2040 §3.5.6.1). When
-  several SMs write one pin on the **same cycle** the **highest-numbered** wins;
-  a pin nobody writes holds its latched level, so a later, uncontested write from
-  any SM lands regardless of number (`OUT_STICKY` re-asserts an SM's pins every
-  cycle, which is what gives it continuous priority). A state machine drives a
+  several SMs write one pin on the **same cycle** the **highest-numbered** wins.
+  A pin nobody writes holds its latched level, so a later, uncontested write from
+  any SM lands regardless of number. `OUT_STICKY` re-asserts an SM's pins every
+  cycle, which is what gives it continuous priority. A state machine drives a
   pad only where its **pindirs** mark the pin an output, as on hardware, where
   `SET/OUT PINS` to a pin left as input has no pad effect. A pin with no PIO
   output, no external driver, and no pull is **high-impedance** and reads 0
@@ -211,7 +211,7 @@ DMA and multiple PIOs.
   on RP2040, 3 on RP2350). `pio_sim_group_init` ties several `pio_sim_t` blocks
   to one clock; `pio_sim_group_tick`/`_run` advance them in lockstep, and on
   RP2350 their `irq ... prev|next` links are auto-wired into a ring
-  (PIO0→PIO1→PIO2→PIO0). `pio_sim_group_init_shared` additionally points the
+  (PIO0→PIO1→PIO2→PIO0). `pio_sim_group_init_shared` also points the
   blocks at one shared pad set so they drive and sample the same GPIOs. (Link two
   blocks directly with `pio_sim_set_irq_neighbors` for the IRQ ring alone.)
 - **FIFO status.** `pio_sim_sm_get_tx_fifo_level`/`get_rx_fifo_level` report
@@ -220,7 +220,7 @@ DMA and multiple PIOs.
   `pio_sim_sm_put`/`get` (SDK names); in the RP2350 random-access RX modes
   (`.fifo txput`/`txget`) the four entries are reached by index with
   `pio_sim_sm_rxfifo_get`/`_put` instead.
-- **System interrupts.** The two PIO interrupt lines are modelled:
+- **System interrupts.** The library models the two PIO interrupt lines:
   `pio_sim_set_irqn_source_mask_enabled`/`pio_sim_set_intf` (INTE/INTF,
   toggle-with-bool like the SDK) over the INTR sources (per-SM RX-not-empty,
   TX-not-full, and the SM IRQ flags), read back with `pio_sim_get_ints` /
@@ -252,8 +252,8 @@ explicitly.
 
 This is a **functional** simulator: one `pio_sim_tick()` is one PIO system clock,
 and the per-SM clock divider is rate-exact (the 16.8 fractional accumulator
-averages to `int + frac/256` cycles per SM step). The chip-level surroundings of
-the PIO block are modelled too:
+averages to `int + frac/256` cycles per SM step). The library models the chip
+around the PIO block too:
 
 - **Clock tree** (`pio_clk.h`): XOSC → PLL_SYS → clk_sys divider with
   datasheet-validated parameters and exact integer tick↔ns/µs conversion. It
@@ -283,8 +283,8 @@ Documented simulator-only deviations (each noted at its API):
   datasheet rules (refills during stalls/delays; an OUT cannot fill and shift
   the OSR in one cycle). The datasheet notes the exact refill point is
   pipeline-dependent and not to be relied upon.
-- Both pull resistors enabled is modelled as a bus keeper holding the last
-  driven level (a deterministic convenience). Real RP2040/RP2350 pads have no
+- With both pull resistors enabled, the model uses a bus keeper that holds the
+  last driven level (a deterministic convenience). Real RP2040/RP2350 pads have no
   keeper, so both on at once is an indeterminate mid-rail divider.
 
 Still intentionally out of scope: analog pad behaviour (drive-strength

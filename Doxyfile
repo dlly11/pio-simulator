@@ -20,7 +20,7 @@ TYPEDEF_HIDES_STRUCT   = YES
 # Cosmetic only, the page still renders.
 MARKDOWN_ID_STYLE      = GITHUB
 
-# The public surface only: the headers plus the config header. README is the
+# The public API only: the headers plus the config header. README is the
 # landing page.
 INPUT                  = README.md CONTRIBUTING.md examples/README.md lib/include lib/config
 FILE_PATTERNS          = *.h

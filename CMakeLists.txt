@@ -50,7 +50,7 @@ target_include_directories(pio_sim
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/lib/src)
 
-# PUBLIC: the public headers gate their enum/prototype surface on this macro, so
+# PUBLIC: the public headers gate their enums and prototypes on this macro, so
 # consumers must compile against the same value the library was built with.
 target_compile_definitions(pio_sim PUBLIC PIO_SIM_PIO_VERSION=${PIO_SIM_PIO_VERSION})
 

@@ -73,7 +73,7 @@ clang-tidy -p build lib/src/*.c examples/*.c \
     tests/test_pio_clk.c tests/test_pio_dma.c tests/test_pio_programs.c
 
 # Supplementary static analysis (cppcheck), a second opinion over the library,
-# run against both feature surfaces (needs no build). Clean = exit 0. False
+# run against both feature sets (needs no build). Clean = exit 0. False
 # positives are suppressed inline in the source; .cppcheck-suppressions only
 # silences cppcheck's own environmental noise. (CI uses Ubuntu's packaged
 # cppcheck, so a newer local version may occasionally flag something extra.)

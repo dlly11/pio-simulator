@@ -141,12 +141,12 @@ around it (pads, DMA, clock tree) modelled too.
 - **Chip umbrella.** Every PIO block + shared pads + DMA + clock tree behind one
   `pio_chip_tick()`.
 - **RP2040 / RP2350 targets.** Selected with `PIO_SIM_PIO_VERSION` (or the CMake
-  `PIO_SIM_PLATFORM`); the v1-only surface is compiled out of a v0 build, so using
+  `PIO_SIM_PLATFORM`); the v1-only API is compiled out of a v0 build, so using
   it on an RP2040 target is a compile error rather than a silent surprise.
 - **Reentrancy.** No mutable global state and no allocation; all state lives in
   caller-owned structs, so independent instances don't interfere.
 - **Packaging.** CMake `install` + `find_package(pio_sim)` linking
-  `pio_sim::pio_sim`, with the platform surface pinned via a PUBLIC compile
+  `pio_sim::pio_sim`, with the platform feature set pinned via a PUBLIC compile
   definition.
 - **Docs & examples.** Six standalone, CI-run reference programs and a generated
   Doxygen API reference (published to GitHub Pages).

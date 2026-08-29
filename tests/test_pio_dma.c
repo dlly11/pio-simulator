@@ -816,7 +816,7 @@ static void test_null_block_slot_no_crash(void)
     dma_channel_config c = pio_dma_channel_get_default_config(0);
     channel_config_set_dreq(&c, PIO_DMA_DREQ_PIO_TX(1, 0)); /* endpoint on the NULL slot */
     pio_dma_channel_configure(&d, 0, &c, pio_dma_addr_txf(1, 0), pio_dma_addr_mem(src), 2, true);
-    (void)pio_dma_tick(&d); /* must not crash; channel simply never becomes ready */
+    (void)pio_dma_tick(&d); /* must not crash; the channel never becomes ready */
     TEST_ASSERT_TRUE(pio_dma_channel_is_busy(&d, 0));
 }
 

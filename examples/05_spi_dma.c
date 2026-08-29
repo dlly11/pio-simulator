@@ -6,7 +6,7 @@
  * "whole system" example: the assembler, instruction core, pad/side-set model
  * and the DMA engine all run together.
  *
- * API surface shown:
+ * API used:
  *   - pio_dma_init / pio_dma_channel_get_default_config
  *   - channel_config_set_dreq (PIO_DMA_DREQ_PIO_TX) to pace on the TX FIFO
  *   - pio_dma_channel_configure (memory -> TX FIFO)

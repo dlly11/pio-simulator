@@ -3,7 +3,7 @@
  * pio_gpio.c: PADS_BANK0 pad registers and IO_BANK0 function mux config.
  *
  * All state lives in the block's pio_pads_t (shared across a group); this
- * file is only the register-style setter/getter surface. Resolution happens
+ * file holds only the register-style setters and getters. Resolution happens
  * in pio_sim.c (pads_live / pio_pads_resolve), which reads these fields.
  */
 
