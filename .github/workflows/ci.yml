@@ -224,7 +224,7 @@ jobs:
         # crash/leak/oom/timeout. The artifact name must be unique per matrix cell
         # (upload-artifact v4+ rejects duplicate names).
         if: ${{ failure() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: fuzz-artifacts-${{ matrix.target }}-${{ matrix.platform }}
           path: /tmp/fuzz-arts/
@@ -281,7 +281,7 @@ jobs:
           llvm-cov-21 show $OBJS -instr-profile=merged.profdata -format=html \
             -ignore-filename-regex="$IGNORE" -output-dir=coverage-html
       - name: Upload HTML coverage report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-html
           path: coverage-html
